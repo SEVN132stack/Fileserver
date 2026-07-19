@@ -14,12 +14,16 @@ const envPath = process.env.ENV_FILE || path.join(rootDir, '.env');
 function ensureEnvFile() {
   if (fs.existsSync(envPath)) return false;
   const password = randomBytes(18).toString('base64url');
+  const sessionSecret = randomBytes(32).toString('base64url');
   const contents = `# Automatisch gegenereerd bij de eerste start.
 # Alle geheimen (wachtwoorden, keys) horen hier — nooit in de broncode.
 
 # Inloggegevens voor zowel SFTP als de web UI.
 AUTH_USER=admin
 AUTH_PASS=${password}
+
+# Geheim voor het ondertekenen van sessie-cookies.
+SESSION_SECRET=${sessionSecret}
 
 # Netwerkpoorten en -interfaces.
 WEB_PORT=8080

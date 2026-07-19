@@ -28,6 +28,11 @@ function load() {
   users = new Map((raw.users || []).map((u) => [u.username, u]));
 }
 
+export function saveUsers() {
+  const data = { users: [...users.values()] };
+  fs.writeFileSync(config.usersFile, JSON.stringify(data, null, 2), { mode: 0o600 });
+}
+
 // Maak users.json bij de eerste start op basis van de standaardgebruiker uit .env.
 export function ensureUsers() {
   if (!fs.existsSync(config.usersFile)) {
@@ -37,18 +42,25 @@ export function ensureUsers() {
           username: config.auth.username,
           password: hashPassword(config.auth.password),
           home: config.auth.username,
+          role: 'admin',
+          quota: config.defaultQuota,
+          totp: null,
+          shares: [],
         },
       ],
     };
     fs.writeFileSync(config.usersFile, JSON.stringify(data, null, 2), { mode: 0o600 });
-    console.log(`[init] users.json aangemaakt met gebruiker '${config.auth.username}'.`);
+    console.log(`[init] users.json aangemaakt met admin '${config.auth.username}'.`);
   }
   load();
-  // Zorg dat elke home-map bestaat.
   for (const u of users.values()) {
     fs.mkdirSync(homeDir(u.username), { recursive: true });
   }
   fs.mkdirSync(config.authorizedKeysDir, { recursive: true });
+}
+
+export function getUser(username) {
+  return users.get(username);
 }
 
 export function homeDir(username) {
@@ -61,14 +73,43 @@ export function userExists(username) {
   return users.has(username);
 }
 
+export function role(username) {
+  const u = users.get(username);
+  return (u && u.role) || 'user';
+}
+
+export function isAdmin(username) {
+  return role(username) === 'admin';
+}
+
+export function isReadonly(username) {
+  return role(username) === 'readonly';
+}
+
+export function quota(username) {
+  const u = users.get(username);
+  return u && typeof u.quota === 'number' ? u.quota : config.defaultQuota;
+}
+
+// Mappen die met deze gebruiker gedeeld zijn: [{owner, path, label}].
+export function sharedWith(username) {
+  const out = [];
+  for (const u of users.values()) {
+    for (const s of u.shares || []) {
+      if (s.to === username) {
+        out.push({ owner: u.username, path: s.path, label: s.label || `${u.username}:${s.path}` });
+      }
+    }
+  }
+  return out;
+}
+
 export function verifyPassword(username, password) {
   const u = users.get(username);
   if (!u) return false;
   return verifyHash(password, u.password);
 }
 
-// Controleer of een aangeboden publieke sleutel voorkomt in de authorized_keys
-// van de gebruiker (bestand authorized_keys/<gebruiker>).
 export function verifyPublicKey(username, keyAlgo, keyData) {
   const file = path.join(config.authorizedKeysDir, username);
   if (!fs.existsSync(file)) return false;
@@ -85,4 +126,52 @@ export function verifyPublicKey(username, keyAlgo, keyData) {
 
 export function listUsernames() {
   return [...users.keys()];
+}
+
+export function listUsers() {
+  return [...users.values()].map((u) => ({
+    username: u.username,
+    home: u.home || u.username,
+    role: u.role || 'user',
+    quota: u.quota || 0,
+    totp: !!u.totp,
+    shares: u.shares || [],
+  }));
+}
+
+// --- Beheerfuncties (gebruikt door CLI en admin-dashboard) ---
+
+export function addUser({ username, password, home, role = 'user', quota = 0 }) {
+  if (users.has(username)) throw new Error('Gebruiker bestaat al');
+  users.set(username, {
+    username,
+    password: hashPassword(password),
+    home: home || username,
+    role,
+    quota,
+    totp: null,
+    shares: [],
+  });
+  saveUsers();
+  fs.mkdirSync(homeDir(username), { recursive: true });
+}
+
+export function updateUser(username, patch) {
+  const u = users.get(username);
+  if (!u) throw new Error('Gebruiker niet gevonden');
+  if (patch.password) u.password = hashPassword(patch.password);
+  if (patch.role) u.role = patch.role;
+  if (patch.quota !== undefined) u.quota = patch.quota;
+  if (patch.totp !== undefined) u.totp = patch.totp;
+  if (patch.shares !== undefined) u.shares = patch.shares;
+  saveUsers();
+}
+
+export function deleteUser(username) {
+  if (!users.delete(username)) throw new Error('Gebruiker niet gevonden');
+  saveUsers();
+}
+
+export function reload() {
+  load();
 }

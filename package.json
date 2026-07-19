@@ -1,13 +1,14 @@
 {
   "name": "sftp-fileserver",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Een fileserver die zowel via SFTP als via een web UI bestanden kan uploaden en downloaden.",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "genkey": "node src/genkey.js",
-    "user": "node src/usercli.js"
+    "user": "node src/usercli.js",
+    "test": "node test/integration.mjs"
   },
   "engines": {
     "node": ">=18"

@@ -1,57 +1,63 @@
 # SFTP Fileserver
 
-Een fileserver die dezelfde bestanden aanbiedt via **SFTP** én via een **web UI**.
-Wat je via SFTP uploadt, zie je direct in de browser en andersom — beide werken op
-één gedeelde opslag, met een eigen map (home) per gebruiker.
+Een fileserver die dezelfde bestanden aanbiedt via **SFTP**, een **web UI** en
+**WebDAV**. Wat je via één kanaal uploadt, zie je in de andere — alles werkt op
+één gedeelde opslag, met een eigen, geïsoleerde map (home) per gebruiker.
+
+> 📋 De volledige functie- en ideeënlijst staat in **[OPTIONS.md](OPTIONS.md)**.
 
 ## Functies
 
-- 🔐 **SFTP-server** (op basis van [`ssh2`](https://github.com/mscdex/ssh2)) — verbind met elke SFTP-client (FileZilla, WinSCP, `sftp` CLI, ...).
-- 🌐 **Web UI** — uploaden (met voortgangsbalk en drag & drop), downloaden, preview, hernoemen, mappen aanmaken en verwijderen.
-- 👥 **Meerdere gebruikers** — elke gebruiker heeft een eigen, geïsoleerde home-map.
-- 🔑 **SSH key-authenticatie** — inloggen op SFTP met een publieke sleutel naast wachtwoord.
-- 🔒 **HTTPS** — optioneel TLS voor de web UI, met automatisch gegenereerd self-signed certificaat.
-- 🛡️ **Brute-force-bescherming** — rate limiting op mislukte logins (web én SFTP).
-- 📝 **Audit-log** — elke upload, download, verwijdering en login wordt gelogd.
-- 🗜️ **ZIP-download** — download een hele map als ZIP-archief.
-- 👁️ **Preview** — bekijk afbeeldingen, tekst, code en PDF's in de browser.
-- 🔎 **Zoeken & sorteren** in de web UI.
-- 🔐 **Geheimen in `.env`** — wachtwoorden en keys staan nooit in de broncode.
-- 🚫 **Path-traversal-beveiliging** — gebruikers blijven binnen hun eigen home-map.
-- 🐳 **Docker** — draai alles met één commando.
+**Toegang**
+- 🔐 SFTP-server (`ssh2`) — wachtwoord én SSH key-authenticatie.
+- 🌐 Web UI met loginpagina, sessies en uitloggen.
+- 🗄️ WebDAV-endpoint (`/webdav`) om als netwerkschijf te koppelen.
+
+**Accounts & beveiliging**
+- 👥 Meerdere gebruikers met eigen home-map.
+- 🎚️ Rollen: `admin`, `user`, `readonly`.
+- 🔑 Twee-factor-authenticatie (TOTP).
+- 🔒 Optioneel HTTPS met auto-gegenereerd self-signed certificaat.
+- 🛡️ Brute-force-bescherming + persistente IP-bans.
+- 📦 Quota per gebruiker.
+- 📝 Audit-log van alle acties.
+- 🔐 Geheimen (wachtwoorden, keys, sessie-secret) altijd in `.env`.
+
+**Bestandsbeheer**
+- ⬆️ Uploaden (drag & drop, mappen, voortgangsbalk), ⬇️ downloaden.
+- 👁️ Preview van afbeeldingen, tekst, code en PDF + ✎ tekst-editor in de browser.
+- 🗜️ ZIP-download van mappen en van een selectie (bulk).
+- ✅ Bulk-acties (meerdere bestanden selecteren).
+- 🔗 Publieke deel-links met vervaldatum en/of wachtwoord.
+- 🗑️ Prullenbak met herstellen.
+- 🤝 Gedeelde mappen tussen gebruikers.
+- 🔎 Zoeken, sorteren, thumbnails.
+
+**Comfort & beheer**
+- 🛠️ Admin-dashboard (gebruikers, IP-bans, audit-log).
+- 🌓 Licht/donker-thema en taal NL/EN.
+- 📱 Installeerbare PWA.
+- 🔔 Webhook-notificaties.
+- 🐳 Docker + 🧩 systemd-service + ✅ CI-tests.
 
 ## Vereisten
 
-- Node.js 18 of hoger (of Docker).
+- Node.js 18+ (of Docker). Ontwikkeld/getest op Node 22.
 
-## Installatie
+## Installatie & starten
 
 ```bash
-git clone <repo-url>
-cd Fileserver
 npm install
-```
-
-## Starten
-
-```bash
 npm start
 ```
 
-Bij de eerste start worden automatisch aangemaakt:
+Bij de eerste start worden automatisch aangemaakt: `.env` (met een willekeurig
+wachtwoord én sessie-secret), `users.json`, `host.key` en de opslagmap. Deze
+staan allemaal in `.gitignore`.
 
-- een `.env`-bestand met een **willekeurig gegenereerd wachtwoord** (eenmalig in de console getoond);
-- `users.json` met de standaardgebruiker;
-- een SSH host key (`host.key`);
-- de opslagmap (`storage/`).
-
-`.env`, `users.json`, `host.key`, `audit.log`, `authorized_keys/` en `tls/` staan
-in `.gitignore` en worden dus **nooit** gecommit.
-
-Na het starten:
-
-- **Web UI:** http://localhost:8080 (of `https://` als TLS aan staat)
+- **Web UI:** http://localhost:8080 (of `https://` met TLS)
 - **SFTP:** `sftp -P 2222 admin@localhost`
+- **WebDAV:** `http://localhost:8080/webdav`
 
 ## Met Docker
 
@@ -59,117 +65,95 @@ Na het starten:
 docker compose up --build
 ```
 
-Alle data (opslag, keys, gebruikers) leeft in een volume onder `/data`.
+## Tests
+
+```bash
+npm test
+```
+
+Draait een geïntegreerde testsuite (login, 2FA, rollen, quota, prullenbak,
+deel-links, bulk-ZIP, SFTP). Draait ook automatisch via GitHub Actions (CI).
 
 ## Gebruikers beheren
 
-```bash
-npm run user add <gebruiker> <wachtwoord> [home-map]   # gebruiker toevoegen
-npm run user passwd <gebruiker> <nieuw-wachtwoord>     # wachtwoord wijzigen
-npm run user del <gebruiker>                           # gebruiker verwijderen
-npm run user list                                      # gebruikers tonen
-```
+Via het admin-dashboard (`/admin.html`) of de CLI:
 
-Wachtwoorden worden gehasht met scrypt opgeslagen in `users.json`.
+```bash
+npm run user add <gebruiker> <wachtwoord> [rol] [quota-bytes]
+npm run user passwd <gebruiker> <nieuw-wachtwoord>
+npm run user role <gebruiker> <admin|user|readonly>
+npm run user quota <gebruiker> <bytes>
+npm run user del <gebruiker>
+npm run user list
+```
 
 ### SSH key-authenticatie
 
-Leg de publieke sleutel van een gebruiker in `authorized_keys/<gebruiker>`
-(zelfde formaat als een OpenSSH `authorized_keys`-regel):
+Leg de publieke sleutel in `authorized_keys/<gebruiker>`:
 
 ```bash
 mkdir -p authorized_keys
 cat ~/.ssh/id_ed25519.pub >> authorized_keys/admin
-```
-
-Daarna kun je inloggen zonder wachtwoord:
-
-```bash
 sftp -P 2222 -i ~/.ssh/id_ed25519 admin@localhost
 ```
 
 ## Configuratie
 
-Alle geheimen (wachtwoorden, keys) en instellingen leven in **`.env`** — nooit in
-de broncode. Kopieer `.env.example` naar `.env`, of laat de applicatie bij de
-eerste start automatisch een `.env` met een sterk willekeurig wachtwoord aanmaken.
+Alle geheimen en instellingen leven in **`.env`** (kopieer `.env.example`).
+Belangrijkste variabelen:
 
-```bash
-cp .env.example .env
-```
+| Variabele              | Standaard          | Omschrijving                              |
+| ---------------------- | ------------------ | ----------------------------------------- |
+| `WEB_PORT` / `SFTP_PORT` | `8080` / `2222`  | Poorten van web UI en SFTP                |
+| `STORAGE_DIR`          | `./storage`        | Map met de per-gebruiker home-mappen      |
+| `AUTH_USER` / `AUTH_PASS` | `admin` / *(gen.)* | Standaardgebruiker (eerste start)      |
+| `SESSION_SECRET`       | *(gegenereerd)*    | Geheim voor sessie-cookies                |
+| `TLS_ENABLED`          | `false`            | HTTPS voor de web UI                       |
+| `WEBDAV_ENABLED`       | `true`             | WebDAV-endpoint aan/uit                    |
+| `DEFAULT_QUOTA`        | `0`                | Standaardquota per gebruiker (bytes, 0=∞) |
+| `WEBHOOK_URL`          | *(leeg)*           | Webhook voor notificaties                 |
+| `RATE_MAX_ATTEMPTS`    | `5`                | Mislukte logins voor blokkade             |
+| `TRASH_NAME`           | `.trash`           | Naam van de prullenbak-map                |
 
-Beschikbare variabelen:
-
-| Variabele              | Standaard          | Omschrijving                                   |
-| ---------------------- | ------------------ | ---------------------------------------------- |
-| `WEB_PORT`             | `8080`             | Poort van de web UI                            |
-| `WEB_HOST`             | `0.0.0.0`          | Host/interface van de web UI                   |
-| `SFTP_PORT`            | `2222`             | Poort van de SFTP-server                       |
-| `SFTP_HOST`            | `0.0.0.0`          | Host/interface van de SFTP-server              |
-| `STORAGE_DIR`          | `./storage`        | Map met de per-gebruiker home-mappen           |
-| `HOST_KEY_PATH`        | `./host.key`       | Pad naar de SSH host key                       |
-| `USERS_FILE`           | `./users.json`     | Bestand met gebruikers (gehashte wachtwoorden) |
-| `AUTHORIZED_KEYS_DIR`  | `./authorized_keys`| Map met per-gebruiker publieke SSH-sleutels    |
-| `AUDIT_LOG`            | `./audit.log`      | Pad naar het audit-log                         |
-| `AUTH_USER`            | `admin`            | Standaardgebruiker (voor eerste start)         |
-| `AUTH_PASS`            | *(gegenereerd)*    | Wachtwoord van de standaardgebruiker           |
-| `TLS_ENABLED`          | `false`            | HTTPS voor de web UI aan/uit                   |
-| `TLS_CERT` / `TLS_KEY` | `./tls/...`        | Pad naar certificaat en sleutel                |
-| `RATE_MAX_ATTEMPTS`    | `5`                | Max mislukte logins voor blokkade              |
-| `RATE_WINDOW_MS`       | `60000`            | Tijdvenster voor het tellen (ms)               |
-| `RATE_BLOCK_MS`        | `300000`           | Duur van de blokkade (ms)                      |
-
-> **Belangrijk:** wijzig `AUTH_PASS` (en bij voorkeur `AUTH_USER`) in `.env`
-> voordat je dit op een netwerk beschikbaar maakt. Deel `.env` nooit en commit het niet.
-
-Variabelen op de commandline winnen van `.env`. Voorbeeld:
-
-```bash
-TLS_ENABLED=true WEB_PORT=9443 npm start
-```
-
-## Projectstructuur
-
-```
-src/
-  env.js        # Laadt/genereert .env (secrets nooit in code)
-  config.js     # Instellingen
-  util.js       # Opslag + SSH host key
-  paths.js      # Path-traversal-beveiliging (per home-map)
-  users.js      # Gebruikers, wachtwoord-hashing, SSH-keys
-  usercli.js    # CLI om gebruikers te beheren
-  ratelimit.js  # Brute-force-bescherming
-  audit.js      # Audit-log
-  tls.js        # TLS-certificaat (self-signed)
-  web.js        # Express web UI + REST API
-  sftp.js       # SFTP-server (ssh2)
-  server.js     # Startpunt
-public/
-  index.html    # Frontend van de web UI
-Dockerfile, docker-compose.yml
-```
+Zie `.env.example` voor de volledige lijst (o.a. `USERS_FILE`,
+`AUTHORIZED_KEYS_DIR`, `AUDIT_LOG`, `BANS_FILE`, `SHARES_FILE`, `TLS_CERT/KEY`).
 
 ## API (web)
 
-Alle endpoints vereisen HTTP Basic Auth. Alles is gescoped op de home-map van de gebruiker.
+Endpoints vereisen een sessie-cookie of Basic Auth; alles is gescoped op de
+home-map van de gebruiker.
 
-| Methode | Endpoint         | Omschrijving                                   |
-| ------- | ---------------- | ---------------------------------------------- |
-| `GET`   | `/api/whoami`    | Huidige gebruiker                              |
-| `GET`   | `/api/list`      | Lijst van een map (`?path=&sort=&order=&q=`)   |
-| `GET`   | `/api/download`  | Download een bestand (`?path=`)                |
-| `GET`   | `/api/preview`   | Toon een bestand inline (`?path=`)             |
-| `GET`   | `/api/zip`       | Download een map als ZIP (`?path=`)            |
-| `POST`  | `/api/upload`    | Upload bestanden (`?path=`, multipart)         |
-| `POST`  | `/api/mkdir`     | Maak een map (`{path, name}`)                  |
-| `POST`  | `/api/rename`    | Hernoem/verplaats (`{from, to}`)               |
-| `POST`  | `/api/delete`    | Verwijder bestand/map (`{path}`)               |
+| Methode | Endpoint | Omschrijving |
+| ------- | -------- | ------------ |
+| `POST` | `/api/login` · `/api/logout` | In-/uitloggen (sessie) |
+| `GET`  | `/api/whoami` | Gebruiker, rol, quota, gedeelde mappen |
+| `GET`  | `/api/list` | Map tonen (`path,sort,order,q`) |
+| `GET`  | `/api/download` · `/api/preview` · `/api/zip` | Downloaden / inline / map als ZIP |
+| `POST` | `/api/bulkzip` | Selectie als ZIP (`{paths}`) |
+| `POST` | `/api/upload` · `/api/save` | Uploaden / bestand opslaan |
+| `POST` | `/api/mkdir` · `/api/rename` · `/api/delete` | Map / hernoemen / naar prullenbak |
+| `GET`/`POST` | `/api/trash` · `/api/restore` · `/api/trash/empty` | Prullenbak |
+| `POST`/`GET`/`DELETE` | `/api/share` · `/api/shares` · `/api/share/:t` | Deel-links |
+| `GET`  | `/api/shared/list` · `/api/shared/download` | Met mij gedeelde mappen |
+| `POST` | `/api/2fa/setup` · `/enable` · `/disable` | 2FA |
+| `*`    | `/api/admin/*` | Beheer (alleen admin) |
+| `*`    | `/webdav/*` | WebDAV |
+| `GET`  | `/s/:token` | Publieke deel-link (geen auth) |
+
+## Deploy (systemd)
+
+Zie `deploy/fileserver.service`. Pas `User` en `WorkingDirectory` aan, plaats
+het bestand in `/etc/systemd/system/`, dan:
+
+```bash
+sudo systemctl enable --now fileserver
+```
 
 ## Beveiligingsnotities
 
-- Zet `TLS_ENABLED=true` of gebruik een reverse proxy met een geldig certificaat als je dit buiten je eigen netwerk aanbiedt.
-- Het self-signed certificaat is prima voor lokaal/intern gebruik; browsers tonen wel een waarschuwing.
-- Rate limiting werkt per IP; achter een reverse proxy moet `X-Forwarded-For` correct worden doorgegeven (de app vertrouwt de proxy via `trust proxy`).
+- Zet `TLS_ENABLED=true` of gebruik een reverse proxy met een geldig certificaat buiten je eigen netwerk.
+- Rate limiting werkt per IP; achter een proxy moet `X-Forwarded-For` correct doorgegeven worden (`trust proxy` staat aan).
+- Deel `.env`, `users.json` en `host.key` nooit; ze staan in `.gitignore`.
 
 ## Licentie
 

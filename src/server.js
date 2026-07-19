@@ -17,6 +17,7 @@ console.log('\n=== SFTP Fileserver gestart ===');
 console.log(`Opslagmap : ${config.storageDir}`);
 console.log(`Web UI    : ${scheme}://localhost:${config.web.port}`);
 console.log(`SFTP      : sftp -P ${config.sftp.port} <gebruiker>@localhost`);
+if (config.webdavEnabled) console.log(`WebDAV    : ${scheme}://localhost:${config.web.port}/webdav`);
 console.log(`Gebruikers: ${listUsernames().join(', ')}`);
 console.log('================================\n');
 

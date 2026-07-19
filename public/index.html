@@ -4,231 +4,100 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SFTP Fileserver</title>
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0f172a" />
   <style>
-    :root { --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --text:#e2e8f0; --muted:#94a3b8; --danger:#f87171; }
+    :root { --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --text:#e2e8f0; --muted:#94a3b8; --danger:#f87171; --border:#334155; }
+    :root[data-theme="light"] { --bg:#f1f5f9; --panel:#fff; --accent:#0284c7; --text:#0f172a; --muted:#64748b; --danger:#dc2626; --border:#cbd5e1; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); }
-    header { background:var(--panel); padding:1rem 1.5rem; display:flex; align-items:center; gap:1rem; }
-    header h1 { font-size:1.1rem; margin:0; }
-    header .who { margin-left:auto; color:var(--muted); font-size:.9rem; }
-    main { max-width:960px; margin:1.5rem auto; padding:0 1rem; }
+    header { background:var(--panel); padding:.9rem 1.5rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap; border-bottom:1px solid var(--border); }
+    header h1 { font-size:1.05rem; margin:0; }
+    header .spacer { flex:1; }
+    header .who { color:var(--muted); font-size:.85rem; }
+    main { max-width:1000px; margin:1.2rem auto; padding:0 1rem; }
     .bar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
     .crumbs { color:var(--muted); font-size:.9rem; word-break:break-all; }
     .crumbs a { color:var(--accent); cursor:pointer; text-decoration:none; }
-    input[type=search], select {
-      background:var(--bg); color:var(--text); border:1px solid #334155; border-radius:6px; padding:.45rem .6rem; }
-    button, input[type=file]::file-selector-button {
-      background:var(--accent); color:#04283a; border:none; padding:.5rem .9rem;
-      border-radius:6px; cursor:pointer; font-weight:600; }
-    button.ghost { background:var(--panel); color:var(--text); }
-    button.danger { background:transparent; color:var(--danger); }
+    input, select { background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:.45rem .6rem; }
+    button { background:var(--accent); color:#04283a; border:none; padding:.5rem .8rem; border-radius:6px; cursor:pointer; font-weight:600; }
+    :root[data-theme="light"] button { color:#fff; }
+    button.ghost { background:var(--panel); color:var(--text); border:1px solid var(--border); }
+    button.danger { background:transparent; color:var(--danger); border:1px solid var(--border); }
     button:hover { opacity:.9; }
+    .quota { font-size:.8rem; color:var(--muted); }
+    .quota .barwrap { height:6px; width:140px; background:var(--border); border-radius:3px; overflow:hidden; display:inline-block; vertical-align:middle; margin-left:.4rem; }
+    .quota .barwrap > div { height:100%; background:var(--accent); }
     table { width:100%; border-collapse:collapse; background:var(--panel); border-radius:8px; overflow:hidden; }
-    th, td { text-align:left; padding:.55rem .9rem; border-bottom:1px solid #334155; }
-    th { color:var(--muted); font-weight:600; font-size:.75rem; text-transform:uppercase; }
+    th, td { text-align:left; padding:.5rem .8rem; border-bottom:1px solid var(--border); }
+    th { color:var(--muted); font-weight:600; font-size:.72rem; text-transform:uppercase; }
     tr:last-child td { border-bottom:none; }
     .name { display:flex; align-items:center; gap:.5rem; cursor:pointer; }
-    .name.file { cursor:pointer; }
+    .thumb { width:28px; height:28px; object-fit:cover; border-radius:4px; }
     .actions { display:flex; gap:.3rem; justify-content:flex-end; flex-wrap:wrap; }
-    .actions button { padding:.3rem .55rem; font-size:.78rem; }
+    .actions button { padding:.28rem .5rem; font-size:.76rem; }
     .muted { color:var(--muted); font-size:.85rem; }
-    #drop { border:2px dashed #334155; border-radius:8px; padding:1.1rem; text-align:center;
-      color:var(--muted); margin-bottom:1rem; transition:.2s; }
+    #drop { border:2px dashed var(--border); border-radius:8px; padding:1rem; text-align:center; color:var(--muted); margin-bottom:1rem; }
     #drop.over { border-color:var(--accent); color:var(--accent); }
-    #progress { height:6px; background:#334155; border-radius:3px; overflow:hidden; margin-top:.6rem; display:none; }
+    #progress { height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin-top:.6rem; display:none; }
     #progress > div { height:100%; width:0; background:var(--accent); transition:width .1s; }
-    #modal { position:fixed; inset:0; background:rgba(0,0,0,.75); display:none; align-items:center; justify-content:center; padding:1rem; }
-    #modal .box { background:var(--panel); border-radius:10px; max-width:90vw; max-height:90vh; overflow:auto; padding:1rem; }
-    #modal .box img, #modal .box iframe { max-width:85vw; max-height:78vh; border:0; background:#fff; }
-    #modal pre { max-width:85vw; max-height:78vh; overflow:auto; white-space:pre-wrap; }
-    #modal .close { float:right; }
+    #modal { position:fixed; inset:0; background:rgba(0,0,0,.7); display:none; align-items:center; justify-content:center; padding:1rem; }
+    #modal .box { background:var(--panel); border-radius:10px; max-width:92vw; max-height:92vh; overflow:auto; padding:1rem; }
+    #modal img, #modal iframe { max-width:86vw; max-height:76vh; border:0; background:#fff; }
+    #modal pre, #modal textarea { width:80vw; max-height:70vh; overflow:auto; white-space:pre-wrap; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:.6rem; }
+    #modal textarea { height:60vh; font-family:monospace; }
+    .tabs { display:flex; gap:.4rem; margin-bottom:1rem; }
+    .tabs button.active { outline:2px solid var(--accent); }
   </style>
 </head>
 <body>
   <header>
     <h1>📁 SFTP Fileserver</h1>
+    <span class="quota" id="quota"></span>
+    <div class="spacer"></div>
     <span class="who" id="who"></span>
+    <button class="ghost" id="adminBtn" style="display:none" data-i18n="admin">Beheer</button>
+    <button class="ghost" id="2faBtn" data-i18n="twofa">2FA</button>
+    <button class="ghost" id="langBtn">EN</button>
+    <button class="ghost" id="themeBtn">🌓</button>
+    <button class="ghost" id="logoutBtn" data-i18n="logout">Uitloggen</button>
   </header>
   <main>
-    <div class="bar">
-      <div class="crumbs" id="crumbs"></div>
+    <div class="tabs">
+      <button data-tab="files" class="active" data-i18n="files">Bestanden</button>
+      <button data-tab="shared" data-i18n="shared">Gedeeld met mij</button>
+      <button data-tab="trash" data-i18n="trash">Prullenbak</button>
     </div>
 
-    <div id="drop">Sleep bestanden hierheen om te uploaden, of
-      <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">
-        kies bestanden<input type="file" id="fileInput" multiple hidden></label>
-      <div id="progress"><div></div></div>
+    <div id="filesView">
+      <div class="bar"><div class="crumbs" id="crumbs"></div></div>
+      <div id="drop"><span data-i18n="drophint">Sleep bestanden hierheen, of</span>
+        <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">
+          <span data-i18n="choose">kies bestanden</span><input type="file" id="fileInput" multiple hidden></label>
+        &nbsp;/&nbsp;
+        <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">
+          <span data-i18n="choosedir">map</span><input type="file" id="dirInput" webkitdirectory hidden></label>
+        <div id="progress"><div></div></div>
+      </div>
+      <div class="bar">
+        <button class="ghost" id="mkdirBtn" data-i18n="newfolder">＋ Nieuwe map</button>
+        <button class="ghost" id="newfileBtn" data-i18n="newfile">＋ Nieuw bestand</button>
+        <button class="ghost" id="bulkDl" data-i18n="bulkdl">Download selectie</button>
+        <button class="danger" id="bulkDel" data-i18n="bulkdel">Verwijder selectie</button>
+        <button class="ghost" id="refreshBtn">↻</button>
+        <input type="search" id="search" data-i18n-ph="searchph" placeholder="Zoeken…" />
+        <select id="sort"><option value="name">naam</option><option value="size">grootte</option><option value="mtime">datum</option></select>
+        <select id="order"><option value="asc">↑</option><option value="desc">↓</option></select>
+      </div>
+      <table><thead><tr><th style="width:24px"></th><th data-i18n="col_name">Naam</th><th data-i18n="col_size">Grootte</th><th style="text-align:right" data-i18n="col_actions">Acties</th></tr></thead><tbody id="rows"></tbody></table>
     </div>
 
-    <div class="bar">
-      <button class="ghost" id="mkdirBtn">＋ Nieuwe map</button>
-      <button class="ghost" id="refreshBtn">↻ Vernieuwen</button>
-      <input type="search" id="search" placeholder="Zoeken in deze map…" />
-      <label class="muted">Sorteer
-        <select id="sort">
-          <option value="name">naam</option>
-          <option value="size">grootte</option>
-          <option value="mtime">datum</option>
-        </select>
-      </label>
-      <select id="order">
-        <option value="asc">↑ oplopend</option>
-        <option value="desc">↓ aflopend</option>
-      </select>
-    </div>
-
-    <table>
-      <thead>
-        <tr><th>Naam</th><th>Grootte</th><th style="text-align:right">Acties</th></tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
+    <div id="sharedView" style="display:none"></div>
+    <div id="trashView" style="display:none"></div>
   </main>
 
-  <div id="modal"><div class="box"><button class="close ghost" id="modalClose">Sluiten ✕</button><div id="modalBody"></div></div></div>
+  <div id="modal"><div class="box"><button class="ghost" id="modalClose" style="float:right">✕</button><div id="modalBody"></div></div></div>
 
-  <script>
-    let cwd = '/';
-
-    const fmtSize = (n) => {
-      if (!n) return '';
-      const u = ['B','KB','MB','GB','TB']; let i = 0;
-      while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-      return n.toFixed(i ? 1 : 0) + ' ' + u[i];
-    };
-    const enc = encodeURIComponent;
-
-    async function whoami() {
-      const r = await fetch('/api/whoami');
-      if (r.ok) { const d = await r.json(); document.getElementById('who').textContent = 'Ingelogd als ' + d.user; }
-    }
-
-    async function load() {
-      const q = document.getElementById('search').value.trim();
-      const sort = document.getElementById('sort').value;
-      const order = document.getElementById('order').value;
-      const url = `/api/list?path=${enc(cwd)}&sort=${sort}&order=${order}` + (q ? `&q=${enc(q)}` : '');
-      const res = await fetch(url);
-      if (!res.ok) { alert('Kon map niet laden'); return; }
-      const data = await res.json();
-      renderCrumbs();
-      const rows = document.getElementById('rows');
-      rows.innerHTML = '';
-      if (!data.items.length) {
-        rows.innerHTML = '<tr><td colspan="3" class="muted">Niets gevonden.</td></tr>';
-      }
-      for (const item of data.items) {
-        const tr = document.createElement('tr');
-        const full = item.path;
-        const icon = item.isDir ? '📂' : '📄';
-        const nameCell = item.isDir
-          ? `<div class="name" data-dir="${enc(full)}">${icon} ${item.name}</div>`
-          : `<div class="name file" data-preview="${enc(full)}">${icon} ${item.name}</div>`;
-        let actions = '';
-        if (item.isDir) {
-          actions += `<button data-zip="${enc(full)}">ZIP</button>`;
-        } else {
-          actions += `<button data-dl="${enc(full)}">Download</button>`;
-        }
-        actions += `<button class="ghost" data-ren="${enc(full)}">Hernoem</button>`;
-        actions += `<button class="danger" data-del="${enc(full)}">Verwijder</button>`;
-        tr.innerHTML = `<td>${nameCell}</td><td>${fmtSize(item.size)}</td><td class="actions">${actions}</td>`;
-        rows.appendChild(tr);
-      }
-    }
-
-    function renderCrumbs() {
-      const parts = cwd.split('/').filter(Boolean);
-      let acc = '';
-      const links = ['<a data-go="/">home</a>'];
-      for (const p of parts) { acc += '/' + p; links.push(`<a data-go="${enc(acc)}">${p}</a>`); }
-      document.getElementById('crumbs').innerHTML = links.join(' / ');
-    }
-
-    async function openPreview(p) {
-      const name = p.split('/').pop();
-      const ext = name.split('.').pop().toLowerCase();
-      const body = document.getElementById('modalBody');
-      const url = '/api/preview?path=' + enc(p);
-      if (['png','jpg','jpeg','gif','webp','svg','bmp'].includes(ext)) {
-        body.innerHTML = `<h3>${name}</h3><img src="${url}">`;
-      } else if (ext === 'pdf') {
-        body.innerHTML = `<h3>${name}</h3><iframe src="${url}" style="width:80vw;height:75vh"></iframe>`;
-      } else if (['txt','md','json','js','css','html','csv','log','xml','yml','yaml','mjs'].includes(ext)) {
-        const txt = await (await fetch(url)).text();
-        const esc = txt.replace(/&/g,'&amp;').replace(/</g,'&lt;');
-        body.innerHTML = `<h3>${name}</h3><pre>${esc}</pre>`;
-      } else {
-        body.innerHTML = `<h3>${name}</h3><p class="muted">Geen preview beschikbaar.</p>
-          <button data-dl="${enc(p)}">Download</button>`;
-      }
-      document.getElementById('modal').style.display = 'flex';
-    }
-    function closeModal() { document.getElementById('modal').style.display = 'none'; document.getElementById('modalBody').innerHTML = ''; }
-
-    document.addEventListener('click', async (e) => {
-      const t = e.target;
-      const dir = t.closest('[data-dir]');
-      const prev = t.closest('[data-preview]');
-      if (dir) { cwd = decodeURIComponent(dir.dataset.dir); document.getElementById('search').value=''; load(); }
-      else if (t.dataset.go) { cwd = decodeURIComponent(t.dataset.go); document.getElementById('search').value=''; load(); }
-      else if (t.dataset.dl) { window.location = '/api/download?path=' + t.dataset.dl; }
-      else if (t.dataset.zip) { window.location = '/api/zip?path=' + t.dataset.zip; }
-      else if (prev) { openPreview(decodeURIComponent(prev.dataset.preview)); }
-      else if (t.dataset.ren) {
-        const cur = decodeURIComponent(t.dataset.ren);
-        const base = cur.substring(0, cur.lastIndexOf('/') + 1);
-        const nn = prompt('Nieuwe naam of pad:', cur.split('/').pop());
-        if (!nn) return;
-        const to = nn.startsWith('/') ? nn : base + nn;
-        await fetch('/api/rename', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ from: cur, to }) });
-        load();
-      }
-      else if (t.dataset.del) {
-        if (!confirm('Verwijderen?')) return;
-        await fetch('/api/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ path: decodeURIComponent(t.dataset.del) }) });
-        load();
-      }
-    });
-
-    document.getElementById('modalClose').onclick = closeModal;
-    document.getElementById('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
-    document.getElementById('refreshBtn').onclick = load;
-    document.getElementById('sort').onchange = load;
-    document.getElementById('order').onchange = load;
-    let searchTimer;
-    document.getElementById('search').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(load, 300); };
-    document.getElementById('mkdirBtn').onclick = async () => {
-      const name = prompt('Naam van de nieuwe map:');
-      if (!name) return;
-      await fetch('/api/mkdir', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ path: cwd, name }) });
-      load();
-    };
-
-    // Upload met voortgangsbalk (XHR i.p.v. fetch voor progress-events).
-    function uploadFiles(files) {
-      if (!files.length) return;
-      const fd = new FormData();
-      for (const f of files) fd.append('files', f);
-      const bar = document.getElementById('progress');
-      const fill = bar.firstElementChild;
-      bar.style.display = 'block'; fill.style.width = '0';
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/upload?path=' + enc(cwd));
-      xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) fill.style.width = (ev.loaded / ev.total * 100) + '%'; };
-      xhr.onload = () => { bar.style.display = 'none'; if (xhr.status !== 200) alert('Upload mislukt'); load(); };
-      xhr.onerror = () => { bar.style.display = 'none'; alert('Upload mislukt'); };
-      xhr.send(fd);
-    }
-
-    document.getElementById('fileInput').onchange = (e) => uploadFiles([...e.target.files]);
-    const drop = document.getElementById('drop');
-    ['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
-    ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, () => drop.classList.remove('over')));
-    drop.addEventListener('drop', (e) => { e.preventDefault(); uploadFiles([...e.dataTransfer.files]); });
-
-    whoami();
-    load();
-  </script>
+  <script src="/app.js"></script>
 </body>
 </html>

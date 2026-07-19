@@ -5,6 +5,8 @@ users.json
 audit.log
 authorized_keys
 tls
+bans.json
+shares.json
 .env
 *.log
 .git

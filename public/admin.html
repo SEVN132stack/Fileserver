@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Beheer — SFTP Fileserver</title>
+  <style>
+    body { margin:0; font-family:system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
+    header { background:#1e293b; padding:.9rem 1.5rem; display:flex; gap:1rem; align-items:center; }
+    header a { color:#38bdf8; text-decoration:none; }
+    main { max-width:1000px; margin:1.2rem auto; padding:0 1rem; }
+    h2 { font-size:1rem; border-bottom:1px solid #334155; padding-bottom:.3rem; }
+    table { width:100%; border-collapse:collapse; background:#1e293b; border-radius:8px; overflow:hidden; margin-bottom:2rem; }
+    th, td { text-align:left; padding:.5rem .8rem; border-bottom:1px solid #334155; font-size:.9rem; }
+    input, select { background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:6px; padding:.4rem; }
+    button { background:#38bdf8; color:#04283a; border:0; border-radius:6px; padding:.4rem .7rem; cursor:pointer; font-weight:600; }
+    button.danger { background:transparent; color:#f87171; border:1px solid #334155; }
+    pre { background:#1e293b; padding:1rem; border-radius:8px; max-height:320px; overflow:auto; font-size:.8rem; }
+  </style>
+</head>
+<body>
+  <header><strong>🛠️ Beheer</strong><a href="/">← terug naar bestanden</a></header>
+  <main>
+    <h2>Gebruikers</h2>
+    <table id="userTable"></table>
+    <h3>Nieuwe gebruiker</h3>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:2rem">
+      <input id="nu" placeholder="gebruikersnaam">
+      <input id="np" placeholder="wachtwoord" type="password">
+      <select id="nr"><option value="user">user</option><option value="admin">admin</option><option value="readonly">readonly</option></select>
+      <input id="nq" placeholder="quota bytes (0=∞)" style="width:130px">
+      <button id="addUser">Toevoegen</button>
+    </div>
+
+    <h2>Geblokkeerde IP's</h2>
+    <table id="banTable"></table>
+    <div style="display:flex;gap:.5rem;margin-bottom:2rem"><input id="banIp" placeholder="IP-adres"><button id="addBan">Blokkeren</button></div>
+
+    <h2>Audit-log (laatste 200)</h2>
+    <pre id="audit"></pre>
+  </main>
+  <script>
+    async function j(u,o){ const r=await fetch(u,o); if(r.status===401)location='/login.html'; if(r.status===403){document.body.innerHTML='<p style="padding:2rem">Geen beheerrechten.</p>';throw 0;} return r; }
+    async function loadUsers() {
+      const {users} = await (await j('/api/admin/users')).json();
+      document.getElementById('userTable').innerHTML =
+        '<tr><th>Gebruiker</th><th>Rol</th><th>Quota</th><th>2FA</th><th></th></tr>' +
+        users.map(u=>`<tr><td>${u.username}</td>
+          <td><select data-role="${u.username}"><option ${u.role==='user'?'selected':''}>user</option><option ${u.role==='admin'?'selected':''}>admin</option><option ${u.role==='readonly'?'selected':''}>readonly</option></select></td>
+          <td>${u.quota||'∞'}</td><td>${u.totp?'aan':'uit'}</td>
+          <td><button class="danger" data-del="${u.username}">verwijder</button></td></tr>`).join('');
+    }
+    async function loadBans() {
+      const {bans} = await (await j('/api/admin/bans')).json();
+      document.getElementById('banTable').innerHTML = '<tr><th>IP</th><th>Tot</th><th></th></tr>' +
+        (bans.length?bans.map(b=>`<tr><td>${b.ip}</td><td>${b.until?new Date(b.until).toLocaleString():'permanent'}</td><td><button class="danger" data-unban="${b.ip}">deblokkeer</button></td></tr>`).join(''):'<tr><td colspan="3">Geen</td></tr>');
+    }
+    async function loadAudit() {
+      const {lines} = await (await j('/api/admin/audit')).json();
+      document.getElementById('audit').textContent = lines.map(l=>`${l.ts} [${l.channel}] ${l.user||'-'} ${l.action} ${JSON.stringify(Object.fromEntries(Object.entries(l).filter(([k])=>!['ts','channel','user','action'].includes(k))))}`).reverse().join('\n');
+    }
+    document.getElementById('addUser').onclick = async () => {
+      await j('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:nu.value,password:np.value,role:nr.value,quota:parseInt(nq.value||'0',10)})});
+      nu.value=np.value=nq.value=''; loadUsers();
+    };
+    document.getElementById('addBan').onclick = async () => { await j('/api/admin/bans',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ip:banIp.value})}); banIp.value=''; loadBans(); };
+    document.addEventListener('click', async e => {
+      if (e.target.dataset.del) { if(confirm('Verwijderen?')){ await j('/api/admin/users/'+e.target.dataset.del,{method:'DELETE'}); loadUsers(); } }
+      if (e.target.dataset.unban) { await j('/api/admin/bans/'+encodeURIComponent(e.target.dataset.unban),{method:'DELETE'}); loadBans(); }
+    });
+    document.addEventListener('change', async e => {
+      if (e.target.dataset.role) { await j('/api/admin/users/'+e.target.dataset.role,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:e.target.value})}); }
+    });
+    loadUsers(); loadBans(); loadAudit();
+  </script>
+</body>
+</html>

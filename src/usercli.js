@@ -1,54 +1,48 @@
-import fs from 'node:fs';
-import { config } from './config.js';
-import { hashPassword } from './users.js';
+import { ensureUsers, addUser, updateUser, deleteUser, listUsers } from './users.js';
 
-// Kleine CLI om gebruikers te beheren in users.json.
-//   node src/usercli.js add <gebruiker> <wachtwoord> [home]
+// CLI om gebruikers te beheren in users.json.
+//   node src/usercli.js add <gebruiker> <wachtwoord> [rol] [quota-bytes] [home]
 //   node src/usercli.js passwd <gebruiker> <nieuw-wachtwoord>
+//   node src/usercli.js role <gebruiker> <admin|user|readonly>
+//   node src/usercli.js quota <gebruiker> <bytes>
 //   node src/usercli.js del <gebruiker>
 //   node src/usercli.js list
 
-function read() {
-  if (!fs.existsSync(config.usersFile)) return { users: [] };
-  return JSON.parse(fs.readFileSync(config.usersFile, 'utf8'));
-}
-function write(data) {
-  fs.writeFileSync(config.usersFile, JSON.stringify(data, null, 2), { mode: 0o600 });
-}
+ensureUsers();
+const [cmd, username, a, b, c] = process.argv.slice(2);
 
-const [cmd, username, password, home] = process.argv.slice(2);
-const data = read();
-
-switch (cmd) {
-  case 'add': {
-    if (!username || !password) { console.error('Gebruik: add <gebruiker> <wachtwoord> [home]'); process.exit(1); }
-    if (data.users.some((u) => u.username === username)) { console.error('Gebruiker bestaat al.'); process.exit(1); }
-    data.users.push({ username, password: hashPassword(password), home: home || username });
-    write(data);
-    console.log(`Gebruiker '${username}' toegevoegd.`);
-    break;
+try {
+  switch (cmd) {
+    case 'add':
+      if (!username || !a) throw new Error('Gebruik: add <gebruiker> <wachtwoord> [rol] [quota] [home]');
+      addUser({ username, password: a, role: b || 'user', quota: c ? parseInt(c, 10) : 0 });
+      console.log(`Gebruiker '${username}' toegevoegd (rol: ${b || 'user'}).`);
+      break;
+    case 'passwd':
+      if (!a) throw new Error('Gebruik: passwd <gebruiker> <nieuw-wachtwoord>');
+      updateUser(username, { password: a });
+      console.log(`Wachtwoord van '${username}' gewijzigd.`);
+      break;
+    case 'role':
+      if (!['admin', 'user', 'readonly'].includes(a)) throw new Error('Rol moet admin, user of readonly zijn.');
+      updateUser(username, { role: a });
+      console.log(`Rol van '${username}' is nu '${a}'.`);
+      break;
+    case 'quota':
+      updateUser(username, { quota: parseInt(a, 10) || 0 });
+      console.log(`Quota van '${username}' is nu ${parseInt(a, 10) || 0} bytes.`);
+      break;
+    case 'del':
+      deleteUser(username);
+      console.log(`Gebruiker '${username}' verwijderd.`);
+      break;
+    case 'list':
+      console.log(listUsers().map((u) => `${u.username}  rol=${u.role}  quota=${u.quota || '∞'}  2fa=${u.totp ? 'aan' : 'uit'}`).join('\n') || '(geen gebruikers)');
+      break;
+    default:
+      console.log('Gebruik: node src/usercli.js <add|passwd|role|quota|del|list> ...');
   }
-  case 'passwd': {
-    if (!username || !password) { console.error('Gebruik: passwd <gebruiker> <nieuw-wachtwoord>'); process.exit(1); }
-    const u = data.users.find((x) => x.username === username);
-    if (!u) { console.error('Gebruiker niet gevonden.'); process.exit(1); }
-    u.password = hashPassword(password);
-    write(data);
-    console.log(`Wachtwoord van '${username}' gewijzigd.`);
-    break;
-  }
-  case 'del': {
-    const before = data.users.length;
-    data.users = data.users.filter((u) => u.username !== username);
-    if (data.users.length === before) { console.error('Gebruiker niet gevonden.'); process.exit(1); }
-    write(data);
-    console.log(`Gebruiker '${username}' verwijderd.`);
-    break;
-  }
-  case 'list': {
-    console.log(data.users.map((u) => `${u.username} (home: ${u.home || u.username})`).join('\n') || '(geen gebruikers)');
-    break;
-  }
-  default:
-    console.log('Gebruik: node src/usercli.js <add|passwd|del|list> ...');
+} catch (err) {
+  console.error('Fout:', err.message);
+  process.exit(1);
 }

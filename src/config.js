@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { loadEnv } from './env.js';
 
@@ -58,6 +59,24 @@ export const config = {
     windowMs: parseInt(process.env.RATE_WINDOW_MS || '60000', 10),
     blockMs: parseInt(process.env.RATE_BLOCK_MS || '300000', 10),
   },
+
+  // Bestand met persistente IP-bans.
+  bansFile: abs(process.env.BANS_FILE || 'bans.json'),
+  // Bestand met publieke deel-links.
+  sharesFile: abs(process.env.SHARES_FILE || 'shares.json'),
+  // Prullenbak-map (binnen elke home). Verwijderde bestanden gaan hierheen.
+  trashName: process.env.TRASH_NAME || '.trash',
+  // Opslagquota per gebruiker in bytes (0 = onbeperkt).
+  defaultQuota: parseInt(process.env.DEFAULT_QUOTA || '0', 10),
+
+  // Sessie-geheim (voor cookie-ondertekening). Uit .env; anders vluchtig.
+  sessionSecret: process.env.SESSION_SECRET || randomBytes(32).toString('hex'),
+
+  // WebDAV-endpoint aan/uit (op /webdav).
+  webdavEnabled: bool(process.env.WEBDAV_ENABLED, true),
+
+  // Webhook-URL voor notificaties bij gebeurtenissen (leeg = uit).
+  webhookUrl: process.env.WEBHOOK_URL || '',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

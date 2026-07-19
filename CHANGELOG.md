@@ -5,6 +5,45 @@ Alle noemenswaardige wijzigingen aan dit project worden in dit bestand bijgehoud
 Het formaat is gebaseerd op [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/),
 en dit project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
+## [3.0.0] - 2026-07-19
+
+### Toegevoegd
+
+**Beveiliging & accounts**
+- Sessies + loginpagina met uitloggen (naast Basic Auth voor API/WebDAV).
+- Twee-factor-authenticatie (TOTP) met in-/uitschakelen vanuit de UI.
+- Rollen & rechten: `admin`, `user` en `readonly` (alleen-lezen kan niet
+  schrijven, ook niet via SFTP/WebDAV).
+- Gedeelde mappen tussen gebruikers ("Gedeeld met mij").
+- Quota per gebruiker (uploads worden geweigerd bij overschrijding).
+- Persistente IP-bans, met automatische escalatie vanuit de rate limiting.
+
+**Bestandsbeheer**
+- Publieke deel-links met optionele vervaldatum en wachtwoord (`/s/<token>`).
+- Meerdere bestanden selecteren voor bulk-download (ZIP) en bulk-verwijderen.
+- Mappen uploaden met behoud van de substructuur.
+- Prullenbak: verwijderen verplaatst naar `.trash`, met herstellen en legen.
+- Thumbnails voor afbeeldingen in de bestandslijst.
+- Tekst-editor in de browser (openen, bewerken, opslaan) + nieuw bestand aanmaken.
+
+**Beheer & bediening**
+- Admin-dashboard (`/admin.html`): gebruikers beheren, IP-bans en audit-log.
+- WebDAV-endpoint op `/webdav` (koppelbaar als netwerkschijf).
+- Systemd-servicebestand (`deploy/fileserver.service`).
+- Webhook-notificaties bij uploads en verwijderingen (`WEBHOOK_URL`).
+
+**Comfort**
+- Licht/donker-thema (schakelbaar, onthouden) en taal NL/EN.
+- Mobiele PWA: manifest + service worker (installeerbaar, offline app-schil).
+- Geïntegreerde tests (`npm test`) en GitHub Actions CI.
+
+### Gewijzigd
+
+- Verwijderen gaat nu naar de prullenbak in plaats van definitief wissen.
+- User-CLI ondersteunt nu rollen en quota (`role`, `quota`).
+- `SESSION_SECRET` wordt automatisch in `.env` gegenereerd.
+- Nieuwe `OPTIONS.md` met de volledige functie-/roadmaplijst.
+
 ## [2.0.0] - 2026-07-19
 
 ### Toegevoegd

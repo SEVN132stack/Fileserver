@@ -3,8 +3,9 @@ import path from 'node:path';
 import ssh2 from 'ssh2';
 import { config } from './config.js';
 import { resolveWithin, toClientPath as toClient } from './paths.js';
-import { homeDir, verifyPassword, verifyPublicKey, userExists } from './users.js';
+import { homeDir, verifyPassword, verifyPublicKey, userExists, isReadonly } from './users.js';
 import { checkAllowed, recordFailure, recordSuccess } from './ratelimit.js';
+import { isBanned, ban } from './bans.js';
 import { audit } from './audit.js';
 
 const { Server, utils } = ssh2;
@@ -19,13 +20,22 @@ export function startSftpServer() {
 
     client.on('authentication', (ctx) => {
       const key = 'sftp:' + ip;
+      if (isBanned(ip)) return ctx.reject();
       const gate = checkAllowed(key);
       if (!gate.allowed) return ctx.reject();
 
+      const fail = (reason, extra = {}) => {
+        recordFailure(key);
+        audit('sftp', ctx.username || '', 'login_failed', { ip, ...extra });
+        if (!checkAllowed(key).allowed && !isBanned(ip)) {
+          ban(ip, Date.now() + config.rateLimit.blockMs);
+          audit('sftp', ctx.username || '', 'ip_banned', { ip });
+        }
+      };
+
       const user = ctx.username || '';
       if (!userExists(user)) {
-        recordFailure(key);
-        audit('sftp', user, 'login_failed', { ip, reason: 'onbekende gebruiker' });
+        fail('onbekende gebruiker', { reason: 'onbekende gebruiker' });
         return ctx.reject();
       }
 
@@ -35,20 +45,17 @@ export function startSftpServer() {
           username = user;
           return ctx.accept();
         }
-        recordFailure(key);
-        audit('sftp', user, 'login_failed', { ip, method: 'password' });
+        fail('password', { method: 'password' });
         return ctx.reject();
       }
 
       if (ctx.method === 'publickey') {
         if (verifyPublicKey(user, ctx.key.algo, ctx.key.data)) {
-          // Bij een signature-check (ctx.signature aanwezig) accepteren we pas
-          // definitief; anders geeft ssh2 aan dat de sleutel bruikbaar is.
           recordSuccess(key);
           username = user;
           return ctx.accept();
         }
-        audit('sftp', user, 'login_failed', { ip, method: 'publickey' });
+        fail('publickey', { method: 'publickey' });
         return ctx.reject();
       }
 
@@ -63,6 +70,7 @@ export function startSftpServer() {
       // Alle padbewerkingen blijven binnen de home-map van deze gebruiker.
       const resolve = (p) => resolveWithin(home, p);
       const toClientPath = (abs) => toClient(home, abs);
+      const readonly = isReadonly(username);
 
       client.on('session', (accept) => {
         const session = accept();
@@ -89,6 +97,7 @@ export function startSftpServer() {
               return sftp.status(reqid, SFTP_STATUS_CODE.FAILURE);
             }
             const reading = flags & SFTP_OPEN_MODE.READ;
+            if (!reading && readonly) return sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED);
             let fd;
             try {
               fd = fs.openSync(abs, reading ? 'r' : 'w');
@@ -182,20 +191,28 @@ export function startSftpServer() {
             doStat(reqid, toClientPath(h.path || h.dir));
           });
 
-          // --- Bewerkingen ---
+          // --- Bewerkingen (geblokkeerd voor alleen-lezen accounts) ---
+          const denyIfReadonly = (reqid) => {
+            if (readonly) { sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED); return true; }
+            return false;
+          };
           sftp.on('REMOVE', (reqid, p) => {
+            if (denyIfReadonly(reqid)) return;
             try { fs.unlinkSync(resolve(p)); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('MKDIR', (reqid, p) => {
+            if (denyIfReadonly(reqid)) return;
             try { fs.mkdirSync(resolve(p), { recursive: true }); audit('sftp', username, 'mkdir', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('RMDIR', (reqid, p) => {
+            if (denyIfReadonly(reqid)) return;
             try { fs.rmSync(resolve(p), { recursive: true, force: true }); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('RENAME', (reqid, oldPath, newPath) => {
+            if (denyIfReadonly(reqid)) return;
             try { fs.renameSync(resolve(oldPath), resolve(newPath)); audit('sftp', username, 'rename', { from: oldPath, to: newPath }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
