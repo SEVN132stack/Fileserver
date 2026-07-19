@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SFTP Fileserver</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --text:#e2e8f0; --muted:#94a3b8; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); }
+    header { background:var(--panel); padding:1rem 1.5rem; display:flex; align-items:center; gap:1rem; }
+    header h1 { font-size:1.1rem; margin:0; }
+    main { max-width:900px; margin:1.5rem auto; padding:0 1rem; }
+    .bar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
+    .crumbs { color:var(--muted); font-size:.9rem; word-break:break-all; }
+    .crumbs a { color:var(--accent); cursor:pointer; text-decoration:none; }
+    button, input[type=file]::file-selector-button {
+      background:var(--accent); color:#04283a; border:none; padding:.5rem .9rem;
+      border-radius:6px; cursor:pointer; font-weight:600; }
+    button.ghost { background:var(--panel); color:var(--text); }
+    button:hover { opacity:.9; }
+    table { width:100%; border-collapse:collapse; background:var(--panel); border-radius:8px; overflow:hidden; }
+    th, td { text-align:left; padding:.6rem .9rem; border-bottom:1px solid #334155; }
+    th { color:var(--muted); font-weight:600; font-size:.8rem; text-transform:uppercase; }
+    tr:last-child td { border-bottom:none; }
+    .name { display:flex; align-items:center; gap:.5rem; cursor:pointer; }
+    .name.file { cursor:default; }
+    .actions { display:flex; gap:.4rem; justify-content:flex-end; }
+    .actions button { padding:.3rem .6rem; font-size:.8rem; }
+    .muted { color:var(--muted); font-size:.85rem; }
+    #drop { border:2px dashed #334155; border-radius:8px; padding:1.2rem; text-align:center;
+      color:var(--muted); margin-bottom:1rem; transition:.2s; }
+    #drop.over { border-color:var(--accent); color:var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📁 SFTP Fileserver</h1>
+    <span class="muted">Web UI</span>
+  </header>
+  <main>
+    <div class="bar">
+      <div class="crumbs" id="crumbs"></div>
+    </div>
+
+    <div id="drop">Sleep bestanden hierheen om te uploaden, of
+      <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">
+        kies bestanden<input type="file" id="fileInput" multiple hidden></label>
+    </div>
+
+    <div class="bar">
+      <button class="ghost" id="mkdirBtn">＋ Nieuwe map</button>
+      <button class="ghost" id="refreshBtn">↻ Vernieuwen</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>Naam</th><th>Grootte</th><th style="text-align:right">Acties</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </main>
+
+  <script>
+    let cwd = '/';
+
+    const fmtSize = (n) => {
+      if (!n) return '';
+      const u = ['B','KB','MB','GB','TB']; let i = 0;
+      while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+      return n.toFixed(i ? 1 : 0) + ' ' + u[i];
+    };
+
+    const joinPath = (base, name) => (base === '/' ? '' : base) + '/' + name;
+
+    async function load() {
+      const res = await fetch('/api/list?path=' + encodeURIComponent(cwd));
+      if (!res.ok) { alert('Kon map niet laden'); return; }
+      const data = await res.json();
+      renderCrumbs();
+      const rows = document.getElementById('rows');
+      rows.innerHTML = '';
+      if (!data.items.length) {
+        rows.innerHTML = '<tr><td colspan="3" class="muted">Deze map is leeg.</td></tr>';
+      }
+      for (const item of data.items) {
+        const tr = document.createElement('tr');
+        const full = joinPath(cwd, item.name);
+        const nameCell = item.isDir
+          ? `<div class="name" data-dir="${encodeURIComponent(full)}">📂 ${item.name}</div>`
+          : `<div class="name file">📄 ${item.name}</div>`;
+        const dl = item.isDir ? '' :
+          `<button data-dl="${encodeURIComponent(full)}">Download</button>`;
+        tr.innerHTML = `<td>${nameCell}</td><td>${fmtSize(item.size)}</td>
+          <td class="actions">${dl}<button class="ghost" data-del="${encodeURIComponent(full)}">Verwijder</button></td>`;
+        rows.appendChild(tr);
+      }
+    }
+
+    function renderCrumbs() {
+      const parts = cwd.split('/').filter(Boolean);
+      let acc = '';
+      const links = ['<a data-go="/">root</a>'];
+      for (const p of parts) {
+        acc += '/' + p;
+        links.push(`<a data-go="${encodeURIComponent(acc)}">${p}</a>`);
+      }
+      document.getElementById('crumbs').innerHTML = links.join(' / ');
+    }
+
+    document.addEventListener('click', async (e) => {
+      const t = e.target;
+      if (t.dataset.dir) { cwd = decodeURIComponent(t.dataset.dir); load(); }
+      else if (t.closest('[data-dir]')) { cwd = decodeURIComponent(t.closest('[data-dir]').dataset.dir); load(); }
+      else if (t.dataset.go) { cwd = decodeURIComponent(t.dataset.go); load(); }
+      else if (t.dataset.dl) { window.location = '/api/download?path=' + t.dataset.dl; }
+      else if (t.dataset.del) {
+        if (!confirm('Verwijderen?')) return;
+        await fetch('/api/delete', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ path: decodeURIComponent(t.dataset.del) }) });
+        load();
+      }
+    });
+
+    document.getElementById('refreshBtn').onclick = load;
+    document.getElementById('mkdirBtn').onclick = async () => {
+      const name = prompt('Naam van de nieuwe map:');
+      if (!name) return;
+      await fetch('/api/mkdir', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ path: cwd, name }) });
+      load();
+    };
+
+    async function uploadFiles(files) {
+      if (!files.length) return;
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f);
+      const res = await fetch('/api/upload?path=' + encodeURIComponent(cwd), { method:'POST', body: fd });
+      if (!res.ok) alert('Upload mislukt');
+      load();
+    }
+
+    document.getElementById('fileInput').onchange = (e) => uploadFiles([...e.target.files]);
+
+    const drop = document.getElementById('drop');
+    ['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, (e) => {
+      e.preventDefault(); drop.classList.add('over');
+    }));
+    ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, () => drop.classList.remove('over')));
+    drop.addEventListener('drop', (e) => { e.preventDefault(); uploadFiles([...e.dataTransfer.files]); });
+
+    load();
+  </script>
+</body>
+</html>

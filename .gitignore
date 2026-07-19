@@ -1,0 +1,5 @@
+node_modules/
+storage/
+host.key
+*.log
+.env
