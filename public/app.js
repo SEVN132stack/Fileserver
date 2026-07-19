@@ -14,13 +14,22 @@ const I18N = {
     trash:'Trash', drophint:'Drop files here, or', choose:'choose files', choosedir:'folder',
     newfolder:'＋ New folder', newfile:'＋ New file', bulkdl:'Download selection', bulkdel:'Delete selection',
     searchph:'Search…', col_name:'Name', col_size:'Size', col_actions:'Actions', empty:'Nothing found.' },
+  de: { admin:'Verwaltung', twofa:'2FA', logout:'Abmelden', files:'Dateien', shared:'Mit mir geteilt',
+    trash:'Papierkorb', drophint:'Dateien hierher ziehen, oder', choose:'Dateien wählen', choosedir:'Ordner',
+    newfolder:'＋ Neuer Ordner', newfile:'＋ Neue Datei', bulkdl:'Auswahl herunterladen', bulkdel:'Auswahl löschen',
+    searchph:'Suchen…', col_name:'Name', col_size:'Größe', col_actions:'Aktionen', empty:'Nichts gefunden.' },
+  fr: { admin:'Admin', twofa:'2FA', logout:'Déconnexion', files:'Fichiers', shared:'Partagé avec moi',
+    trash:'Corbeille', drophint:'Déposez des fichiers ici, ou', choose:'choisir des fichiers', choosedir:'dossier',
+    newfolder:'＋ Nouveau dossier', newfile:'＋ Nouveau fichier', bulkdl:'Télécharger la sélection', bulkdel:'Supprimer la sélection',
+    searchph:'Rechercher…', col_name:'Nom', col_size:'Taille', col_actions:'Actions', empty:'Rien trouvé.' },
 };
+const LANGS = ['nl', 'en', 'de', 'fr'];
 let lang = localStorage.getItem('lang') || 'nl';
 function t(k) { return (I18N[lang] && I18N[lang][k]) || k; }
 function applyI18n() {
   document.querySelectorAll('[data-i18n]').forEach(el => el.textContent = t(el.dataset.i18n));
   document.querySelectorAll('[data-i18n-ph]').forEach(el => el.placeholder = t(el.dataset.i18nPh));
-  document.getElementById('langBtn').textContent = lang === 'nl' ? 'EN' : 'NL';
+  document.getElementById('langBtn').textContent = LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length].toUpperCase();
 }
 
 // --- Thema ---
@@ -41,12 +50,22 @@ async function loadMe() {
   document.getElementById('who').textContent = (lang==='nl'?'Ingelogd als ':'Signed in as ') + me.user + ' (' + me.role + ')';
   if (me.role === 'admin') document.getElementById('adminBtn').style.display = '';
   const q = document.getElementById('quota');
+  const trash = me.trashUsed ? ` · 🗑 ${fmtSize(me.trashUsed)}` : '';
   if (me.quota > 0) {
     const pct = Math.min(100, me.used / me.quota * 100);
-    q.innerHTML = `${fmtSize(me.used)} / ${fmtSize(me.quota)} <span class="barwrap"><div style="width:${pct}%"></div></span>`;
+    q.innerHTML = `${fmtSize(me.used)} / ${fmtSize(me.quota)} <span class="barwrap"><div style="width:${pct}%"></div></span>${trash}`;
   } else {
-    q.textContent = fmtSize(me.used) + (lang==='nl'?' gebruikt':' used');
+    q.textContent = fmtSize(me.used) + (lang==='nl'?' gebruikt':' used') + trash;
   }
+}
+
+// Realtime updates: ververs automatisch als er iets wijzigt (ook via SFTP/WebDAV).
+function connectEvents() {
+  try {
+    const es = new EventSource('/api/events');
+    es.addEventListener('change', () => { loadMe(); if (document.getElementById('filesView').style.display!=='none') load(); });
+    es.onerror = () => {};
+  } catch {}
 }
 
 // --- Bestandenweergave ---
@@ -106,18 +125,50 @@ async function editFile(p) {
 }
 
 // --- Uploads ---
+const CHUNK = 4 * 1024 * 1024; // 4MB
+const BIG = 8 * 1024 * 1024;   // vanaf deze grootte: hervatbaar/chunked
+
 function uploadFiles(files, relPaths) {
   if (!files.length) return;
-  const fd = new FormData();
-  files.forEach((f, i) => fd.append('files', f, (relPaths && relPaths[i]) || f.name));
   const bar = document.getElementById('progress'), fill = bar.firstElementChild;
   bar.style.display='block'; fill.style.width='0';
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/upload?path='+enc(cwd));
-  xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) fill.style.width = (ev.loaded/ev.total*100)+'%'; };
-  xhr.onload = () => { bar.style.display='none'; if (xhr.status===401) window.location='/login.html'; else if (xhr.status!==200) alert('Upload mislukt'); loadMe(); load(); };
-  xhr.onerror = () => { bar.style.display='none'; alert('Upload mislukt'); };
-  xhr.send(fd);
+  const small = [], smallRel = [];
+  const big = [];
+  files.forEach((f, i) => { const rp = (relPaths && relPaths[i]) || f.name;
+    if (f.size >= BIG) big.push({ f, rp }); else { small.push(f); smallRel.push(rp); } });
+
+  const doSmall = () => new Promise((resolve) => {
+    if (!small.length) return resolve();
+    const fd = new FormData();
+    small.forEach((f, i) => fd.append('files', f, smallRel[i]));
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload?path='+enc(cwd));
+    xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) fill.style.width = (ev.loaded/ev.total*100)+'%'; };
+    xhr.onload = () => { if (xhr.status===401) window.location='/login.html'; else if (xhr.status!==200 && xhr.status!==422) alert('Upload mislukt'); resolve(); };
+    xhr.onerror = () => { alert('Upload mislukt'); resolve(); };
+    xhr.send(fd);
+  });
+
+  const doBig = async ({ f, rp }) => {
+    const uploadId = (rp + '-' + f.size + '-' + f.lastModified).replace(/[^a-zA-Z0-9_-]/g, '');
+    const total = Math.ceil(f.size / CHUNK);
+    let received = [];
+    try { received = (await (await api('/api/upload/status?uploadId='+enc(uploadId))).json()).received || []; } catch {}
+    for (let i = 0; i < total; i++) {
+      if (received.includes(i)) { fill.style.width = ((i+1)/total*100)+'%'; continue; }
+      const blob = f.slice(i*CHUNK, (i+1)*CHUNK);
+      const cfd = new FormData(); cfd.append('chunk', blob);
+      const url = `/api/upload/chunk?uploadId=${enc(uploadId)}&index=${i}&total=${total}&name=${enc(rp)}&path=${enc(cwd)}`;
+      await api(url, { method:'POST', body: cfd });
+      fill.style.width = ((i+1)/total*100)+'%';
+    }
+  };
+
+  (async () => {
+    await doSmall();
+    for (const b of big) await doBig(b);
+    bar.style.display='none'; loadMe(); load();
+  })();
 }
 
 // --- Tabs ---
@@ -209,7 +260,7 @@ document.getElementById('logoutBtn').onclick = async () => { await fetch('/api/l
 document.getElementById('2faBtn').onclick = setup2fa;
 document.getElementById('adminBtn').onclick = () => window.location='/admin.html';
 document.getElementById('themeBtn').onclick = () => { const cur=localStorage.getItem('theme')||'dark'; localStorage.setItem('theme',cur==='dark'?'light':'dark'); applyTheme(); };
-document.getElementById('langBtn').onclick = () => { lang = lang==='nl'?'en':'nl'; localStorage.setItem('lang',lang); applyI18n(); loadMe(); load(); };
+document.getElementById('langBtn').onclick = () => { lang = LANGS[(LANGS.indexOf(lang)+1)%LANGS.length]; localStorage.setItem('lang',lang); applyI18n(); loadMe(); load(); };
 
 const drop = document.getElementById('drop');
 ['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
@@ -219,4 +270,4 @@ drop.addEventListener('drop', e => { e.preventDefault(); uploadFiles([...e.dataT
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
 
 applyTheme(); applyI18n();
-loadMe().then(load).catch(()=>{});
+loadMe().then(() => { load(); connectEvents(); }).catch(()=>{});

@@ -44,10 +44,12 @@
     async function loadUsers() {
       const {users} = await (await j('/api/admin/users')).json();
       document.getElementById('userTable').innerHTML =
-        '<tr><th>Gebruiker</th><th>Rol</th><th>Quota</th><th>2FA</th><th></th></tr>' +
-        users.map(u=>`<tr><td>${u.username}</td>
+        '<tr><th>Gebruiker</th><th>Rol</th><th>Quota (bytes)</th><th>Bandbreedte (B/s)</th><th>2FA</th><th></th></tr>' +
+        users.map(u=>`<tr><td>${u.username}${u.external?' 🔗':''}</td>
           <td><select data-role="${u.username}"><option ${u.role==='user'?'selected':''}>user</option><option ${u.role==='admin'?'selected':''}>admin</option><option ${u.role==='readonly'?'selected':''}>readonly</option></select></td>
-          <td>${u.quota||'∞'}</td><td>${u.totp?'aan':'uit'}</td>
+          <td><input data-quota="${u.username}" value="${u.quota||0}" style="width:120px"></td>
+          <td><input data-bw="${u.username}" value="${u.bw||0}" style="width:110px"></td>
+          <td>${u.totp?'aan':'uit'}</td>
           <td><button class="danger" data-del="${u.username}">verwijder</button></td></tr>`).join('');
     }
     async function loadBans() {
@@ -69,7 +71,10 @@
       if (e.target.dataset.unban) { await j('/api/admin/bans/'+encodeURIComponent(e.target.dataset.unban),{method:'DELETE'}); loadBans(); }
     });
     document.addEventListener('change', async e => {
-      if (e.target.dataset.role) { await j('/api/admin/users/'+e.target.dataset.role,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:e.target.value})}); }
+      const d = e.target.dataset;
+      if (d.role) await j('/api/admin/users/'+d.role,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:e.target.value})});
+      if (d.quota) await j('/api/admin/users/'+d.quota,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({quota:parseInt(e.target.value||'0',10)})});
+      if (d.bw) await j('/api/admin/users/'+d.bw,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({bw:parseInt(e.target.value||'0',10)})});
     });
     loadUsers(); loadBans(); loadAudit();
   </script>

@@ -91,6 +91,22 @@ export function quota(username) {
   return u && typeof u.quota === 'number' ? u.quota : config.defaultQuota;
 }
 
+export function bandwidth(username) {
+  const u = users.get(username);
+  return u && typeof u.bw === 'number' && u.bw > 0 ? u.bw : config.defaultBandwidth;
+}
+
+// Provisioneer (indien nodig) een gebruiker die extern is geauthenticeerd (OIDC).
+export function ensureExternalUser(username, email) {
+  if (users.has(username)) return;
+  users.set(username, {
+    username, password: 'external$none', home: username, role: 'user',
+    quota: config.defaultQuota, bw: 0, totp: null, shares: [], email, external: true,
+  });
+  saveUsers();
+  fs.mkdirSync(homeDir(username), { recursive: true });
+}
+
 // Mappen die met deze gebruiker gedeeld zijn: [{owner, path, label}].
 export function sharedWith(username) {
   const out = [];
@@ -134,7 +150,9 @@ export function listUsers() {
     home: u.home || u.username,
     role: u.role || 'user',
     quota: u.quota || 0,
+    bw: u.bw || 0,
     totp: !!u.totp,
+    external: !!u.external,
     shares: u.shares || [],
   }));
 }
@@ -162,6 +180,7 @@ export function updateUser(username, patch) {
   if (patch.password) u.password = hashPassword(patch.password);
   if (patch.role) u.role = patch.role;
   if (patch.quota !== undefined) u.quota = patch.quota;
+  if (patch.bw !== undefined) u.bw = patch.bw;
   if (patch.totp !== undefined) u.totp = patch.totp;
   if (patch.shares !== undefined) u.shares = patch.shares;
   saveUsers();

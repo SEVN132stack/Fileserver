@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { config } from './config.js';
 import { ensureStorage, ensureHostKey } from './util.js';
 import { ensureUsers, listUsernames } from './users.js';
@@ -8,6 +9,7 @@ import { startSftpServer } from './sftp.js';
 ensureStorage();
 ensureHostKey();
 ensureUsers();
+fs.mkdirSync(config.chunkDir, { recursive: true });
 
 startWebServer();
 startSftpServer();
@@ -18,6 +20,8 @@ console.log(`Opslagmap : ${config.storageDir}`);
 console.log(`Web UI    : ${scheme}://localhost:${config.web.port}`);
 console.log(`SFTP      : sftp -P ${config.sftp.port} <gebruiker>@localhost`);
 if (config.webdavEnabled) console.log(`WebDAV    : ${scheme}://localhost:${config.web.port}/webdav`);
+if (config.oidc.enabled) console.log('SSO (OIDC): ingeschakeld');
+if (config.clamscan) console.log('Virusscan : ' + config.clamscan);
 console.log(`Gebruikers: ${listUsernames().join(', ')}`);
 console.log('================================\n');
 

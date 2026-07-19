@@ -78,6 +78,29 @@ export const config = {
   // Webhook-URL voor notificaties bij gebeurtenissen (leeg = uit).
   webhookUrl: process.env.WEBHOOK_URL || '',
 
+  // Map voor onvoltooide, hervatbare uploads.
+  chunkDir: abs(process.env.CHUNK_DIR || 'uploads-tmp'),
+
+  // Standaard bandbreedtelimiet voor downloads (bytes/s per stream, 0 = geen).
+  defaultBandwidth: parseInt(process.env.DEFAULT_BANDWIDTH || '0', 10),
+
+  // Antivirus: pad naar clamdscan/clamscan (leeg = uit). Uploads worden dan
+  // gescand en geweigerd bij een vondst.
+  clamscan: process.env.CLAMSCAN || '',
+
+  // Optioneel commando dat na elke upload draait (bijv. `aws s3 cp` voor een
+  // off-site backup). Ontvangt het bestandspad als argument. Leeg = uit.
+  postUploadCmd: process.env.POST_UPLOAD_CMD || '',
+
+  // OpenID Connect (SSO). Alle vier vereist om in te schakelen.
+  oidc: {
+    issuer: process.env.OIDC_ISSUER || '',
+    clientId: process.env.OIDC_CLIENT_ID || '',
+    clientSecret: process.env.OIDC_CLIENT_SECRET || '',
+    redirectUri: process.env.OIDC_REDIRECT_URI || '',
+    get enabled() { return !!(this.issuer && this.clientId && this.clientSecret && this.redirectUri); },
+  },
+
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
     username: process.env.AUTH_USER || 'admin',

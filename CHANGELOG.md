@@ -5,6 +5,29 @@ Alle noemenswaardige wijzigingen aan dit project worden in dit bestand bijgehoud
 Het formaat is gebaseerd op [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/),
 en dit project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
+## [3.1.0] - 2026-07-19
+
+### Toegevoegd
+
+- Reverse-proxy-configuraties voor publiek gebruik met echt TLS:
+  `deploy/Caddyfile` (automatisch Let's Encrypt) en `deploy/nginx.conf` (certbot).
+- Hervatbare (chunked) uploads voor grote bestanden, met resume na onderbreking.
+- Realtime updates via Server-Sent Events: de web UI ververst automatisch als
+  er via SFTP/WebDAV of een andere sessie iets wijzigt.
+- Bandbreedtelimiet per gebruiker voor downloads (instelbaar in het admin-dashboard).
+- Optionele antivirus-scan van uploads met ClamAV (`CLAMSCAN`).
+- Optionele OpenID Connect (SSO) login (`OIDC_*`), met auto-provisioning.
+- Optioneel post-upload-commando (`POST_UPLOAD_CMD`) voor off-site backup,
+  bijvoorbeeld `aws s3 cp` naar een S3-bucket.
+- Meertalige UI uitgebreid naar NL / EN / DE / FR.
+- End-to-end browsertests met Playwright (`npm run test:e2e`) + aparte CI-job.
+
+### Gewijzigd
+
+- De prullenbak telt nu zichtbaar mee in de gebruikte opslag/quota; `whoami`
+  geeft de prullenbakgrootte terug en de UI toont deze.
+- Admin-dashboard: quota en bandbreedte per gebruiker bewerkbaar.
+
 ## [3.0.0] - 2026-07-19
 
 ### Toegevoegd

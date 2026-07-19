@@ -123,7 +123,50 @@ try {
   const over = await fetch(H + '/api/upload?path=/', { method: 'POST', headers: jar(), body: fd3 });
   ok('quota overschrijding geweigerd (413)', over.status === 413);
 
-  // 13. SFTP password-auth als bob
+  // 13a. Hervatbare (chunked) upload: 3 chunks samenvoegen.
+  cookie = ''; await login('admin', 'testpass123');
+  const uploadId = 'testbig';
+  const parts = ['aaa', 'bbb', 'ccc'];
+  for (let i = 0; i < parts.length; i++) {
+    const cfd = new FormData(); cfd.append('chunk', new Blob([parts[i]]));
+    await fetch(H + `/api/upload/chunk?uploadId=${uploadId}&index=${i}&total=3&name=big.txt&path=/`, { method: 'POST', headers: jar(), body: cfd });
+  }
+  const bigContent = await (await fetch(H + '/api/preview?path=/big.txt', { headers: jar() })).text();
+  ok('chunked upload samengevoegd', bigContent === 'aaabbbccc');
+
+  // 13b. Resume: status geeft ontvangen chunks terug.
+  const cfd2 = new FormData(); cfd2.append('chunk', new Blob(['x']));
+  await fetch(H + '/api/upload/chunk?uploadId=resume1&index=0&total=5&name=r.txt&path=/', { method: 'POST', headers: jar(), body: cfd2 });
+  const st = await (await fetch(H + '/api/upload/status?uploadId=resume1', { headers: jar() })).json();
+  ok('resume-status toont ontvangen chunk', st.received.includes(0));
+
+  // 13c. Prullenbak telt mee in gebruikte opslag.
+  const who2 = await (await fetch(H + '/api/whoami', { headers: jar() })).json();
+  await fetch(H + '/api/delete', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/big.txt' }) });
+  const who3 = await (await fetch(H + '/api/whoami', { headers: jar() })).json();
+  ok('prullenbak telt mee in opslag', who3.trashUsed > 0 && who3.used >= who3.trashUsed);
+
+  // 13d. SSE: ontvang een change-event bij een upload.
+  const sseGot = await new Promise(async (resolve) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => { ctrl.abort(); resolve(false); }, 4000);
+    fetch(H + '/api/events', { headers: jar(), signal: ctrl.signal }).then(async (r) => {
+      const reader = r.body.getReader();
+      // trigger een wijziging
+      const fd = new FormData(); fd.append('files', new Blob(['x']), 'sse.txt');
+      fetch(H + '/api/upload?path=/', { method: 'POST', headers: jar(), body: fd });
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += Buffer.from(value).toString();
+        if (buf.includes('event: change')) { clearTimeout(timer); ctrl.abort(); resolve(true); break; }
+      }
+    }).catch(() => {});
+  });
+  ok('SSE stuurt change-event', sseGot === true);
+
+  // 14. SFTP password-auth als bob
   await new Promise((res) => {
     const c = new ssh2.Client();
     c.on('ready', () => c.sftp((e, s) => {

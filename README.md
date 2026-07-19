@@ -140,6 +140,43 @@ home-map van de gebruiker.
 | `*`    | `/webdav/*` | WebDAV |
 | `GET`  | `/s/:token` | Publieke deel-link (geen auth) |
 
+## Publiek gebruik: reverse proxy + echt certificaat
+
+Voor gebruik buiten je eigen netwerk zet je de fileserver achter een reverse
+proxy met een geldig (gratis) TLS-certificaat. De app draait dan gewoon op HTTP
+achter de proxy — laat `TLS_ENABLED=false` en laat de proxy TLS afhandelen.
+
+**Caddy (eenvoudigst, automatisch Let's Encrypt):** zie `deploy/Caddyfile`.
+Vervang de domeinnaam en draai `caddy run`. Caddy regelt certificaat + verlenging.
+
+**Nginx (met certbot):** zie `deploy/nginx.conf`.
+
+```bash
+sudo certbot --nginx -d files.voorbeeld.nl
+```
+
+Beide configuraties geven het echte client-IP door (voor rate limiting/bans),
+staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
+
+## Extra functies (v3.1)
+
+- **Hervatbare uploads:** grote bestanden (>8 MB) worden in stukken geüpload en
+  hervatten automatisch na een onderbreking.
+- **Realtime updates:** de UI ververst vanzelf bij wijzigingen (ook via SFTP/WebDAV).
+- **Bandbreedtelimiet:** per gebruiker instelbaar in het admin-dashboard.
+- **Antivirus (optioneel):** zet `CLAMSCAN` naar het pad van `clamdscan`/`clamscan`.
+- **SSO (optioneel):** vul de `OIDC_*`-variabelen in voor OpenID Connect-login.
+- **Off-site backup (optioneel):** `POST_UPLOAD_CMD="aws s3 cp"` kopieert elke
+  upload naar bijvoorbeeld een S3-bucket.
+- **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
+- **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
+
+## Tests (browser)
+
+```bash
+npm run test:e2e   # Playwright-browsertest (Chromium)
+```
+
 ## Deploy (systemd)
 
 Zie `deploy/fileserver.service`. Pas `User` en `WorkingDirectory` aan, plaats

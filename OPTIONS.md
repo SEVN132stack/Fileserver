@@ -57,15 +57,32 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Mobiele PWA (installeerbaar)
 - ✅ Geïntegreerde tests (CI)
 
+## Geavanceerd (v3.1)
+
+- ✅ Reverse proxy + echt TLS-certificaat (Caddy/nginx + Let's Encrypt)
+- ✅ Hervatbare (chunked) uploads voor grote bestanden
+- ✅ Antivirus-scan bij upload (ClamAV, optioneel)
+- ✅ Volledige e2e-browsertests (Playwright)
+- ✅ OpenID Connect / SSO-login (optioneel)
+- ✅ Realtime updates (Server-Sent Events)
+- ✅ Bandbreedte-limiet per gebruiker
+- ✅ Meertalige UI: NL / EN / DE / FR
+- ✅ Off-site backup via post-upload-commando (bijv. `aws s3 cp`)
+- ✅ Prullenbak telt mee in de opslag/quota
+
 ## Toekomstige ideeën
 
-- 💡 Hervatbare uploads voor zeer grote bestanden (chunked/tus)
-- 💡 Externe opslag-backends (S3, WebDAV-doel)
-- 💡 Antivirus-scan bij upload (ClamAV)
-- 💡 Volledige e2e-browsertests (Playwright)
-- 💡 OpenID Connect / SSO-login
-- 💡 Realtime updates (WebSocket) als iemand anders bestanden wijzigt
-- 💡 Bandbreedte-limiet per gebruiker
-- 💡 Meertalige UI uitbreiden (DE/FR/...)
+- 💡 Volledige S3/object-storage als primaire backend (storage-abstractielaag)
+- 💡 JWKS-handtekeningverificatie voor OIDC id_tokens
+- 💡 Wachtwoord-reset via e-mail
+- 💡 Gedeelde mappen met schrijfrechten (nu alleen-lezen)
+- 💡 Bestandscommentaar / tags / favorieten
+- 💡 Miniatuurcache voor snellere thumbnails van grote afbeeldingen
+- 💡 Client-side versleuteling (end-to-end)
+- 💡 Rsync-/tus-protocol voor extreem grote overdrachten
+- 💡 Meer talen (ES/IT/PL/...) en RTL-ondersteuning
+- 💡 Mobiele native app (via de bestaande API)
+- 💡 Metrics/Prometheus-endpoint voor monitoring
+- 💡 Ingebouwde back-upplanner (cron) met retentie
 
 > Nieuwe wensen? Voeg ze onderaan toe onder "Toekomstige ideeën".

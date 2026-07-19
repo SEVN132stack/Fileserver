@@ -18,14 +18,30 @@ import { isBanned, ban, unban, listBans } from './bans.js';
 import { createSession, getSession, destroySession, tokenFromReq } from './sessions.js';
 import { generateSecret, verifyTotp, otpauthUrl } from './totp.js';
 import { createShare, getShare, checkSharePassword, listShares, deleteShare } from './shares.js';
+import { execFile } from 'node:child_process';
 import { audit } from './audit.js';
 import { notify } from './notify.js';
 import { ensureTls } from './tls.js';
 import { handleWebdav, WEBDAV_MOUNT } from './webdav.js';
+import { throttleStream } from './throttle.js';
+import { scanFile } from './scan.js';
+import { addClient, emitToUser } from './events.js';
+import { bandwidth, ensureExternalUser } from './users.js';
+import { getAuthUrl, validState, exchange } from './oidc.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const clientIp = (req) => req.ip || req.socket.remoteAddress || 'onbekend';
+const sanitizeId = (id) => String(id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || 'x';
+
+// Draai het optionele post-upload-commando (bijv. off-site backup naar S3).
+function runPostUpload(filePath) {
+  if (!config.postUploadCmd) return;
+  const [cmd, ...args] = config.postUploadCmd.split(' ');
+  execFile(cmd, [...args, filePath], (err) => {
+    if (err) console.error('[post-upload] mislukt:', err.message);
+  });
+}
 
 // Bepaal de geauthenticeerde gebruiker uit sessie-cookie of Basic Auth.
 function authenticate(req, res, next) {
@@ -154,6 +170,31 @@ export function createWebServer() {
     res.json({ ok: true });
   });
 
+  // --- OpenID Connect (SSO), optioneel ---
+  app.get('/api/oidc/enabled', (req, res) => res.json({ enabled: config.oidc.enabled }));
+  app.get('/api/oidc/login', async (req, res) => {
+    if (!config.oidc.enabled) return res.status(404).send('OIDC niet ingeschakeld');
+    try {
+      res.redirect(await getAuthUrl());
+    } catch (err) {
+      res.status(500).send('OIDC-fout: ' + err.message);
+    }
+  });
+  app.get('/api/oidc/callback', async (req, res) => {
+    if (!config.oidc.enabled) return res.status(404).send('OIDC niet ingeschakeld');
+    if (!validState(req.query.state)) return res.status(400).send('Ongeldige state');
+    try {
+      const { username, email } = await exchange(req.query.code);
+      ensureExternalUser(username, email);
+      const sid = createSession(username);
+      res.set('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Lax; Path=/${config.tls.enabled ? '; Secure' : ''}`);
+      audit('web', username, 'login', { method: 'oidc' });
+      res.redirect('/');
+    } catch (err) {
+      res.status(500).send('OIDC-fout: ' + err.message);
+    }
+  });
+
   // --- Publieke deel-links (geen auth) ---
   app.get('/s/:token', (req, res) => {
     const share = getShare(req.params.token);
@@ -205,13 +246,24 @@ export function createWebServer() {
 
   app.get('/api/whoami', (req, res) => {
     const used = dirSize(req.home);
+    const trash = path.join(req.home, config.trashName);
     res.json({
       user: req.user,
       role: req.userRole,
       quota: quota(req.user),
-      used,
+      used, // telt de prullenbak mee
+      trashUsed: fs.existsSync(trash) ? dirSize(trash) : 0,
+      bandwidth: bandwidth(req.user),
       shared: sharedWith(req.user),
     });
+  });
+
+  // Realtime updates (Server-Sent Events).
+  app.get('/api/events', (req, res) => {
+    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.flushHeaders?.();
+    res.write(': verbonden\n\n');
+    addClient(req.user, res);
   });
 
   app.get('/api/list', async (req, res) => {
@@ -231,7 +283,15 @@ export function createWebServer() {
       const file = resolveWithin(req.home, req.query.path || '');
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).json({ error: 'Niet gevonden' });
       audit('web', req.user, 'download', { path: req.query.path });
-      res.download(file, path.basename(file));
+      const bw = bandwidth(req.user);
+      if (bw > 0) {
+        // Met bandbreedtelimiet: throttle de bytestroom.
+        res.setHeader('Content-Disposition', 'attachment; filename="' + path.basename(file) + '"');
+        res.setHeader('Content-Length', fs.statSync(file).size);
+        fs.createReadStream(file).pipe(throttleStream(bw)).pipe(res);
+      } else {
+        res.download(file, path.basename(file));
+      }
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
@@ -292,11 +352,66 @@ export function createWebServer() {
       if (dirSize(req.home) + incoming > q) return res.status(413).json({ error: 'Quota overschreden' });
     }
     next();
-  }, upload.array('files'), (req, res) => {
-    const names = (req.files || []).map((f) => f.originalname);
+  }, upload.array('files'), async (req, res) => {
+    const names = [];
+    const infected = [];
+    for (const f of req.files || []) {
+      const scan = await scanFile(f.path);
+      if (!scan.clean) {
+        await fsp.rm(f.path, { force: true });
+        infected.push(f.originalname);
+        audit('web', req.user, 'upload_blocked', { file: f.originalname, detail: scan.detail });
+        continue;
+      }
+      names.push(f.originalname);
+      runPostUpload(f.path);
+    }
     audit('web', req.user, 'upload', { path: req.query.path || '/', files: names });
     notify('upload', { user: req.user, files: names });
+    emitToUser(req.user, 'change', { action: 'upload' });
+    if (infected.length) return res.status(422).json({ uploaded: names, infected });
     res.json({ uploaded: names });
+  });
+
+  // Hervatbare (chunked) upload voor grote bestanden.
+  const chunkUpload = multer({ storage: multer.memoryStorage() });
+  app.get('/api/upload/status', (req, res) => {
+    const dir = path.join(config.chunkDir, sanitizeId(req.query.uploadId));
+    if (!fs.existsSync(dir)) return res.json({ received: [] });
+    res.json({ received: fs.readdirSync(dir).map((n) => parseInt(n, 10)).sort((a, b) => a - b) });
+  });
+  app.post('/api/upload/chunk', requireWrite, chunkUpload.single('chunk'), async (req, res) => {
+    try {
+      const id = sanitizeId(req.query.uploadId);
+      const index = parseInt(req.query.index, 10);
+      const total = parseInt(req.query.total, 10);
+      const dir = path.join(config.chunkDir, id);
+      await fsp.mkdir(dir, { recursive: true });
+      await fsp.writeFile(path.join(dir, String(index)), req.file.buffer);
+      const have = fs.readdirSync(dir).length;
+      if (have < total) return res.json({ ok: true, complete: false, received: have });
+
+      // Alle chunks binnen: samenvoegen naar het doelbestand.
+      const dest = resolveWithin(req.home, path.posix.join(req.query.path || '/', path.basename(req.query.name)));
+      await fsp.mkdir(path.dirname(dest), { recursive: true });
+      const out = fs.createWriteStream(dest);
+      for (let i = 0; i < total; i++) {
+        out.write(await fsp.readFile(path.join(dir, String(i))));
+      }
+      out.end();
+      await new Promise((r) => out.on('close', r));
+      await fsp.rm(dir, { recursive: true, force: true });
+
+      const scan = await scanFile(dest);
+      if (!scan.clean) { await fsp.rm(dest, { force: true }); return res.status(422).json({ error: 'Virus gevonden', detail: scan.detail }); }
+      runPostUpload(dest);
+      audit('web', req.user, 'upload', { path: req.query.path, files: [req.query.name], chunked: true });
+      notify('upload', { user: req.user, files: [req.query.name] });
+      emitToUser(req.user, 'change', { action: 'upload' });
+      res.json({ ok: true, complete: true });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   // Tekst-editor: bestand opslaan.
@@ -306,6 +421,7 @@ export function createWebServer() {
       await fsp.mkdir(path.dirname(file), { recursive: true });
       await fsp.writeFile(file, req.body ?? '');
       audit('web', req.user, 'edit', { path: req.query.path });
+      emitToUser(req.user, 'change', { action: 'edit' });
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -317,6 +433,7 @@ export function createWebServer() {
       const target = resolveWithin(req.home, path.posix.join(req.body.path || '/', req.body.name || ''));
       await fsp.mkdir(target, { recursive: true });
       audit('web', req.user, 'mkdir', { path: req.body.path, name: req.body.name });
+      emitToUser(req.user, 'change', { action: 'mkdir' });
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -330,6 +447,7 @@ export function createWebServer() {
       await fsp.mkdir(path.dirname(to), { recursive: true });
       await fsp.rename(from, to);
       audit('web', req.user, 'rename', { from: req.body.from, to: req.body.to });
+      emitToUser(req.user, 'change', { action: 'rename' });
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -352,6 +470,7 @@ export function createWebServer() {
         audit('web', req.user, 'delete', { path: p });
         notify('delete', { user: req.user, path: p });
       }
+      emitToUser(req.user, 'change', { action: 'delete' });
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -376,6 +495,7 @@ export function createWebServer() {
       const dest = resolveWithin(req.home, '/' + original);
       await fsp.rename(abs, dest);
       audit('web', req.user, 'restore', { path: original });
+      emitToUser(req.user, 'change', { action: 'restore' });
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err.message });
