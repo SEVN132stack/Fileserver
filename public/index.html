@@ -5,38 +5,49 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SFTP Fileserver</title>
   <style>
-    :root { --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --text:#e2e8f0; --muted:#94a3b8; }
+    :root { --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --text:#e2e8f0; --muted:#94a3b8; --danger:#f87171; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); }
     header { background:var(--panel); padding:1rem 1.5rem; display:flex; align-items:center; gap:1rem; }
     header h1 { font-size:1.1rem; margin:0; }
-    main { max-width:900px; margin:1.5rem auto; padding:0 1rem; }
+    header .who { margin-left:auto; color:var(--muted); font-size:.9rem; }
+    main { max-width:960px; margin:1.5rem auto; padding:0 1rem; }
     .bar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
     .crumbs { color:var(--muted); font-size:.9rem; word-break:break-all; }
     .crumbs a { color:var(--accent); cursor:pointer; text-decoration:none; }
+    input[type=search], select {
+      background:var(--bg); color:var(--text); border:1px solid #334155; border-radius:6px; padding:.45rem .6rem; }
     button, input[type=file]::file-selector-button {
       background:var(--accent); color:#04283a; border:none; padding:.5rem .9rem;
       border-radius:6px; cursor:pointer; font-weight:600; }
     button.ghost { background:var(--panel); color:var(--text); }
+    button.danger { background:transparent; color:var(--danger); }
     button:hover { opacity:.9; }
     table { width:100%; border-collapse:collapse; background:var(--panel); border-radius:8px; overflow:hidden; }
-    th, td { text-align:left; padding:.6rem .9rem; border-bottom:1px solid #334155; }
-    th { color:var(--muted); font-weight:600; font-size:.8rem; text-transform:uppercase; }
+    th, td { text-align:left; padding:.55rem .9rem; border-bottom:1px solid #334155; }
+    th { color:var(--muted); font-weight:600; font-size:.75rem; text-transform:uppercase; }
     tr:last-child td { border-bottom:none; }
     .name { display:flex; align-items:center; gap:.5rem; cursor:pointer; }
-    .name.file { cursor:default; }
-    .actions { display:flex; gap:.4rem; justify-content:flex-end; }
-    .actions button { padding:.3rem .6rem; font-size:.8rem; }
+    .name.file { cursor:pointer; }
+    .actions { display:flex; gap:.3rem; justify-content:flex-end; flex-wrap:wrap; }
+    .actions button { padding:.3rem .55rem; font-size:.78rem; }
     .muted { color:var(--muted); font-size:.85rem; }
-    #drop { border:2px dashed #334155; border-radius:8px; padding:1.2rem; text-align:center;
+    #drop { border:2px dashed #334155; border-radius:8px; padding:1.1rem; text-align:center;
       color:var(--muted); margin-bottom:1rem; transition:.2s; }
     #drop.over { border-color:var(--accent); color:var(--accent); }
+    #progress { height:6px; background:#334155; border-radius:3px; overflow:hidden; margin-top:.6rem; display:none; }
+    #progress > div { height:100%; width:0; background:var(--accent); transition:width .1s; }
+    #modal { position:fixed; inset:0; background:rgba(0,0,0,.75); display:none; align-items:center; justify-content:center; padding:1rem; }
+    #modal .box { background:var(--panel); border-radius:10px; max-width:90vw; max-height:90vh; overflow:auto; padding:1rem; }
+    #modal .box img, #modal .box iframe { max-width:85vw; max-height:78vh; border:0; background:#fff; }
+    #modal pre { max-width:85vw; max-height:78vh; overflow:auto; white-space:pre-wrap; }
+    #modal .close { float:right; }
   </style>
 </head>
 <body>
   <header>
     <h1>📁 SFTP Fileserver</h1>
-    <span class="muted">Web UI</span>
+    <span class="who" id="who"></span>
   </header>
   <main>
     <div class="bar">
@@ -46,11 +57,24 @@
     <div id="drop">Sleep bestanden hierheen om te uploaden, of
       <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">
         kies bestanden<input type="file" id="fileInput" multiple hidden></label>
+      <div id="progress"><div></div></div>
     </div>
 
     <div class="bar">
       <button class="ghost" id="mkdirBtn">＋ Nieuwe map</button>
       <button class="ghost" id="refreshBtn">↻ Vernieuwen</button>
+      <input type="search" id="search" placeholder="Zoeken in deze map…" />
+      <label class="muted">Sorteer
+        <select id="sort">
+          <option value="name">naam</option>
+          <option value="size">grootte</option>
+          <option value="mtime">datum</option>
+        </select>
+      </label>
+      <select id="order">
+        <option value="asc">↑ oplopend</option>
+        <option value="desc">↓ aflopend</option>
+      </select>
     </div>
 
     <table>
@@ -61,6 +85,8 @@
     </table>
   </main>
 
+  <div id="modal"><div class="box"><button class="close ghost" id="modalClose">Sluiten ✕</button><div id="modalBody"></div></div></div>
+
   <script>
     let cwd = '/';
 
@@ -70,29 +96,43 @@
       while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
       return n.toFixed(i ? 1 : 0) + ' ' + u[i];
     };
+    const enc = encodeURIComponent;
 
-    const joinPath = (base, name) => (base === '/' ? '' : base) + '/' + name;
+    async function whoami() {
+      const r = await fetch('/api/whoami');
+      if (r.ok) { const d = await r.json(); document.getElementById('who').textContent = 'Ingelogd als ' + d.user; }
+    }
 
     async function load() {
-      const res = await fetch('/api/list?path=' + encodeURIComponent(cwd));
+      const q = document.getElementById('search').value.trim();
+      const sort = document.getElementById('sort').value;
+      const order = document.getElementById('order').value;
+      const url = `/api/list?path=${enc(cwd)}&sort=${sort}&order=${order}` + (q ? `&q=${enc(q)}` : '');
+      const res = await fetch(url);
       if (!res.ok) { alert('Kon map niet laden'); return; }
       const data = await res.json();
       renderCrumbs();
       const rows = document.getElementById('rows');
       rows.innerHTML = '';
       if (!data.items.length) {
-        rows.innerHTML = '<tr><td colspan="3" class="muted">Deze map is leeg.</td></tr>';
+        rows.innerHTML = '<tr><td colspan="3" class="muted">Niets gevonden.</td></tr>';
       }
       for (const item of data.items) {
         const tr = document.createElement('tr');
-        const full = joinPath(cwd, item.name);
+        const full = item.path;
+        const icon = item.isDir ? '📂' : '📄';
         const nameCell = item.isDir
-          ? `<div class="name" data-dir="${encodeURIComponent(full)}">📂 ${item.name}</div>`
-          : `<div class="name file">📄 ${item.name}</div>`;
-        const dl = item.isDir ? '' :
-          `<button data-dl="${encodeURIComponent(full)}">Download</button>`;
-        tr.innerHTML = `<td>${nameCell}</td><td>${fmtSize(item.size)}</td>
-          <td class="actions">${dl}<button class="ghost" data-del="${encodeURIComponent(full)}">Verwijder</button></td>`;
+          ? `<div class="name" data-dir="${enc(full)}">${icon} ${item.name}</div>`
+          : `<div class="name file" data-preview="${enc(full)}">${icon} ${item.name}</div>`;
+        let actions = '';
+        if (item.isDir) {
+          actions += `<button data-zip="${enc(full)}">ZIP</button>`;
+        } else {
+          actions += `<button data-dl="${enc(full)}">Download</button>`;
+        }
+        actions += `<button class="ghost" data-ren="${enc(full)}">Hernoem</button>`;
+        actions += `<button class="danger" data-del="${enc(full)}">Verwijder</button>`;
+        tr.innerHTML = `<td>${nameCell}</td><td>${fmtSize(item.size)}</td><td class="actions">${actions}</td>`;
         rows.appendChild(tr);
       }
     }
@@ -100,55 +140,94 @@
     function renderCrumbs() {
       const parts = cwd.split('/').filter(Boolean);
       let acc = '';
-      const links = ['<a data-go="/">root</a>'];
-      for (const p of parts) {
-        acc += '/' + p;
-        links.push(`<a data-go="${encodeURIComponent(acc)}">${p}</a>`);
-      }
+      const links = ['<a data-go="/">home</a>'];
+      for (const p of parts) { acc += '/' + p; links.push(`<a data-go="${enc(acc)}">${p}</a>`); }
       document.getElementById('crumbs').innerHTML = links.join(' / ');
     }
 
+    async function openPreview(p) {
+      const name = p.split('/').pop();
+      const ext = name.split('.').pop().toLowerCase();
+      const body = document.getElementById('modalBody');
+      const url = '/api/preview?path=' + enc(p);
+      if (['png','jpg','jpeg','gif','webp','svg','bmp'].includes(ext)) {
+        body.innerHTML = `<h3>${name}</h3><img src="${url}">`;
+      } else if (ext === 'pdf') {
+        body.innerHTML = `<h3>${name}</h3><iframe src="${url}" style="width:80vw;height:75vh"></iframe>`;
+      } else if (['txt','md','json','js','css','html','csv','log','xml','yml','yaml','mjs'].includes(ext)) {
+        const txt = await (await fetch(url)).text();
+        const esc = txt.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+        body.innerHTML = `<h3>${name}</h3><pre>${esc}</pre>`;
+      } else {
+        body.innerHTML = `<h3>${name}</h3><p class="muted">Geen preview beschikbaar.</p>
+          <button data-dl="${enc(p)}">Download</button>`;
+      }
+      document.getElementById('modal').style.display = 'flex';
+    }
+    function closeModal() { document.getElementById('modal').style.display = 'none'; document.getElementById('modalBody').innerHTML = ''; }
+
     document.addEventListener('click', async (e) => {
       const t = e.target;
-      if (t.dataset.dir) { cwd = decodeURIComponent(t.dataset.dir); load(); }
-      else if (t.closest('[data-dir]')) { cwd = decodeURIComponent(t.closest('[data-dir]').dataset.dir); load(); }
-      else if (t.dataset.go) { cwd = decodeURIComponent(t.dataset.go); load(); }
+      const dir = t.closest('[data-dir]');
+      const prev = t.closest('[data-preview]');
+      if (dir) { cwd = decodeURIComponent(dir.dataset.dir); document.getElementById('search').value=''; load(); }
+      else if (t.dataset.go) { cwd = decodeURIComponent(t.dataset.go); document.getElementById('search').value=''; load(); }
       else if (t.dataset.dl) { window.location = '/api/download?path=' + t.dataset.dl; }
+      else if (t.dataset.zip) { window.location = '/api/zip?path=' + t.dataset.zip; }
+      else if (prev) { openPreview(decodeURIComponent(prev.dataset.preview)); }
+      else if (t.dataset.ren) {
+        const cur = decodeURIComponent(t.dataset.ren);
+        const base = cur.substring(0, cur.lastIndexOf('/') + 1);
+        const nn = prompt('Nieuwe naam of pad:', cur.split('/').pop());
+        if (!nn) return;
+        const to = nn.startsWith('/') ? nn : base + nn;
+        await fetch('/api/rename', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ from: cur, to }) });
+        load();
+      }
       else if (t.dataset.del) {
         if (!confirm('Verwijderen?')) return;
-        await fetch('/api/delete', { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ path: decodeURIComponent(t.dataset.del) }) });
+        await fetch('/api/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ path: decodeURIComponent(t.dataset.del) }) });
         load();
       }
     });
 
+    document.getElementById('modalClose').onclick = closeModal;
+    document.getElementById('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
     document.getElementById('refreshBtn').onclick = load;
+    document.getElementById('sort').onchange = load;
+    document.getElementById('order').onchange = load;
+    let searchTimer;
+    document.getElementById('search').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(load, 300); };
     document.getElementById('mkdirBtn').onclick = async () => {
       const name = prompt('Naam van de nieuwe map:');
       if (!name) return;
-      await fetch('/api/mkdir', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ path: cwd, name }) });
+      await fetch('/api/mkdir', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ path: cwd, name }) });
       load();
     };
 
-    async function uploadFiles(files) {
+    // Upload met voortgangsbalk (XHR i.p.v. fetch voor progress-events).
+    function uploadFiles(files) {
       if (!files.length) return;
       const fd = new FormData();
       for (const f of files) fd.append('files', f);
-      const res = await fetch('/api/upload?path=' + encodeURIComponent(cwd), { method:'POST', body: fd });
-      if (!res.ok) alert('Upload mislukt');
-      load();
+      const bar = document.getElementById('progress');
+      const fill = bar.firstElementChild;
+      bar.style.display = 'block'; fill.style.width = '0';
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload?path=' + enc(cwd));
+      xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) fill.style.width = (ev.loaded / ev.total * 100) + '%'; };
+      xhr.onload = () => { bar.style.display = 'none'; if (xhr.status !== 200) alert('Upload mislukt'); load(); };
+      xhr.onerror = () => { bar.style.display = 'none'; alert('Upload mislukt'); };
+      xhr.send(fd);
     }
 
     document.getElementById('fileInput').onchange = (e) => uploadFiles([...e.target.files]);
-
     const drop = document.getElementById('drop');
-    ['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, (e) => {
-      e.preventDefault(); drop.classList.add('over');
-    }));
+    ['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
     ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, () => drop.classList.remove('over')));
     drop.addEventListener('drop', (e) => { e.preventDefault(); uploadFiles([...e.dataTransfer.files]); });
 
+    whoami();
     load();
   </script>
 </body>

@@ -9,6 +9,10 @@ loadEnv();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 
+const bool = (v, def = false) =>
+  v === undefined ? def : ['1', 'true', 'yes', 'ja', 'on'].includes(String(v).toLowerCase());
+const abs = (p) => (path.isAbsolute(p) ? p : path.join(rootDir, p));
+
 if (!process.env.AUTH_PASS) {
   console.error('[fout] AUTH_PASS ontbreekt. Zet het in .env (zie .env.example).');
   process.exit(1);
@@ -16,13 +20,18 @@ if (!process.env.AUTH_PASS) {
 
 // Alle bestanden worden opgeslagen in deze map. Zowel de SFTP-server als de
 // web UI werken op exact dezelfde opslag, zodat wat je via SFTP uploadt ook
-// zichtbaar is in de browser en andersom.
+// zichtbaar is in de browser en andersom. Elke gebruiker heeft een eigen
+// submap (home) binnen deze opslag.
 export const config = {
   rootDir,
-  // Gedeelde opslagmap voor alle bestanden.
-  storageDir: process.env.STORAGE_DIR || path.join(rootDir, 'storage'),
-  // Pad naar de SSH host key (wordt automatisch aangemaakt indien afwezig).
-  hostKeyPath: process.env.HOST_KEY_PATH || path.join(rootDir, 'host.key'),
+  storageDir: abs(process.env.STORAGE_DIR || 'storage'),
+  hostKeyPath: abs(process.env.HOST_KEY_PATH || 'host.key'),
+  // Bestand met gebruikers (gehashte wachtwoorden). Nooit in git.
+  usersFile: abs(process.env.USERS_FILE || 'users.json'),
+  // Map met per-gebruiker SSH publieke sleutels (authorized_keys).
+  authorizedKeysDir: abs(process.env.AUTHORIZED_KEYS_DIR || 'authorized_keys'),
+  // Audit-logbestand.
+  auditLog: abs(process.env.AUDIT_LOG || 'audit.log'),
 
   web: {
     port: parseInt(process.env.WEB_PORT || '8080', 10),
@@ -34,7 +43,23 @@ export const config = {
     host: process.env.SFTP_HOST || '0.0.0.0',
   },
 
-  // Inloggegevens voor zowel SFTP als de web UI (altijd uit .env).
+  // HTTPS voor de web UI. Als ingeschakeld en er geen cert bestaat, wordt er
+  // automatisch een self-signed certificaat gegenereerd.
+  tls: {
+    enabled: bool(process.env.TLS_ENABLED, false),
+    certPath: abs(process.env.TLS_CERT || 'tls/cert.pem'),
+    keyPath: abs(process.env.TLS_KEY || 'tls/key.pem'),
+  },
+
+  // Brute-force-bescherming: max mislukte pogingen per IP/gebruiker binnen het
+  // venster; daarna tijdelijk geblokkeerd.
+  rateLimit: {
+    maxAttempts: parseInt(process.env.RATE_MAX_ATTEMPTS || '5', 10),
+    windowMs: parseInt(process.env.RATE_WINDOW_MS || '60000', 10),
+    blockMs: parseInt(process.env.RATE_BLOCK_MS || '300000', 10),
+  },
+
+  // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
     username: process.env.AUTH_USER || 'admin',
     password: process.env.AUTH_PASS,

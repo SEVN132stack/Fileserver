@@ -1,41 +1,69 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { timingSafeEqual } from 'node:crypto';
 import ssh2 from 'ssh2';
 import { config } from './config.js';
-import { resolveSafe } from './util.js';
+import { resolveWithin, toClientPath as toClient } from './paths.js';
+import { homeDir, verifyPassword, verifyPublicKey, userExists } from './users.js';
+import { checkAllowed, recordFailure, recordSuccess } from './ratelimit.js';
+import { audit } from './audit.js';
 
 const { Server, utils } = ssh2;
 const { STATUS_CODE: SFTP_STATUS_CODE, OPEN_MODE: SFTP_OPEN_MODE } = utils.sftp;
-
-// Vergelijk twee strings zonder timing-lek.
-function safeEqual(a, b) {
-  const ba = Buffer.from(a);
-  const bb = Buffer.from(b);
-  return ba.length === bb.length && timingSafeEqual(ba, bb);
-}
-
-// Vertaal een absoluut opslagpad terug naar een pad t.o.v. de opslag-root,
-// zodat de client altijd "/" als hoofdmap ziet.
-function toClientPath(absPath) {
-  const rel = path.relative(config.storageDir, absPath);
-  return '/' + rel.split(path.sep).join('/');
-}
 
 export function startSftpServer() {
   const hostKey = fs.readFileSync(config.hostKeyPath);
 
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
+    const ip = (client._sock && client._sock.remoteAddress) || 'onbekend';
+    let username = null;
+
     client.on('authentication', (ctx) => {
-      const okUser = safeEqual(ctx.username || '', config.auth.username);
-      if (ctx.method === 'password' && okUser && safeEqual(ctx.password || '', config.auth.password)) {
-        return ctx.accept();
+      const key = 'sftp:' + ip;
+      const gate = checkAllowed(key);
+      if (!gate.allowed) return ctx.reject();
+
+      const user = ctx.username || '';
+      if (!userExists(user)) {
+        recordFailure(key);
+        audit('sftp', user, 'login_failed', { ip, reason: 'onbekende gebruiker' });
+        return ctx.reject();
       }
-      if (ctx.method === 'none') return ctx.reject(['password']);
-      return ctx.reject();
+
+      if (ctx.method === 'password') {
+        if (verifyPassword(user, ctx.password || '')) {
+          recordSuccess(key);
+          username = user;
+          return ctx.accept();
+        }
+        recordFailure(key);
+        audit('sftp', user, 'login_failed', { ip, method: 'password' });
+        return ctx.reject();
+      }
+
+      if (ctx.method === 'publickey') {
+        if (verifyPublicKey(user, ctx.key.algo, ctx.key.data)) {
+          // Bij een signature-check (ctx.signature aanwezig) accepteren we pas
+          // definitief; anders geeft ssh2 aan dat de sleutel bruikbaar is.
+          recordSuccess(key);
+          username = user;
+          return ctx.accept();
+        }
+        audit('sftp', user, 'login_failed', { ip, method: 'publickey' });
+        return ctx.reject();
+      }
+
+      return ctx.reject(['password', 'publickey']);
     });
 
     client.on('ready', () => {
+      const home = homeDir(username);
+      fs.mkdirSync(home, { recursive: true });
+      audit('sftp', username, 'login', { ip });
+
+      // Alle padbewerkingen blijven binnen de home-map van deze gebruiker.
+      const resolve = (p) => resolveWithin(home, p);
+      const toClientPath = (abs) => toClient(home, abs);
+
       client.on('session', (accept) => {
         const session = accept();
         session.on('sftp', (acceptSftp) => {
@@ -56,7 +84,7 @@ export function startSftpServer() {
           sftp.on('OPEN', (reqid, filename, flags) => {
             let abs;
             try {
-              abs = resolveSafe(filename);
+              abs = resolve(filename);
             } catch {
               return sftp.status(reqid, SFTP_STATUS_CODE.FAILURE);
             }
@@ -67,6 +95,7 @@ export function startSftpServer() {
             } catch {
               return sftp.status(reqid, SFTP_STATUS_CODE.NO_SUCH_FILE);
             }
+            if (!reading) audit('sftp', username, 'upload', { path: toClientPath(abs) });
             sftp.handle(reqid, newHandle({ fd, path: abs }));
           });
 
@@ -102,7 +131,7 @@ export function startSftpServer() {
           sftp.on('OPENDIR', (reqid, dirpath) => {
             let abs;
             try {
-              abs = resolveSafe(dirpath);
+              abs = resolve(dirpath);
             } catch {
               return sftp.status(reqid, SFTP_STATUS_CODE.FAILURE);
             }
@@ -132,7 +161,7 @@ export function startSftpServer() {
           const doStat = (reqid, p) => {
             let abs;
             try {
-              abs = resolveSafe(p);
+              abs = resolve(p);
             } catch {
               return sftp.status(reqid, SFTP_STATUS_CODE.FAILURE);
             }
@@ -155,25 +184,25 @@ export function startSftpServer() {
 
           // --- Bewerkingen ---
           sftp.on('REMOVE', (reqid, p) => {
-            try { fs.unlinkSync(resolveSafe(p)); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
+            try { fs.unlinkSync(resolve(p)); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('MKDIR', (reqid, p) => {
-            try { fs.mkdirSync(resolveSafe(p), { recursive: true }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
+            try { fs.mkdirSync(resolve(p), { recursive: true }); audit('sftp', username, 'mkdir', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('RMDIR', (reqid, p) => {
-            try { fs.rmSync(resolveSafe(p), { recursive: true, force: true }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
+            try { fs.rmSync(resolve(p), { recursive: true, force: true }); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('RENAME', (reqid, oldPath, newPath) => {
-            try { fs.renameSync(resolveSafe(oldPath), resolveSafe(newPath)); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
+            try { fs.renameSync(resolve(oldPath), resolve(newPath)); audit('sftp', username, 'rename', { from: oldPath, to: newPath }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('REALPATH', (reqid, p) => {
             let abs;
             try {
-              abs = resolveSafe(p);
+              abs = resolve(p);
             } catch {
               return sftp.status(reqid, SFTP_STATUS_CODE.FAILURE);
             }

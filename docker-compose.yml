@@ -1,0 +1,17 @@
+services:
+  fileserver:
+    build: .
+    ports:
+      - "8080:8080"   # web UI
+      - "2222:2222"   # SFTP
+    environment:
+      # Optioneel: zet je eigen waarden of laat .env in het volume genereren.
+      # AUTH_USER: admin
+      # AUTH_PASS: verander-dit
+      TLS_ENABLED: "false"
+    volumes:
+      - fileserver-data:/data
+    restart: unless-stopped
+
+volumes:
+  fileserver-data:

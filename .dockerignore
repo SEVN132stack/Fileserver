@@ -1,0 +1,10 @@
+node_modules
+storage
+host.key
+users.json
+audit.log
+authorized_keys
+tls
+.env
+*.log
+.git

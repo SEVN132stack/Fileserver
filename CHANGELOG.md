@@ -5,7 +5,33 @@ Alle noemenswaardige wijzigingen aan dit project worden in dit bestand bijgehoud
 Het formaat is gebaseerd op [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/),
 en dit project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
-## [Unreleased]
+## [2.0.0] - 2026-07-19
+
+### Toegevoegd
+
+- **Meerdere gebruikers** met een eigen, geïsoleerde home-map per gebruiker
+  (`users.json`, wachtwoorden gehasht met scrypt) en een CLI om ze te beheren
+  (`npm run user add|passwd|del|list`).
+- **SSH key-authenticatie** voor SFTP via `authorized_keys/<gebruiker>`.
+- **HTTPS** voor de web UI (`TLS_ENABLED`), met automatisch gegenereerd
+  self-signed certificaat.
+- **Brute-force-bescherming** (rate limiting) op mislukte logins van web en SFTP.
+- **Audit-log**: uploads, downloads, verwijderingen, hernoemingen en logins
+  worden gelogd naar `audit.log`.
+- **ZIP-download** van hele mappen (`/api/zip`).
+- **Preview** in de browser voor afbeeldingen, tekst, code en PDF (`/api/preview`).
+- **Hernoemen/verplaatsen** vanuit de web UI (`/api/rename`).
+- **Zoeken** (recursief) en **sorteren** in de web UI.
+- **Upload-voortgangsbalk** in de web UI.
+- **Docker**-ondersteuning (`Dockerfile`, `docker-compose.yml`, `.dockerignore`).
+- `/api/whoami` om de ingelogde gebruiker te tonen.
+
+### Gewijzigd
+
+- Padbewerkingen en authenticatie zijn nu per gebruiker; alle acties blijven
+  binnen de home-map van de betreffende gebruiker.
+
+## [1.1.0] - 2026-07-19
 
 ### Gewijzigd
 
