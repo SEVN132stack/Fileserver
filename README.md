@@ -30,8 +30,13 @@ npm install
 npm start
 ```
 
-Bij de eerste start wordt automatisch een SSH host key (`host.key`) en een
-opslagmap (`storage/`) aangemaakt.
+Bij de eerste start worden automatisch aangemaakt:
+
+- een `.env`-bestand met een **willekeurig gegenereerd wachtwoord** (dit wordt één keer in de console getoond);
+- een SSH host key (`host.key`);
+- een opslagmap (`storage/`).
+
+`.env` en `host.key` staan in `.gitignore` en worden dus **nooit** gecommit.
 
 Na het starten:
 
@@ -40,7 +45,17 @@ Na het starten:
 
 ## Configuratie
 
-Alles is instelbaar via omgevingsvariabelen:
+Alle geheimen (wachtwoorden, keys) en instellingen leven in **`.env`** — nooit in
+de broncode. Kopieer `.env.example` naar `.env` om zelf waarden in te vullen, of
+laat de applicatie bij de eerste start automatisch een `.env` met een sterk
+willekeurig wachtwoord aanmaken.
+
+```bash
+cp .env.example .env
+# pas AUTH_USER / AUTH_PASS aan
+```
+
+Beschikbare variabelen:
 
 | Variabele      | Standaard              | Omschrijving                          |
 | -------------- | ---------------------- | ------------------------------------- |
@@ -53,13 +68,13 @@ Alles is instelbaar via omgevingsvariabelen:
 | `AUTH_USER`    | `admin`                | Gebruikersnaam                        |
 | `AUTH_PASS`    | `changeme`             | Wachtwoord                            |
 
-> **Belangrijk:** wijzig `AUTH_PASS` (en bij voorkeur `AUTH_USER`) voordat je dit
-> op een netwerk beschikbaar maakt.
+> **Belangrijk:** wijzig `AUTH_PASS` (en bij voorkeur `AUTH_USER`) in `.env`
+> voordat je dit op een netwerk beschikbaar maakt. Deel `.env` nooit en commit het niet.
 
-Voorbeeld:
+Variabelen die je op de commandline meegeeft, winnen van `.env`. Voorbeeld:
 
 ```bash
-AUTH_USER=troy AUTH_PASS=een-sterk-wachtwoord WEB_PORT=9000 npm start
+WEB_PORT=9000 npm start
 ```
 
 ## Voorbeeld: bestand uploaden via SFTP CLI
@@ -77,6 +92,7 @@ Het bestand verschijnt daarna direct in de web UI.
 
 ```
 src/
+  env.js      # Laadt/genereert .env (wachtwoorden & keys nooit in code)
   config.js   # Instellingen (poorten, opslag, auth)
   util.js     # Opslag, host key, path-traversal-beveiliging
   web.js      # Express web UI + REST API
