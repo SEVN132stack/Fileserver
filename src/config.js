@@ -164,6 +164,13 @@ export const config = {
   // Cache-map voor thumbnails.
   thumbDir: abs(process.env.THUMB_DIR || 'thumbs-cache'),
 
+  // Historische metrics: periodiek een sample wegschrijven en de laatste N bewaren.
+  metricsHistory: {
+    file: abs(process.env.METRICS_HISTORY_FILE || 'metrics-history.json'),
+    intervalSeconds: parseInt(process.env.METRICS_HISTORY_INTERVAL || '60', 10),
+    keep: parseInt(process.env.METRICS_HISTORY_KEEP || '1440', 10), // 24u bij 1/min
+  },
+
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
     username: process.env.AUTH_USER || 'admin',

@@ -5,6 +5,15 @@ Alle noemenswaardige wijzigingen aan dit project worden in dit bestand bijgehoud
 Het formaat is gebaseerd op [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/),
 en dit project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
+## [3.7.0] - 2026-07-20
+
+### Toegevoegd
+
+- **Historische metrics**: periodiek worden metric-samples op schijf bewaard
+  (ring-buffer, `METRICS_HISTORY_*`), op te vragen via `/api/admin/metrics/history`.
+- **Configureerbare tijdvensters + legenda's** in de dashboardgrafieken: kies
+  Live / 1u / 6u / 24u; historische vensters tonen lijngrafieken met legenda en tijd-as.
+
 ## [3.6.0] - 2026-07-20
 
 ### Toegevoegd

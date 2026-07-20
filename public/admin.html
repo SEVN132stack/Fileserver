@@ -32,12 +32,24 @@
     <div class="cards" id="cards"></div>
     <div class="badges" id="badges" style="margin-bottom:1.5rem"></div>
 
-    <h2>Grafieken <span id="liveDot" style="font-size:.7rem;color:#4ade80">● live</span></h2>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin-bottom:2rem">
+    <h2>Grafieken
+      <span id="liveDot" style="font-size:.7rem;color:#4ade80">● live</span>
+      <select id="range" style="float:right;font-size:.85rem">
+        <option value="live">Live (browser)</option>
+        <option value="60">Laatste uur</option>
+        <option value="360">Laatste 6 uur</option>
+        <option value="1440">Laatste 24 uur</option>
+      </select>
+    </h2>
+    <div id="liveCharts" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin-bottom:2rem">
       <div class="card"><div class="l" style="margin-bottom:.4rem">Totalen</div><div id="barChart"></div></div>
       <div class="card"><div class="l" style="margin-bottom:.4rem">Uploads/s (live)</div><div id="spUp"></div></div>
       <div class="card"><div class="l" style="margin-bottom:.4rem">Downloads/s (live)</div><div id="spDown"></div></div>
       <div class="card"><div class="l" style="margin-bottom:.4rem">Actieve realtime-clients</div><div id="spClients"></div></div>
+    </div>
+    <div id="histCharts" style="display:none;grid-template-columns:1fr;gap:1rem;margin-bottom:2rem">
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Activiteit per interval</div><div id="histActivity"></div></div>
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Doorvoer (bytes per interval)</div><div id="histBytes"></div></div>
     </div>
 
     <h2>Recente activiteit</h2>
@@ -94,6 +106,43 @@
       el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" width="100%" height="70">
         <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"/>
         </svg><div class="l">nu: ${last}${unit} · piek: ${max}${unit}</div>`;
+    }
+
+    // Multi-serie lijngrafiek met legenda en tijd-as (inline SVG).
+    function lineChart(el, series, times) {
+      const w=760, h=220, padL=44, padR=12, padT=12, padB=42;
+      const n = times.length;
+      if (n < 2) { el.innerHTML='<div class="l">verzamelt gegevens… (nog te weinig samples)</div>'; return; }
+      const max = Math.max(1, ...series.flatMap(s => s.values));
+      const X = (i) => padL + i*(w-padL-padR)/(n-1);
+      const Y = (v) => h-padB - (h-padT-padB)*(v/max);
+      const grid = [0,0.25,0.5,0.75,1].map(f => { const y=h-padB-(h-padT-padB)*f;
+        return `<line x1="${padL}" y1="${y}" x2="${w-padR}" y2="${y}" stroke="#334155" stroke-width="1"/>`
+             + `<text x="${padL-6}" y="${y+3}" fill="#94a3b8" font-size="9" text-anchor="end">${Math.round(max*f)}</text>`; }).join('');
+      const lines = series.map(s => `<polyline points="${s.values.map((v,i)=>`${X(i)},${Y(v)}`).join(' ')}" fill="none" stroke="${s.color}" stroke-width="2"/>`).join('');
+      const nLabels = Math.min(6, n);
+      const xlabels = Array.from({length:nLabels}, (_,k) => { const i=Math.round(k*(n-1)/(nLabels-1)); const t=new Date(times[i]);
+        return `<text x="${X(i)}" y="${h-padB+14}" fill="#94a3b8" font-size="9" text-anchor="middle">${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}</text>`; }).join('');
+      const legend = series.map((s,i) => `<g transform="translate(${padL+i*130},${h-8})"><rect width="10" height="10" y="-9" rx="2" fill="${s.color}"/><text x="15" y="0" fill="#e2e8f0" font-size="10">${s.label}</text></g>`).join('');
+      el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%">${grid}${lines}${xlabels}${legend}</svg>`;
+    }
+
+    async function loadHistory(minutes) {
+      const { samples } = await (await j('/api/admin/metrics/history?minutes='+minutes)).json();
+      if (samples.length < 2) { document.getElementById('histActivity').innerHTML='<div class="l">Nog te weinig historische samples (worden elke minuut bewaard).</div>'; document.getElementById('histBytes').innerHTML=''; return; }
+      const times=[], up=[], down=[], logins=[], bUp=[], bDown=[];
+      for (let i=1;i<samples.length;i++){ const a=samples[i-1], b=samples[i];
+        times.push(b.ts);
+        up.push(Math.max(0,b.fileserver_uploads_total-a.fileserver_uploads_total));
+        down.push(Math.max(0,b.fileserver_downloads_total-a.fileserver_downloads_total));
+        logins.push(Math.max(0,b.fileserver_logins_total-a.fileserver_logins_total));
+        bUp.push(Math.max(0,b.fileserver_bytes_uploaded_total-a.fileserver_bytes_uploaded_total));
+        bDown.push(Math.max(0,b.fileserver_bytes_downloaded_total-a.fileserver_bytes_downloaded_total));
+      }
+      lineChart(document.getElementById('histActivity'), [
+        {label:'uploads',color:'#38bdf8',values:up},{label:'downloads',color:'#818cf8',values:down},{label:'logins',color:'#4ade80',values:logins}], times);
+      lineChart(document.getElementById('histBytes'), [
+        {label:'bytes up',color:'#38bdf8',values:bUp},{label:'bytes down',color:'#818cf8',values:bDown}], times);
     }
 
     const hist = { up: [], down: [], clients: [] };
@@ -204,6 +253,20 @@
     let refreshTimer;
     const refreshTables = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => { loadShares(); loadQuarantine(); loadBans(); loadAudit(); }, 800); };
     setInterval(loadOverview, 3000);
+
+    // Wisselen tussen live-grafieken en historische tijdvensters.
+    const rangeSel = document.getElementById('range');
+    let histTimer;
+    function applyRange() {
+      const v = rangeSel.value;
+      const live = v === 'live';
+      document.getElementById('liveCharts').style.display = live ? 'grid' : 'none';
+      document.getElementById('histCharts').style.display = live ? 'none' : 'grid';
+      document.getElementById('liveDot').style.display = live ? '' : 'none';
+      clearInterval(histTimer);
+      if (!live) { loadHistory(parseInt(v,10)); histTimer = setInterval(() => loadHistory(parseInt(v,10)), 30000); }
+    }
+    rangeSel.onchange = applyRange;
     try {
       const es = new EventSource('/api/admin/events');
       es.addEventListener('activity', () => { loadOverview(); refreshTables(); document.getElementById('liveDot').style.opacity='1'; });

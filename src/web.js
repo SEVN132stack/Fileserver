@@ -33,6 +33,7 @@ import { getMeta, getAllMeta, setMeta } from './metadata.js';
 import { getThumbnail, canThumbnail } from './thumbs.js';
 import * as metrics from './metrics.js';
 import { makeBackup } from './backup.js';
+import { getHistory, recordSample } from './metrics-history.js';
 import { handleTus, TUS_MOUNT } from './tus.js';
 import { quarantine, listQuarantine, release as qRelease, remove as qRemove } from './quarantine.js';
 import { snapshot, listVersions, versionPath } from './versions.js';
@@ -881,6 +882,12 @@ export function createWebServer() {
 
   // Alle deel-links met statistieken (alleen admin).
   app.get('/api/admin/shares', requireAdmin, (req, res) => res.json({ shares: listAllShares() }));
+
+  // Historische metrics voor de dashboardgrafieken (alleen admin).
+  app.get('/api/admin/metrics/history', requireAdmin, (req, res) => {
+    const minutes = Math.max(0, parseInt(req.query.minutes || '0', 10) || 0);
+    res.json({ samples: getHistory(minutes) });
+  });
 
   // Live-stroom voor het admin-dashboard (SSE).
   app.get('/api/admin/events', requireAdmin, (req, res) => {

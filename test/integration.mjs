@@ -17,6 +17,7 @@ process.env.SHARES_FILE = path.join(tmp, 'shares.json');
 process.env.CHUNK_DIR = path.join(tmp, 'chunks');
 process.env.BACKUP_DIR = path.join(tmp, 'backups');
 process.env.THUMB_DIR = path.join(tmp, 'thumbs');
+process.env.METRICS_HISTORY_FILE = path.join(tmp, 'metrics-history.json');
 process.env.ENV_FILE = path.join(tmp, '.env');
 process.env.TLS_CERT = path.join(tmp, 'cert.pem');
 process.env.TLS_KEY = path.join(tmp, 'key.pem');
@@ -363,6 +364,12 @@ try {
     }).catch(() => {});
   });
   ok('admin live-events (SSE activity)', adminSse === true);
+
+  // 13aa. Historische metrics: samples bewaren en opvragen.
+  const { recordSample } = await import('../src/metrics-history.js');
+  recordSample(); await new Promise((r) => setTimeout(r, 20)); recordSample();
+  const histRes = await (await fetch(H + '/api/admin/metrics/history?minutes=60', { headers: jar() })).json();
+  ok('historische metrics worden bewaard en opgevraagd', Array.isArray(histRes.samples) && histRes.samples.length >= 2 && typeof histRes.samples[0].fileserver_uploads_total === 'number');
 
   // 14. SFTP password-auth als bob
   await new Promise((res) => {

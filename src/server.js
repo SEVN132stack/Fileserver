@@ -5,6 +5,7 @@ import { ensureUsers, listUsernames } from './users.js';
 import { startWebServer } from './web.js';
 import { startSftpServer } from './sftp.js';
 import { startBackupScheduler } from './backup.js';
+import { startMetricsHistory } from './metrics-history.js';
 
 // Startpunt: bereidt opslag, host key en gebruikers voor en start beide servers.
 ensureStorage();
@@ -14,6 +15,7 @@ fs.mkdirSync(config.chunkDir, { recursive: true });
 fs.mkdirSync(config.thumbDir, { recursive: true });
 fs.mkdirSync(config.quarantineDir, { recursive: true });
 startBackupScheduler();
+startMetricsHistory();
 
 startWebServer();
 startSftpServer();
