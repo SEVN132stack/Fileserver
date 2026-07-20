@@ -324,6 +324,26 @@ try {
   const dirtyRes = await scanFile(dirtyFile);
   ok('multi-engine scan: schoon vs. besmet', cleanRes.clean === true && dirtyRes.clean === false && dirtyRes.engine === 'clamav');
 
+  // 13w. Delta-sync end-to-end via de API (signature -> computeDelta -> apply).
+  {
+    const rsync = await import('../src/rsync.js');
+    await fetch(H + '/api/save?path=/sync-e2e.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'HELLO WORLD 12345' });
+    const sig = await (await fetch(H + '/api/sync/signature?path=/sync-e2e.txt', { headers: jar() })).json();
+    const newContent = Buffer.from('xxHELLO WORLD 12345'); // 2 bytes ingevoegd
+    const delta = rsync.computeDelta(sig, newContent);
+    const applied = await fetch(H + '/api/sync/apply?path=/sync-e2e.txt', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ blockSize: delta.blockSize, ops: delta.ops }) });
+    const got = await (await fetch(H + '/api/preview?path=/sync-e2e.txt', { headers: jar() })).text();
+    ok('delta-sync via API werkt end-to-end', applied.status === 200 && got === 'xxHELLO WORLD 12345');
+  }
+
+  // 13x. Admin-overzicht bevat kern-informatie.
+  const ov = await (await fetch(H + '/api/admin/overview', { headers: jar() })).json();
+  ok('admin-overzicht levert stats', ov.users.total >= 3 && typeof ov.storageUsed === 'number' && ov.metrics.fileserver_uploads_total >= 1 && Array.isArray(ov.recentAudit));
+
+  // 13y. Admin ziet alle deel-links met statistieken.
+  const allShares = await (await fetch(H + '/api/admin/shares', { headers: jar() })).json();
+  ok('admin-deel-links met downloadtellingen', Array.isArray(allShares.shares) && allShares.shares.some((s) => typeof s.downloads === 'number'));
+
   // 14. SFTP password-auth als bob
   await new Promise((res) => {
     const c = new ssh2.Client();

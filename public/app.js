@@ -89,6 +89,7 @@ async function load() {
     else a += `<button data-dl="${enc(it.path)}">⬇</button>`;
     if (!it.isDir && isText(it.name)) a += `<button class="ghost" data-edit="${enc(it.path)}">✎</button>`;
     if (!it.isDir && /\.enc$/i.test(it.name)) a += `<button class="ghost" data-dec="${enc(it.path)}">🔓</button>`;
+    if (!it.isDir) a += `<button class="ghost" data-sync="${enc(it.path)}" title="Efficiënt bijwerken (delta-sync)">⟳</button>`;
     if (!it.isDir) a += `<button class="ghost" data-ver="${enc(it.path)}">🕘</button>`;
     a += `<button class="ghost" data-meta="${enc(it.path)}">🏷</button>`;
     a += `<button class="ghost" data-share="${enc(it.path)}">🔗</button>`;
@@ -131,6 +132,26 @@ async function editFile(p) {
 // --- Uploads ---
 const CHUNK = 4 * 1024 * 1024; // 4MB
 const BIG = 8 * 1024 * 1024;   // vanaf deze grootte: hervatbaar/chunked
+
+// Werk een bestaand bestand efficiënt bij met delta-sync: kies een lokaal
+// bestand, bereken de delta t.o.v. de serverversie en stuur alleen het verschil.
+async function deltaSync(p) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.onchange = async () => {
+    const file = input.files[0]; if (!file) return;
+    const sig = await (await api('/api/sync/signature?path='+enc(p))).json();
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const delta = await window.fseComputeDelta(sig, buf);
+    const res = await api('/api/sync/apply?path='+enc(p), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ blockSize: delta.blockSize, ops: delta.ops }) });
+    if (res.ok) {
+      const pct = delta.total ? Math.round((1 - delta.literalBytes / delta.total) * 100) : 0;
+      alert(`Bijgewerkt via delta-sync.\nAlleen ${delta.literalBytes} van ${delta.total} bytes verstuurd (${pct}% bespaard).`);
+      load();
+    } else alert('Bijwerken mislukt');
+  };
+  input.click();
+}
 
 // Toon de versiegeschiedenis van een bestand.
 async function showVersions(p) {
@@ -307,6 +328,7 @@ document.addEventListener('click', async (e) => {
     alert('Gedeeld met '+to+' ('+(rw?'rw':'ro')+')'); return;
   }
   if (t2.dataset.dec) { return decryptDownload(decodeURIComponent(t2.dataset.dec)); }
+  if (t2.dataset.sync) { return deltaSync(decodeURIComponent(t2.dataset.sync)); }
   if (t2.dataset.ver) { return showVersions(decodeURIComponent(t2.dataset.ver)); }
   if (t2.dataset.verrestore) {
     const [p, v] = t2.dataset.verrestore.split('|').map(decodeURIComponent);

@@ -59,6 +59,15 @@ try {
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(outDir, 'files-light.png'), fullPage: true });
 
+  // Admin-dashboard (maak eerst wat activiteit/deel-links zodat het gevuld is).
+  await fetch(base + '/api/share', { method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '/notities.txt', maxDownloads: 5 }) });
+  await fetch(base + '/api/share', { method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '/README.md' }) });
+  await fetch(base + '/api/download?path=/notities.txt', { headers: { Authorization: auth } });
+  await page.goto(base + '/admin.html');
+  await page.waitForSelector('#cards .card');
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: path.join(outDir, 'admin.png'), fullPage: true });
+
   await browser.close();
   console.log('Screenshots opgeslagen in: ' + outDir);
 } catch (err) {

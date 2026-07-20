@@ -82,6 +82,16 @@ export function listShares(user) {
     .map(([token, s]) => ({ token, path: s.path, expires: s.expires, hasPassword: !!s.password, maxDownloads: s.maxDownloads || 0, downloads: s.downloads || 0 }));
 }
 
+// Alle deel-links (voor het admin-dashboard).
+export function listAllShares() {
+  const data = read();
+  return Object.entries(data).map(([token, s]) => ({
+    token, user: s.user, path: s.path, expires: s.expires,
+    hasPassword: !!s.password, maxDownloads: s.maxDownloads || 0, downloads: s.downloads || 0,
+    created: s.created,
+  }));
+}
+
 export function deleteShare(user, token) {
   const data = read();
   if (data[token] && data[token].user === user) {

@@ -100,6 +100,13 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Antivirus met meerdere engines (ClamAV + VirusTotal)
 - ✅ Screenshotscript voor de web UI
 
+## Beheer (v3.5)
+
+- ✅ Admin-overzichtsdashboard met kern-informatie en status
+- ✅ Deel-link-statistieken in het dashboard
+- ✅ Delta-sync ook in de web UI (knop ⟳)
+- ✅ VirusTotal-upload voor onbekende bestanden
+
 ## Toekomstige ideeën
 
 - 💡 Volledige S3/object-storage als primaire backend (storage-abstractielaag)
@@ -108,8 +115,7 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - 💡 Mobiele native app (via de bestaande API)
 - 💡 Back-up naar externe bestemming (S3/rsync) i.p.v. lokaal
 - 💡 Volledige audit-export (SIEM) en alerting-regels bij de metrics
-- 💡 Delta-sync ook in de web UI (nu API-/CLI-niveau)
-- 💡 VirusTotal-upload voor onbekende bestanden (nu alleen hash-lookup)
-- 💡 Gedeelde deel-link-statistieken (downloads per link in het dashboard)
+- 💡 Grafische grafieken in het admin-dashboard (i.p.v. alleen tellers)
+- 💡 Live-verversend admin-dashboard via SSE
 
 > Nieuwe wensen? Voeg ze onderaan toe onder "Toekomstige ideeën".

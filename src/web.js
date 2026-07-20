@@ -17,7 +17,7 @@ import { checkAllowed, recordFailure, recordSuccess } from './ratelimit.js';
 import { isBanned, ban, unban, listBans } from './bans.js';
 import { createSession, getSession, destroySession, tokenFromReq } from './sessions.js';
 import { generateSecret, verifyTotp, otpauthUrl } from './totp.js';
-import { createShare, getShare, checkSharePassword, listShares, deleteShare, countDownload } from './shares.js';
+import { createShare, getShare, checkSharePassword, listShares, deleteShare, countDownload, listAllShares } from './shares.js';
 import { execFile } from 'node:child_process';
 import { audit } from './audit.js';
 import { notify } from './notify.js';
@@ -849,6 +849,32 @@ export function createWebServer() {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // Overzicht met belangrijke info (alleen admin).
+  app.get('/api/admin/overview', requireAdmin, (req, res) => {
+    const users = listUsers();
+    const backups = fs.existsSync(config.backup.dir) ? fs.readdirSync(config.backup.dir).filter((f) => f.endsWith('.zip')).length : 0;
+    const audit = fs.existsSync(config.auditLog)
+      ? fs.readFileSync(config.auditLog, 'utf8').trim().split('\n').slice(-8).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse()
+      : [];
+    res.json({
+      metrics: metrics.snapshot(),
+      users: { total: users.length, admins: users.filter((u) => u.role === 'admin').length, readonly: users.filter((u) => u.role === 'readonly').length, with2fa: users.filter((u) => u.totp).length },
+      storageUsed: dirSize(config.storageDir),
+      quarantine: listQuarantine().length,
+      shares: listAllShares().length,
+      bans: listBans().length,
+      backups,
+      recentAudit: audit,
+      tls: config.tls.enabled,
+      webdav: config.webdavEnabled,
+      oidc: config.oidc.enabled,
+      antivirus: !!(config.clamscan || config.virustotal.apiKey),
+    });
+  });
+
+  // Alle deel-links met statistieken (alleen admin).
+  app.get('/api/admin/shares', requireAdmin, (req, res) => res.json({ shares: listAllShares() }));
 
   // Quarantaine-beheer (alleen admin).
   app.get('/api/admin/quarantine', requireAdmin, (req, res) => res.json({ items: listQuarantine() }));

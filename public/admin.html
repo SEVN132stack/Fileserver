@@ -16,11 +16,25 @@
     button { background:#38bdf8; color:#04283a; border:0; border-radius:6px; padding:.4rem .7rem; cursor:pointer; font-weight:600; }
     button.danger { background:transparent; color:#f87171; border:1px solid #334155; }
     pre { background:#1e293b; padding:1rem; border-radius:8px; max-height:320px; overflow:auto; font-size:.8rem; }
+    .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:.8rem; margin-bottom:2rem; }
+    .card { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:1rem; }
+    .card .v { font-size:1.6rem; font-weight:700; }
+    .card .l { color:#94a3b8; font-size:.8rem; margin-top:.2rem; }
+    .badges span { display:inline-block; background:#0f172a; border:1px solid #334155; border-radius:999px; padding:.15rem .6rem; font-size:.75rem; margin:.15rem .2rem 0 0; }
+    .badges .on { border-color:#22c55e; color:#4ade80; }
+    .badges .off { color:#94a3b8; }
   </style>
 </head>
 <body>
   <header><strong>🛠️ Beheer</strong><a href="/">← terug naar bestanden</a></header>
   <main>
+    <h2>Overzicht</h2>
+    <div class="cards" id="cards"></div>
+    <div class="badges" id="badges" style="margin-bottom:2rem"></div>
+
+    <h2>Recente activiteit</h2>
+    <pre id="recent"></pre>
+
     <h2>Gebruikers</h2>
     <table id="userTable"></table>
     <h3>Nieuwe gebruiker</h3>
@@ -39,6 +53,9 @@
     <h2>Quarantaine (antivirus)</h2>
     <table id="qTable"></table>
 
+    <h2>Deel-links</h2>
+    <table id="shareTable"></table>
+
     <h2>Back-ups</h2>
     <button id="makeBackup">Nu back-up maken</button>
     <table id="backupTable" style="margin-top:1rem"></table>
@@ -48,6 +65,33 @@
   </main>
   <script>
     async function j(u,o){ const r=await fetch(u,o); if(r.status===401)location='/login.html'; if(r.status===403){document.body.innerHTML='<p style="padding:2rem">Geen beheerrechten.</p>';throw 0;} return r; }
+    const fmtSize = (n) => { if(!n) return '0 B'; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; };
+    async function loadOverview() {
+      const o = await (await j('/api/admin/overview')).json();
+      const m = o.metrics;
+      const cards = [
+        ['Gebruikers', o.users.total, `${o.users.admins} admin · ${o.users.readonly} r-o · ${o.users.with2fa}× 2FA`],
+        ['Opslag gebruikt', fmtSize(o.storageUsed), ''],
+        ['Uploads', m.fileserver_uploads_total, fmtSize(m.fileserver_bytes_uploaded_total)],
+        ['Downloads', m.fileserver_downloads_total, fmtSize(m.fileserver_bytes_downloaded_total)],
+        ['Logins', m.fileserver_logins_total, m.fileserver_login_failures_total+' mislukt'],
+        ['Actieve clients', m.fileserver_active_sse_clients, 'realtime'],
+        ['Deel-links', o.shares, ''],
+        ['Quarantaine', o.quarantine, ''],
+        ['Geblokkeerde IPs', o.bans, ''],
+        ['Back-ups', o.backups, ''],
+      ];
+      document.getElementById('cards').innerHTML = cards.map(([l,v,s]) => `<div class="card"><div class="v">${v}</div><div class="l">${l}${s?` · ${s}`:''}</div></div>`).join('');
+      const badge = (name, on) => `<span class="${on?'on':'off'}">${on?'✓':'—'} ${name}</span>`;
+      document.getElementById('badges').innerHTML =
+        badge('HTTPS', o.tls) + badge('WebDAV', o.webdav) + badge('SSO/OIDC', o.oidc) + badge('Antivirus', o.antivirus);
+      document.getElementById('recent').textContent = o.recentAudit.map(l => `${l.ts} [${l.channel}] ${l.user||'-'} ${l.action}`).join('\n') || '(nog geen activiteit)';
+    }
+    async function loadShares() {
+      const {shares} = await (await j('/api/admin/shares')).json();
+      document.getElementById('shareTable').innerHTML = '<tr><th>Eigenaar</th><th>Pad</th><th>Downloads</th><th>Limiet</th><th>Wachtwoord</th><th>Vervalt</th></tr>' +
+        (shares.length?shares.map(s=>`<tr><td>${s.user}</td><td>${s.path}</td><td>${s.downloads}</td><td>${s.maxDownloads||'∞'}</td><td>${s.hasPassword?'ja':'nee'}</td><td>${s.expires?new Date(s.expires).toLocaleString():'nooit'}</td></tr>`).join(''):'<tr><td colspan="6">Geen deel-links</td></tr>');
+    }
     async function loadUsers() {
       const {users} = await (await j('/api/admin/users')).json();
       document.getElementById('userTable').innerHTML =
@@ -101,7 +145,7 @@
       if (e.target.dataset.qrel) { await j('/api/admin/quarantine/'+e.target.dataset.qrel+'/release',{method:'POST'}); loadQuarantine(); }
       if (e.target.dataset.qdel) { await j('/api/admin/quarantine/'+e.target.dataset.qdel,{method:'DELETE'}); loadQuarantine(); }
     });
-    loadUsers(); loadBans(); loadAudit(); loadBackups(); loadQuarantine();
+    loadOverview(); loadShares(); loadUsers(); loadBans(); loadAudit(); loadBackups(); loadQuarantine();
   </script>
 </body>
 </html>

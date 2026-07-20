@@ -144,7 +144,7 @@ home-map van de gebruiker.
 | `GET`/`POST` | `/api/sync/signature` · `/api/sync/apply` | Delta-sync |
 | `GET`/`POST`/`DELETE` | `/api/keys/pubkey` · `/api/keyring` | E2E-sleutelbeheer |
 | `POST` | `/api/reset/request` · `/api/reset/confirm` | Wachtwoord-reset (geen auth) |
-| `*`    | `/api/admin/*` | Beheer, incl. `/backup`, `/backups` (alleen admin) |
+| `*`    | `/api/admin/*` | Beheer, incl. `/overview`, `/shares`, `/backup` (alleen admin) |
 | `*`    | `/webdav/*` · `/tus/*` | WebDAV / tus resumable uploads |
 | `GET`  | `/metrics` | Prometheus-metrics |
 | `GET`  | `/s/:token` | Publieke deel-link (geen auth) |
@@ -179,6 +179,21 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
   upload naar bijvoorbeeld een S3-bucket.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
+
+## Admin-dashboard (v3.5)
+
+Beheerders vinden op `/admin.html` een overzicht met stat-kaarten (gebruikers,
+opslag, uploads/downloads, logins, actieve realtime-clients, deel-links,
+quarantaine, IP-bans, back-ups), status-badges (HTTPS/WebDAV/SSO/antivirus) en
+recente activiteit, plus panelen om gebruikers, IP-bans, quarantaine, deel-links
+(met downloadtellingen) en back-ups te beheren.
+
+Verder in v3.5:
+
+- **Delta-sync in de web UI:** knop ⟳ per bestand werkt een bestaand bestand
+  efficiënt bij (de browser berekent de rsync-delta en stuurt alleen het verschil).
+- **VirusTotal-upload:** met `VT_UPLOAD=true` worden bij VT onbekende bestanden
+  geüpload en geanalyseerd.
 
 ## Extra functies (v3.4)
 

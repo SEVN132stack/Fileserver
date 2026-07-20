@@ -5,6 +5,20 @@ Alle noemenswaardige wijzigingen aan dit project worden in dit bestand bijgehoud
 Het formaat is gebaseerd op [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/),
 en dit project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
+## [3.5.0] - 2026-07-20
+
+### Toegevoegd
+
+- **Admin-overzichtsdashboard**: stat-kaarten (gebruikers, opslag, uploads/downloads,
+  logins, actieve realtime-clients, deel-links, quarantaine, bans, back-ups),
+  status-badges (HTTPS/WebDAV/SSO/antivirus) en recente activiteit (`/api/admin/overview`).
+- **Deel-link-statistieken** in het dashboard: alle links met downloadtellingen,
+  limiet, wachtwoord en vervaltijd (`/api/admin/shares`).
+- **Delta-sync in de web UI**: knop ⟳ per bestand werkt een bestaand bestand
+  efficiënt bij; de browser berekent de rsync-delta en stuurt alleen het verschil.
+- **VirusTotal-upload** voor onbekende bestanden (`VT_UPLOAD=true`): bestanden die
+  VT niet kent worden geüpload en geanalyseerd i.p.v. alleen een hash-lookup.
+
 ## [3.4.0] - 2026-07-20
 
 ### Toegevoegd

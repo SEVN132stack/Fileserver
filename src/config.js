@@ -89,10 +89,13 @@ export const config = {
   clamscan: process.env.CLAMSCAN || '',
 
   // VirusTotal (optioneel): hash-lookup bij upload. Bij >= minDetections
-  // positieve engines wordt het bestand als besmet beschouwd.
+  // positieve engines wordt het bestand als besmet beschouwd. Met upload=true
+  // worden onbekende bestanden geüpload en geanalyseerd.
   virustotal: {
     apiKey: process.env.VT_API_KEY || '',
     minDetections: parseInt(process.env.VT_MIN_DETECTIONS || '1', 10),
+    upload: bool(process.env.VT_UPLOAD, false),
+    maxUploadBytes: parseInt(process.env.VT_MAX_UPLOAD_BYTES || '33554432', 10), // 32MB VT-limiet
   },
 
   // Optioneel commando dat na elke upload draait (bijv. `aws s3 cp` voor een

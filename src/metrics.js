@@ -20,6 +20,11 @@ export function setGauge(name, value) {
   if (name in gauges) gauges[name] = value;
 }
 
+// Momentopname van alle tellers/gauges (voor het admin-overzicht).
+export function snapshot() {
+  return { ...counters, ...gauges };
+}
+
 export function render() {
   const lines = [];
   for (const [k, v] of Object.entries(counters)) {
