@@ -232,6 +232,17 @@ Twee opties (zie `.env.example`):
 
 Zonder configuratie wordt de resetlink in de serverconsole gelogd.
 
+**Aandachtspunten voor bezorging (Brevo):**
+
+- De server moet **uitgaand poort 587** (of 465) open hebben. In sommige
+  gehoste/sandbox-omgevingen is SMTP geblokkeerd; op een eigen server/NAS werkt het.
+- Gebruik als afzender bij voorkeur een **adres op je eigen domein** (bijv.
+  `no-reply@zepta-nas.nl`) en verifieer dat in Brevo met **SPF/DKIM**. Een
+  `@gmail.com`-afzender via Brevo wordt door Gmail's DMARC vaak geweigerd of als
+  spam gemarkeerd.
+- Zet `APP_BASE_URL` op je publieke adres (bijv. `https://transfer.zepta-nas.nl`)
+  zodat reset-links naar de juiste host wijzen.
+
 ## Extra functies (v3.2)
 
 - **Wachtwoord-reset via e-mail:** "Wachtwoord vergeten?" op de loginpagina.
