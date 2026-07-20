@@ -112,3 +112,22 @@ export function deleteShare(user, token) {
   }
   return false;
 }
+
+// Beheer (admin): elke link verwijderen of aanpassen.
+export function adminDeleteShare(token) {
+  const data = read();
+  if (!data[token]) return false;
+  delete data[token];
+  write(data);
+  return true;
+}
+export function adminUpdateShare(token, opts = {}) {
+  const data = read();
+  const s = data[token];
+  if (!s) return false;
+  if (opts.password !== undefined) s.password = opts.password ? hash(opts.password) : null;
+  if (opts.expiresInHours !== undefined) s.expires = opts.expiresInHours ? Date.now() + Number(opts.expiresInHours) * 3600000 : 0;
+  if (opts.maxDownloads !== undefined) s.maxDownloads = opts.maxDownloads ? Number(opts.maxDownloads) : 0;
+  write(data);
+  return true;
+}

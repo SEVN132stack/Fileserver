@@ -478,6 +478,24 @@ try {
   const expired = await fetch(H + '/f/' + plExp.uuid);
   ok('permalink met vervaldatum verloopt', expired.status === 404);
 
+  // 13an. Admin beheert bestaande links (deellink + permalink): lijst, wijzig, intrek.
+  cookie = ''; await login('admin', 'testpass123');
+  await fetch(H + '/api/save?path=/beheer.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'x' });
+  const bShare = await (await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/beheer.txt' }) })).json();
+  const bPerma = await mkPerma({ path: '/beheer.txt' });
+  const allSh = await (await fetch(H + '/api/admin/shares', { headers: jar() })).json();
+  const allPl = await (await fetch(H + '/api/admin/permalinks', { headers: jar() })).json();
+  // wachtwoord op permalink zetten via admin
+  await fetch(H + '/api/admin/permalinks/' + bPerma.uuid, { method: 'PATCH', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ password: 'beheerww' }) });
+  const nowProtected = await (await fetch(H + '/f/' + bPerma.uuid)).text();
+  // deellink intrekken via admin
+  const shToken = bShare.url.split('/').pop();
+  await fetch(H + '/api/admin/shares/' + shToken, { method: 'DELETE', headers: jar() });
+  const revoked = await fetch(H + '/s/' + shToken);
+  ok('admin beheert links (lijst, wachtwoord zetten, intrekken)',
+    allSh.shares.some((s) => s.token === shToken) && allPl.permalinks.some((p) => p.uuid === bPerma.uuid) &&
+    nowProtected.includes('Beveiligde link') && revoked.status === 404);
+
   // 14. SFTP password-auth als bob
   await new Promise((res) => {
     const c = new ssh2.Client();

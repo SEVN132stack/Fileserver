@@ -76,6 +76,9 @@
     <h2>Deel-links</h2>
     <table id="shareTable"></table>
 
+    <h2>Permalinks</h2>
+    <table id="permaTable"></table>
+
     <h2>Back-ups</h2>
     <button id="makeBackup">Nu back-up maken</button>
     <table id="backupTable" style="margin-top:1rem"></table>
@@ -211,9 +214,32 @@
     }
     async function loadShares() {
       const {shares} = await (await j('/api/admin/shares')).json();
-      document.getElementById('shareTable').innerHTML = '<tr><th>Eigenaar</th><th>Pad</th><th>Downloads</th><th>Limiet</th><th>Wachtwoord</th><th>Vervalt</th></tr>' +
-        (shares.length?shares.map(s=>`<tr><td>${esc(s.user)}</td><td>${esc(s.path)}</td><td>${s.downloads}</td><td>${s.maxDownloads||'∞'}</td><td>${s.hasPassword?'ja':'nee'}</td><td>${s.expires?new Date(s.expires).toLocaleString():'nooit'}</td></tr>`).join(''):'<tr><td colspan="6">Geen deel-links</td></tr>');
+      document.getElementById('shareTable').innerHTML = '<tr><th>Eigenaar</th><th>Type</th><th>Pad</th><th>Dl</th><th>Limiet</th><th>Ww</th><th>Vervalt</th><th></th></tr>' +
+        (shares.length?shares.map(s=>`<tr><td>${esc(s.user)}</td><td>${s.type||'download'}</td><td>${esc(s.path)}</td><td>${s.downloads}</td><td>${s.maxDownloads||'∞'}</td><td>${s.hasPassword?'🔒':'—'}</td><td>${s.expires?new Date(s.expires).toLocaleString():'nooit'}</td>
+          <td><button data-sedit="${s.token}">wijzig</button> <button class="danger" data-sdel="${s.token}">intrek</button></td></tr>`).join(''):'<tr><td colspan="8">Geen deel-links</td></tr>');
     }
+    async function loadPermalinks() {
+      const {permalinks} = await (await j('/api/admin/permalinks')).json();
+      document.getElementById('permaTable').innerHTML = '<tr><th>Eigenaar</th><th>Pad</th><th>UUID</th><th>Ww</th><th>Vervalt</th><th></th></tr>' +
+        (permalinks.length?permalinks.map(p=>`<tr><td>${esc(p.user)}</td><td>${esc(p.path)}</td><td style="font-size:.7rem">${p.uuid}</td><td>${p.hasPassword?'🔒':'—'}</td><td>${p.expires?new Date(p.expires).toLocaleString():'nooit'}</td>
+          <td><button data-pedit="${p.uuid}">wijzig</button> <button class="danger" data-pdel="${p.uuid}">intrek</button></td></tr>`).join(''):'<tr><td colspan="6">Geen permalinks</td></tr>');
+    }
+    // Beheer-acties voor beide linktypes.
+    document.addEventListener('click', async e => {
+      const d = e.target.dataset;
+      if (d.sdel) { if(confirm('Deel-link intrekken?')){ await j('/api/admin/shares/'+d.sdel,{method:'DELETE'}); loadShares(); } }
+      if (d.pdel) { if(confirm('Permalink intrekken?')){ await j('/api/admin/permalinks/'+d.pdel,{method:'DELETE'}); loadPermalinks(); } }
+      if (d.sedit || d.pedit) {
+        const hrs = prompt('Nieuwe vervaldatum in uren? (leeg = laten staan, 0 = nooit)', '');
+        const pw = prompt('Nieuw wachtwoord? (leeg = laten staan, "-" = verwijderen)', '');
+        const body = {};
+        if (hrs !== '' && hrs !== null) body.expiresInHours = Number(hrs);
+        if (pw !== '' && pw !== null) body.password = pw === '-' ? null : pw;
+        const url = d.sedit ? '/api/admin/shares/'+d.sedit : '/api/admin/permalinks/'+d.pedit;
+        await j(url,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        d.sedit ? loadShares() : loadPermalinks();
+      }
+    });
     async function loadUsers() {
       const {users} = await (await j('/api/admin/users')).json();
       document.getElementById('userTable').innerHTML =
@@ -298,7 +324,7 @@
     });
 
     loadOverview(); loadShares(); loadUsers(); loadBans(); loadAudit(); loadBackups(); loadQuarantine();
-    loadSettings(); loadGroups(); loadStorageReport();
+    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks();
 
     // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
     // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.

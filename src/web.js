@@ -17,7 +17,7 @@ import { checkAllowed, recordFailure, recordSuccess } from './ratelimit.js';
 import { isBanned, ban, unban, listBans } from './bans.js';
 import { createSession, getSession, destroySession, tokenFromReq } from './sessions.js';
 import { generateSecret, verifyTotp, otpauthUrl } from './totp.js';
-import { createShare, getShare, checkSharePassword, listShares, deleteShare, countDownload, listAllShares } from './shares.js';
+import { createShare, getShare, checkSharePassword, listShares, deleteShare, countDownload, listAllShares, adminDeleteShare, adminUpdateShare } from './shares.js';
 import { execFile } from 'node:child_process';
 import { audit } from './audit.js';
 import { notify } from './notify.js';
@@ -1090,8 +1090,31 @@ export function createWebServer() {
     });
   });
 
-  // Alle deel-links met statistieken (alleen admin).
+  // Alle deel-links met statistieken (alleen admin) + beheer.
   app.get('/api/admin/shares', requireAdmin, (req, res) => res.json({ shares: listAllShares() }));
+  app.patch('/api/admin/shares/:token', requireAdmin, express.json(), (req, res) => {
+    const ok = adminUpdateShare(req.params.token, req.body || {});
+    if (ok) audit('web', req.user, 'admin_share_update', { token: req.params.token });
+    res.json({ ok });
+  });
+  app.delete('/api/admin/shares/:token', requireAdmin, (req, res) => {
+    const ok = adminDeleteShare(req.params.token);
+    if (ok) audit('web', req.user, 'admin_share_delete', { token: req.params.token });
+    res.json({ ok });
+  });
+
+  // Alle permalinks (alleen admin) + beheer.
+  app.get('/api/admin/permalinks', requireAdmin, (req, res) => res.json({ permalinks: permalinks.listAll() }));
+  app.patch('/api/admin/permalinks/:uuid', requireAdmin, express.json(), (req, res) => {
+    const ok = permalinks.adminUpdate(req.params.uuid, req.body || {});
+    if (ok) audit('web', req.user, 'admin_permalink_update', { uuid: req.params.uuid });
+    res.json({ ok });
+  });
+  app.delete('/api/admin/permalinks/:uuid', requireAdmin, (req, res) => {
+    const ok = permalinks.adminDelete(req.params.uuid);
+    if (ok) audit('web', req.user, 'admin_permalink_delete', { uuid: req.params.uuid });
+    res.json({ ok });
+  });
 
   // Historische metrics voor de dashboardgrafieken (alleen admin).
   app.get('/api/admin/metrics/history', requireAdmin, (req, res) => {

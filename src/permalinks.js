@@ -90,3 +90,26 @@ export function listForUser(user) {
     .filter(([, v]) => v.user === user)
     .map(([uuid, v]) => ({ uuid, path: v.path, hasPassword: !!v.password, expires: v.expires || 0 }));
 }
+
+// Beheer (admin): alle permalinks tonen, verwijderen of aanpassen.
+export function listAll() {
+  return Object.entries(read()).map(([uuid, v]) => ({
+    uuid, user: v.user, path: v.path, hasPassword: !!v.password, expires: v.expires || 0, created: v.created,
+  }));
+}
+export function adminDelete(uuid) {
+  const d = read();
+  if (!d[uuid]) return false;
+  delete d[uuid];
+  write(d);
+  return true;
+}
+export function adminUpdate(uuid, opts = {}) {
+  const d = read();
+  const s = d[uuid];
+  if (!s) return false;
+  if (opts.password !== undefined) s.password = opts.password ? hash(opts.password) : null;
+  if (opts.expiresInHours !== undefined) s.expires = opts.expiresInHours ? Date.now() + Number(opts.expiresInHours) * 3600000 : 0;
+  write(d);
+  return true;
+}

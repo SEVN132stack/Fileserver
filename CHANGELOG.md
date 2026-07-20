@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.12.0] - 2026-07-20
+
+### Toegevoegd
+
+- **Link-beheer in het admin-dashboard**: overzicht van alle deel-links én permalinks
+  met de mogelijkheid om per link het **wachtwoord** en de **vervaldatum** te wijzigen
+  of de link **in te trekken** (`/api/admin/shares` en `/api/admin/permalinks` met
+  PATCH/DELETE).
+
+
 ## [3.11.0] - 2026-07-20
 
 ### Gewijzigd
