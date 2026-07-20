@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.10.0] - 2026-07-20
+
+### Toegevoegd
+
+- **Permalink per bestand**: elk bestand krijgt op verzoek een stabiele link met
+  UUID (`https://<host>/f/<uuid>`, knop ∞). De link blijft geldig en **volgt het
+  bestand** bij hernoemen/verplaatsen; bij verwijderen vervalt hij. Publiek
+  bereikbaar (onraadbare UUID), met QR-code. `?inline=1` toont inline i.p.v. download.
+
+### Gewijzigd
+- WebAuthn/passkeys geconfigureerd voor productie via `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGIN`.
+
 ## [3.9.0] - 2026-07-20
 
 ### Toegevoegd

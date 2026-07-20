@@ -183,6 +183,20 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Permalinks per bestand (v3.10)
+
+Elk bestand kan een **stabiele, vaste link** krijgen met een UUID, bijvoorbeeld
+`https://transfer.zepta-nas.nl/f/<uuid>`. Klik op de knop **∞** bij een bestand
+voor de link + QR-code. De link:
+
+- blijft geldig en **volgt het bestand** als je het hernoemt of verplaatst;
+- is publiek bereikbaar via de onraadbare UUID (geen login nodig);
+- vervalt automatisch als het bestand wordt verwijderd;
+- toont met `?inline=1` het bestand inline (afbeelding/tekst/PDF) i.p.v. downloaden.
+
+Stel `APP_BASE_URL=https://transfer.zepta-nas.nl` in zodat de links naar je
+publieke adres wijzen.
+
 ## Extra functies (v3.9)
 
 - **Drop-links (upload-portaal):** knop "📤 Drop-link" maakt een link waarmee mensen

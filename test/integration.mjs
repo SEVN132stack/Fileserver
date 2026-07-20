@@ -20,6 +20,7 @@ process.env.THUMB_DIR = path.join(tmp, 'thumbs');
 process.env.METRICS_HISTORY_FILE = path.join(tmp, 'metrics-history.json');
 process.env.GROUPS_FILE = path.join(tmp, 'groups.json');
 process.env.KEYRING_FILE = path.join(tmp, 'keyring.json');
+process.env.PERMALINKS_FILE = path.join(tmp, 'permalinks.json');
 process.env.SETTINGS_FILE = path.join(tmp, 'settings.json');
 process.env.ENV_FILE = path.join(tmp, '.env');
 process.env.TLS_CERT = path.join(tmp, 'cert.pem');
@@ -451,6 +452,20 @@ try {
   const wa = await (await fetch(H + '/api/webauthn/enabled')).json();
   const wc = await (await fetch(H + '/api/webauthn/count', { headers: jar() })).json();
   ok('webauthn-status endpoint (publiek enabled + authed count)', wa.enabled === false && typeof wc.count === 'number');
+
+  // 13am. Permalink per bestand: stabiele UUID-link, publiek bereikbaar, volgt rename.
+  cookie = ''; await login('admin', 'testpass123');
+  await fetch(H + '/api/save?path=/perma.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'permalink-inhoud' });
+  const pl1 = await (await fetch(H + '/api/permalink?path=/perma.txt', { headers: jar() })).json();
+  const pl2 = await (await fetch(H + '/api/permalink?path=/perma.txt', { headers: jar() })).json();
+  const fetched = await fetch(H + '/f/' + pl1.uuid); // geen auth
+  const body = await fetched.text();
+  // hernoemen -> permalink volgt
+  await fetch(H + '/api/rename', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ from: '/perma.txt', to: '/perma-nieuw.txt' }) });
+  const afterRename = await fetch(H + '/f/' + pl1.uuid);
+  ok('permalink: stabiel, publiek bereikbaar en volgt hernoemen',
+    pl1.uuid && pl1.uuid === pl2.uuid && /^[0-9a-f-]{36}$/.test(pl1.uuid) &&
+    fetched.status === 200 && body === 'permalink-inhoud' && afterRename.status === 200);
 
   // 14. SFTP password-auth als bob
   await new Promise((res) => {

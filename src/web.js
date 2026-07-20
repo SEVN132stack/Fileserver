@@ -40,6 +40,7 @@ import { getSettings, updateSettings, getSetting } from './settings.js';
 import { runCleanup } from './cleanup.js';
 import { storageReport } from './storage-report.js';
 import { qrSvg } from './qr.js';
+import * as permalinks from './permalinks.js';
 import { listSessions, revokeSession } from './sessions.js';
 import {
   validatePassword, isLocked, recordLoginFailure, recordLoginSuccess,
@@ -315,6 +316,32 @@ export function createWebServer() {
       audit('web', username, 'login', { method: 'passkey', ip });
       res.json({ ok: true, role: role(username) });
     } catch (err) { res.status(401).json({ error: err.message }); }
+  });
+
+  // --- Permalink per bestand (stabiele UUID-link, geen auth) ---
+  app.get('/f/:uuid', (req, res) => {
+    const entry = permalinks.resolve(req.params.uuid);
+    if (!entry) return res.status(404).send('Link niet gevonden.');
+    let abs;
+    try { abs = resolveWithin(homeDir(entry.user), entry.path); } catch { return res.status(404).send('Niet gevonden.'); }
+    if (!fs.existsSync(abs)) return res.status(404).send('Bestand bestaat niet meer.');
+    const name = path.basename(abs);
+    audit('web', entry.user, 'permalink_access', { path: entry.path, uuid: req.params.uuid, ip: clientIp(req) });
+    if (fs.statSync(abs).isDirectory()) {
+      res.attachment(name + '.zip');
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      archive.pipe(res);
+      archive.directory(abs, false);
+      return archive.finalize();
+    }
+    // Inline tonen kan met ?inline=1 (afbeeldingen/tekst/pdf); anders downloaden.
+    if (req.query.inline === '1') {
+      res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'");
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Disposition', 'inline; filename="' + name.replace(/[\r\n"]/g, '') + '"');
+      return res.sendFile(abs);
+    }
+    res.download(abs, name);
   });
 
   // --- Publieke deel-links (geen auth) ---
@@ -747,6 +774,7 @@ export function createWebServer() {
       const to = resolveWithin(req.home, req.body.to || '');
       await fsp.mkdir(path.dirname(to), { recursive: true });
       await fsp.rename(from, to);
+      permalinks.updatePath(req.user, req.body.from, req.body.to);
       audit('web', req.user, 'rename', { from: req.body.from, to: req.body.to });
       emitToUser(req.user, 'change', { action: 'rename' });
       res.json({ ok: true });
@@ -768,6 +796,7 @@ export function createWebServer() {
         await fsp.rename(abs, dest).catch(async () => {
           await fsp.rm(abs, { recursive: true, force: true });
         });
+        permalinks.removeForPath(req.user, p);
         audit('web', req.user, 'delete', { path: p });
         notify('delete', { user: req.user, path: p });
         metrics.inc('fileserver_deletes_total');
@@ -837,6 +866,19 @@ export function createWebServer() {
     });
     audit('web', req.user, 'droplink_create', { path: req.body.path });
     res.json({ token, url: `/s/${token}` });
+  });
+
+  // Stabiele permalink voor een bestand ophalen/aanmaken.
+  app.get('/api/permalink', (req, res) => {
+    try {
+      const rel = req.query.path || '';
+      resolveWithin(req.home, rel); // valideer dat het pad binnen de home valt
+      const uuid = permalinks.getOrCreate(req.user, rel);
+      const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+      res.json({ uuid, url: `${base}/f/${uuid}` });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   // QR-code (SVG) voor een deel-link/tekst.

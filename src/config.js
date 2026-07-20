@@ -181,6 +181,8 @@ export const config = {
 
   // E2E-keyring-bestand (publieke sleutels + gewrapte map-sleutels).
   keyringFile: abs(process.env.KEYRING_FILE || 'keyring.json'),
+  // Permalinks: stabiele per-bestand-link (uuid -> pad).
+  permalinksFile: abs(process.env.PERMALINKS_FILE || 'permalinks.json'),
   // Groepen-bestand (voor delen/rechten per groep).
   groupsFile: abs(process.env.GROUPS_FILE || 'groups.json'),
   // Runtime-instellingen die via de admin-UI aanpasbaar zijn (overlay op .env).
@@ -213,7 +215,7 @@ export const config = {
     get enabled() { return !!(this.rpID && this.origin); },
   },
 
-  version: '3.9.0',
+  version: '3.10.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

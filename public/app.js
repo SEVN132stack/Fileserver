@@ -111,6 +111,7 @@ async function load() {
     if (!it.isDir) a += `<button class="ghost" data-sync="${enc(it.path)}" title="Efficiënt bijwerken (delta-sync)">⟳</button>`;
     if (!it.isDir) a += `<button class="ghost" data-ver="${enc(it.path)}">🕘</button>`;
     a += `<button class="ghost" data-meta="${enc(it.path)}">🏷</button>`;
+    a += `<button class="ghost" data-perma="${enc(it.path)}" title="Vaste link (permalink)">∞</button>`;
     a += `<button class="ghost" data-share="${enc(it.path)}">🔗</button>`;
     a += `<button class="ghost" data-grant="${enc(it.path)}">👥</button>`;
     a += `<button class="ghost" data-ren="${enc(it.path)}">✏</button>`;
@@ -401,6 +402,10 @@ document.addEventListener('click', async (e) => {
     alert('Gedeeld met '+to+' ('+(rw?'rw':'ro')+')'); return;
   }
   if (t2.dataset.revoke) { await api('/api/sessions/'+t2.dataset.revoke,{method:'DELETE'}); showSessions(); return; }
+  if (t2.dataset.perma) {
+    const r = await (await api('/api/permalink?path='+enc(decodeURIComponent(t2.dataset.perma)))).json();
+    showLink('Vaste link (permalink)', r.url); return;
+  }
   if (t2.dataset.dec) { return decryptDownload(decodeURIComponent(t2.dataset.dec)); }
   if (t2.dataset.sync) { return deltaSync(decodeURIComponent(t2.dataset.sync)); }
   if (t2.dataset.ver) { return showVersions(decodeURIComponent(t2.dataset.ver)); }
