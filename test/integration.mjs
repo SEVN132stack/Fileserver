@@ -286,6 +286,44 @@ try {
   const tcreate = await fetch(H + '/tus', { method: 'POST', headers: jar({ 'Upload-Length': '100', 'Tus-Resumable': '1.0.0', 'Upload-Metadata': 'filename ' + Buffer.from('x').toString('base64') }) });
   ok('quota afgedwongen op tus (413)', tcreate.status === 413);
 
+  // 13s. Rolling-hash rsync-delta op byte-niveau (invoegen aan het begin).
+  {
+    const rsync = await import('../src/rsync.js');
+    const oldBuf = Buffer.alloc(5000);
+    for (let i = 0; i < oldBuf.length; i++) oldBuf[i] = (i * 7 + 3) & 0xff;
+    const oldFile = path.join(tmp, 'rs-old.bin');
+    fs.writeFileSync(oldFile, oldBuf);
+    const newBuf = Buffer.concat([Buffer.from('XX'), oldBuf]); // 2 bytes ingevoegd vooraan
+    const sig = rsync.signature(oldFile, rsync.DEFAULT_BLOCK);
+    const delta = rsync.computeDelta(sig, newBuf);
+    const outFile = path.join(tmp, 'rs-new.bin');
+    rsync.applyDelta(oldFile, outFile, sig.blockSize, delta.ops);
+    const result = fs.readFileSync(outFile);
+    const copies = delta.ops.filter((o) => o.c !== undefined).length;
+    ok('rolling-hash delta hergebruikt blokken na byte-shift', result.equals(newBuf) && copies >= 2);
+  }
+
+  // 13t. Deel-link met downloadlimiet.
+  cookie = ''; await login('admin', 'testpass123');
+  const lim = await (await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/a.txt', maxDownloads: 1 }) })).json();
+  const first = await fetch(H + lim.url);
+  const second = await fetch(H + lim.url);
+  ok('deel-link downloadlimiet (1x)', first.status === 200 && second.status !== 200);
+
+  // 13u. E2E-sleutelrotatie: versie verhoogt.
+  await fetch(H + '/api/keyring', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ folder: '/rot', wrappedKey: 'K1' }) });
+  const rot = await (await fetch(H + '/api/keyring/rotate', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ folder: '/rot', wrappedKey: 'K2' }) })).json();
+  const ring2 = await (await fetch(H + '/api/keyring', { headers: jar() })).json();
+  ok('E2E-sleutelrotatie verhoogt versie', rot.version === 2 && ring2.ring['/rot'].wrappedKey === 'K2');
+
+  // 13v. Multi-engine scan aggregeert (clamav-mock markeert EICAR).
+  const { scanFile } = await import('../src/scan.js');
+  const cleanFile = path.join(tmp, 'clean.txt'); fs.writeFileSync(cleanFile, 'onschuldig');
+  const dirtyFile = path.join(tmp, 'dirty.txt'); fs.writeFileSync(dirtyFile, 'bevat EICAR patroon');
+  const cleanRes = await scanFile(cleanFile);
+  const dirtyRes = await scanFile(dirtyFile);
+  ok('multi-engine scan: schoon vs. besmet', cleanRes.clean === true && dirtyRes.clean === false && dirtyRes.engine === 'clamav');
+
   // 14. SFTP password-auth als bob
   await new Promise((res) => {
     const c = new ssh2.Client();

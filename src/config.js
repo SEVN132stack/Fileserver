@@ -85,8 +85,15 @@ export const config = {
   defaultBandwidth: parseInt(process.env.DEFAULT_BANDWIDTH || '0', 10),
 
   // Antivirus: pad naar clamdscan/clamscan (leeg = uit). Uploads worden dan
-  // gescand en geweigerd bij een vondst.
+  // gescand; vondsten gaan in quarantaine.
   clamscan: process.env.CLAMSCAN || '',
+
+  // VirusTotal (optioneel): hash-lookup bij upload. Bij >= minDetections
+  // positieve engines wordt het bestand als besmet beschouwd.
+  virustotal: {
+    apiKey: process.env.VT_API_KEY || '',
+    minDetections: parseInt(process.env.VT_MIN_DETECTIONS || '1', 10),
+  },
 
   // Optioneel commando dat na elke upload draait (bijv. `aws s3 cp` voor een
   // off-site backup). Ontvangt het bestandspad als argument. Leeg = uit.
@@ -132,6 +139,10 @@ export const config = {
   // E-mailadres dat notificaties ontvangt bij deel-gebeurtenissen (leeg = uit;
   // valt terug op het e-mailadres van de eigenaar).
   notifyEmail: process.env.NOTIFY_EMAIL || '',
+
+  // Automatische E2E-sleutelrotatie: map-sleutels ouder dan dit aantal dagen
+  // worden door de client geroteerd (0 = uit).
+  keyRotateDays: parseInt(process.env.KEY_ROTATE_DAYS || '0', 10),
 
   // Prometheus-metrics op /metrics. Optioneel bearer-token.
   metrics: {

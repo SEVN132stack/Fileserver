@@ -17,7 +17,7 @@ import { checkAllowed, recordFailure, recordSuccess } from './ratelimit.js';
 import { isBanned, ban, unban, listBans } from './bans.js';
 import { createSession, getSession, destroySession, tokenFromReq } from './sessions.js';
 import { generateSecret, verifyTotp, otpauthUrl } from './totp.js';
-import { createShare, getShare, checkSharePassword, listShares, deleteShare } from './shares.js';
+import { createShare, getShare, checkSharePassword, listShares, deleteShare, countDownload } from './shares.js';
 import { execFile } from 'node:child_process';
 import { audit } from './audit.js';
 import { notify } from './notify.js';
@@ -36,7 +36,7 @@ import { makeBackup } from './backup.js';
 import { handleTus, TUS_MOUNT } from './tus.js';
 import { quarantine, listQuarantine, release as qRelease, remove as qRemove } from './quarantine.js';
 import { snapshot, listVersions, versionPath } from './versions.js';
-import { signature, applyDelta, DEFAULT_BLOCK } from './sync.js';
+import { signature, applyDelta, DEFAULT_BLOCK } from './rsync.js';
 import * as keyring from './keyring.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -264,6 +264,7 @@ export function createWebServer() {
     const name = path.basename(abs);
     audit('web', share.user, 'share_access', { path: share.path, token: req.params.token });
     notifyShare('share_access', share.user, { path: share.path, ip: clientIp(req) });
+    countDownload(req.params.token);
     if (fs.statSync(abs).isDirectory()) {
       res.attachment(name + '.zip');
       const archive = archiver('zip', { zlib: { level: 9 } });
@@ -469,6 +470,14 @@ export function createWebServer() {
     res.json({ ok: true });
   });
   app.delete('/api/keyring', express.json(), (req, res) => { keyring.removeKey(req.user, req.body.folder); res.json({ ok: true }); });
+  // Rotatiebeleid + mappen die aan rotatie toe zijn.
+  app.get('/api/keyring/due', (req, res) => res.json({ rotateAfterDays: config.keyRotateDays, due: keyring.dueForRotation(req.user, config.keyRotateDays) }));
+  // Een geroteerde (nieuwe, gewrapte) sleutel opslaan; verhoogt de versie.
+  app.post('/api/keyring/rotate', express.json(), (req, res) => {
+    keyring.putKey(req.user, req.body.folder, req.body.wrappedKey, req.user);
+    audit('web', req.user, 'key_rotate', { folder: req.body.folder });
+    res.json({ ok: true, version: keyring.getRing(req.user)[req.body.folder].version });
+  });
 
   app.get('/api/zip', (req, res) => {
     try {
@@ -683,6 +692,7 @@ export function createWebServer() {
     const token = createShare(req.user, req.body.path, {
       expiresInHours: req.body.expiresInHours ? Number(req.body.expiresInHours) : 0,
       password: req.body.password || null,
+      maxDownloads: req.body.maxDownloads ? Number(req.body.maxDownloads) : 0,
     });
     audit('web', req.user, 'share_create', { path: req.body.path });
     notifyShare('share_create', req.user, { path: req.body.path, token });

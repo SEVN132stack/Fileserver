@@ -284,7 +284,8 @@ document.addEventListener('click', async (e) => {
     const hrs = prompt('Vervalt na hoeveel uur? (leeg = nooit)', '24');
     if (hrs === null) return;
     const pw = prompt('Wachtwoord voor de link? (leeg = geen)', '') || null;
-    const r = await (await api('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,expiresInHours:hrs?Number(hrs):0,password:pw})})).json();
+    const max = prompt('Maximaal aantal downloads? (leeg = onbeperkt)', '') || 0;
+    const r = await (await api('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,expiresInHours:hrs?Number(hrs):0,password:pw,maxDownloads:Number(max)||0})})).json();
     prompt('Deel deze link:', location.origin + r.url); return;
   }
   if (t2.dataset.meta) {
@@ -349,4 +350,15 @@ drop.addEventListener('drop', e => { e.preventDefault(); uploadFiles([...e.dataT
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
 
 applyTheme(); applyI18n();
-loadMe().then(() => { load(); connectEvents(); }).catch(()=>{});
+loadMe().then(() => { load(); connectEvents(); checkKeyRotation(); }).catch(()=>{});
+
+// Herinner aan E2E-sleutels die aan rotatie toe zijn.
+async function checkKeyRotation() {
+  if (!window.fseCheckRotation) return;
+  const due = await window.fseCheckRotation();
+  if (due && due.length) {
+    console.info('E2E-sleutelrotatie aanbevolen voor: ' + due.map(d=>d.folder).join(', '));
+    const q = document.getElementById('quota');
+    if (q) q.innerHTML += ` · <span style="color:var(--danger)">🔑 ${due.length} sleutel(s) verlopen</span>`;
+  }
+}

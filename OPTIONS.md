@@ -92,17 +92,24 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ E-mail via Brevo (API of SMTP-relay)
 - ✅ Quota gelijkgetrokken over web, SFTP én tus
 
+## Geavanceerd+++ (v3.4)
+
+- ✅ Echte rsync rolling-hash delta op byte-niveau (invoegen/verwijderen)
+- ✅ Automatische E2E-sleutelrotatie (versies + rotatiebeleid)
+- ✅ Deel-links met downloadlimiet (naast vervaldatum en wachtwoord)
+- ✅ Antivirus met meerdere engines (ClamAV + VirusTotal)
+- ✅ Screenshotscript voor de web UI
+
 ## Toekomstige ideeën
 
 - 💡 Volledige S3/object-storage als primaire backend (storage-abstractielaag)
 - 💡 JWKS-handtekeningverificatie voor OIDC id_tokens
 - 💡 Meer talen (ES/IT/PL/...) en RTL-ondersteuning
 - 💡 Mobiele native app (via de bestaande API)
-- 💡 Rolling-hash (echte librsync) voor delta op byte-niveau i.p.v. vaste blokken
 - 💡 Back-up naar externe bestemming (S3/rsync) i.p.v. lokaal
-- 💡 Automatische sleutelrotatie voor E2E-mapsleutels
-- 💡 Delen van deel-links met verlooptelling/downloadlimiet
-- 💡 Antivirus met meerdere engines / VirusTotal-integratie
 - 💡 Volledige audit-export (SIEM) en alerting-regels bij de metrics
+- 💡 Delta-sync ook in de web UI (nu API-/CLI-niveau)
+- 💡 VirusTotal-upload voor onbekende bestanden (nu alleen hash-lookup)
+- 💡 Gedeelde deel-link-statistieken (downloads per link in het dashboard)
 
 > Nieuwe wensen? Voeg ze onderaan toe onder "Toekomstige ideeën".

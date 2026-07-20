@@ -27,7 +27,7 @@ function verify(pw, stored) {
   return calc.length === known.length && timingSafeEqual(calc, known);
 }
 
-export function createShare(user, path, { expiresInHours, password } = {}) {
+export function createShare(user, path, { expiresInHours, password, maxDownloads } = {}) {
   const data = read();
   const token = randomBytes(12).toString('base64url');
   data[token] = {
@@ -35,6 +35,8 @@ export function createShare(user, path, { expiresInHours, password } = {}) {
     path,
     expires: expiresInHours ? Date.now() + expiresInHours * 3600000 : 0,
     password: password ? hash(password) : null,
+    maxDownloads: maxDownloads ? Number(maxDownloads) : 0,
+    downloads: 0,
     created: Date.now(),
   };
   write(data);
@@ -50,7 +52,22 @@ export function getShare(token) {
     write(data);
     return null;
   }
+  if (s.maxDownloads && s.downloads >= s.maxDownloads) {
+    delete data[token];
+    write(data);
+    return null;
+  }
   return s;
+}
+
+// Registreer een download; verwijdert de link als het maximum is bereikt.
+export function countDownload(token) {
+  const data = read();
+  const s = data[token];
+  if (!s) return;
+  s.downloads = (s.downloads || 0) + 1;
+  if (s.maxDownloads && s.downloads >= s.maxDownloads) delete data[token];
+  write(data);
 }
 
 export function checkSharePassword(share, password) {
@@ -62,7 +79,7 @@ export function listShares(user) {
   const data = read();
   return Object.entries(data)
     .filter(([, s]) => s.user === user)
-    .map(([token, s]) => ({ token, path: s.path, expires: s.expires, hasPassword: !!s.password }));
+    .map(([token, s]) => ({ token, path: s.path, expires: s.expires, hasPassword: !!s.password, maxDownloads: s.maxDownloads || 0, downloads: s.downloads || 0 }));
 }
 
 export function deleteShare(user, token) {

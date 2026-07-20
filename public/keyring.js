@@ -60,6 +60,34 @@ async function currentUser() {
   return (await (await fetch('/api/whoami')).json()).user;
 }
 
+// Roteer de sleutel van een map: maak een nieuwe AES-sleutel, versleutel alle
+// .enc-bestanden in de map opnieuw en sla de nieuwe (gewrapte) sleutel op.
+window.fseRotateFolder = async function (folder, encFiles) {
+  const oldKey = await window.fseFolderKey(folder);
+  const newKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+  for (const path of encFiles || []) {
+    const buf = await (await fetch('/api/download?path=' + encodeURIComponent(path))).arrayBuffer();
+    const plain = await window.fseDecKey(buf, oldKey);
+    const reblob = await window.fseEncKey(new Blob([plain]), newKey);
+    const fd = new FormData(); fd.append('files', reblob, path.split('/').pop());
+    await fetch('/api/upload?path=' + encodeURIComponent(folder), { method: 'POST', body: fd });
+  }
+  const raw = await crypto.subtle.exportKey('raw', newKey);
+  const imp = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+  const myPub = await pubKeyOf(await currentUser());
+  const wrapped = await crypto.subtle.wrapKey('raw', imp, myPub, { name: 'RSA-OAEP' });
+  await fetch('/api/keyring/rotate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder, wrappedKey: b64(wrapped) }) });
+  return true;
+};
+
+// Controleer of er map-sleutels aan rotatie toe zijn (automatische herinnering).
+window.fseCheckRotation = async function () {
+  try {
+    const { due } = await (await fetch('/api/keyring/due')).json();
+    return due || [];
+  } catch { return []; }
+};
+
 // Versleutel/ontsleutel met een CryptoKey (AES-GCM). Formaat: iv(12)|ct.
 window.fseEncKey = async function (file, key) {
   const iv = crypto.getRandomValues(new Uint8Array(12));

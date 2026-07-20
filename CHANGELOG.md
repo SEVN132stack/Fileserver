@@ -5,6 +5,26 @@ Alle noemenswaardige wijzigingen aan dit project worden in dit bestand bijgehoud
 Het formaat is gebaseerd op [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/),
 en dit project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
+## [3.4.0] - 2026-07-20
+
+### Toegevoegd
+
+- **Echte rsync rolling-hash delta**: overeenkomende blokken worden nu op
+  willekeurige byte-offsets herkend (zwakke rollende checksum + sterke SHA-1),
+  zodat invoegen/verwijderen efficiënt is i.p.v. alleen op vaste blokgrenzen.
+- **Automatische E2E-sleutelrotatie**: map-sleutels krijgen een versie; een
+  rotatiebeleid (`KEY_ROTATE_DAYS`) meldt verlopen sleutels en de client roteert
+  ze (nieuwe sleutel + alle bestanden opnieuw versleuteld).
+- **Deel-links met downloadlimiet**: naast vervaldatum en wachtwoord nu ook een
+  maximaal aantal downloads; de link vervalt automatisch bij bereiken.
+- **Antivirus met meerdere engines**: naast ClamAV nu ook VirusTotal (hash-lookup,
+  `VT_API_KEY`); een bestand geldt als besmet zodra één engine aanslaat.
+- Script `npm run screenshot` om screenshots van de web UI te genereren.
+
+### Gewijzigd
+
+- `src/sync.js` vervangen door `src/rsync.js` (rijkere handtekening met zwakke+sterke checksum).
+
 ## [3.3.0] - 2026-07-20
 
 ### Toegevoegd

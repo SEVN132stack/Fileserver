@@ -24,11 +24,18 @@ export function getPubkey(user) {
   return read().pubkeys[user] || null;
 }
 
-// Bewaar een (gewrapte) map-sleutel in de keyring van een gebruiker.
+// Bewaar een (gewrapte) map-sleutel in de keyring van een gebruiker. Bij een
+// bestaande sleutel wordt het versienummer opgehoogd (rotatie).
 export function putKey(user, folder, wrappedKey, from) {
   const d = read();
   d.rings[user] = d.rings[user] || {};
-  d.rings[user][folder] = { wrappedKey, from: from || user, ts: Date.now() };
+  const prev = d.rings[user][folder];
+  d.rings[user][folder] = {
+    wrappedKey,
+    from: from || user,
+    ts: Date.now(),
+    version: prev ? (prev.version || 1) + 1 : 1,
+  };
   write(d);
 }
 export function getRing(user) {
@@ -37,4 +44,12 @@ export function getRing(user) {
 export function removeKey(user, folder) {
   const d = read();
   if (d.rings[user]) { delete d.rings[user][folder]; write(d); }
+}
+
+// Mappen waarvan de sleutel ouder is dan het rotatiebeleid (dagen).
+export function dueForRotation(user, afterDays) {
+  if (!afterDays || afterDays <= 0) return [];
+  const ring = getRing(user);
+  const cutoff = Date.now() - afterDays * 86400000;
+  return Object.entries(ring).filter(([, v]) => (v.ts || 0) < cutoff).map(([folder, v]) => ({ folder, version: v.version || 1, ts: v.ts }));
 }

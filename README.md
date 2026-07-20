@@ -180,6 +180,17 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Extra functies (v3.4)
+
+- **Echte rsync-delta:** overeenkomende blokken worden op willekeurige byte-offsets
+  herkend (rollende checksum), dus invoegen/verwijderen in grote bestanden is efficiënt.
+- **Automatische E2E-sleutelrotatie:** map-sleutels hebben een versie; met
+  `KEY_ROTATE_DAYS` melden verlopen sleutels zich en roteert de client ze.
+- **Deel-links met downloadlimiet:** stel naast vervaltijd/wachtwoord een maximaal
+  aantal downloads in.
+- **Antivirus met meerdere engines:** ClamAV én VirusTotal (`VT_API_KEY`, hash-lookup).
+- **Screenshots:** `npm run screenshot <map>` genereert afbeeldingen van de web UI.
+
 ## Extra functies (v3.3)
 
 - **Delta-sync (rsync-achtig):** alleen gewijzigde blokken worden verstuurd
