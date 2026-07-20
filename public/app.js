@@ -1,5 +1,8 @@
 'use strict';
 const enc = encodeURIComponent;
+// HTML-escape voor het veilig tonen van gebruikers-gestuurde tekst (bestandsnamen,
+// paden) — voorkomt opgeslagen XSS via een bestandsnaam als "<img onerror=...>".
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 let cwd = '/';
 let me = null;
 const selected = new Set();
@@ -82,8 +85,8 @@ async function load() {
     const tr = document.createElement('tr');
     const icon = it.isDir ? '📂' : (isImg(it.name) ? `<img class="thumb" loading="lazy" src="/api/thumb?path=${enc(it.path)}&w=56">` : '📄');
     const nameCell = it.isDir
-      ? `<div class="name" data-dir="${enc(it.path)}">${icon} ${it.name}</div>`
-      : `<div class="name" data-open="${enc(it.path)}">${icon} ${it.name}</div>`;
+      ? `<div class="name" data-dir="${enc(it.path)}">${icon} ${esc(it.name)}</div>`
+      : `<div class="name" data-open="${enc(it.path)}">${icon} ${esc(it.name)}</div>`;
     let a = '';
     if (it.isDir) a += `<button data-zip="${enc(it.path)}">ZIP</button>`;
     else a += `<button data-dl="${enc(it.path)}">⬇</button>`;
@@ -104,7 +107,7 @@ async function load() {
 function renderCrumbs() {
   const parts = cwd.split('/').filter(Boolean); let acc='';
   const links = ['<a data-go="/">home</a>'];
-  for (const p of parts) { acc += '/'+p; links.push(`<a data-go="${enc(acc)}">${p}</a>`); }
+  for (const p of parts) { acc += '/'+p; links.push(`<a data-go="${enc(acc)}">${esc(p)}</a>`); }
   document.getElementById('crumbs').innerHTML = links.join(' / ');
 }
 
@@ -113,15 +116,15 @@ function openModal(html) { document.getElementById('modalBody').innerHTML = html
 function closeModal() { document.getElementById('modal').style.display='none'; document.getElementById('modalBody').innerHTML=''; }
 async function openFile(p) {
   const name = p.split('/').pop(); const url = '/api/preview?path='+enc(p);
-  if (isImg(name)) openModal(`<h3>${name}</h3><img src="${url}">`);
-  else if (/\.pdf$/i.test(name)) openModal(`<h3>${name}</h3><iframe src="${url}" style="width:82vw;height:74vh"></iframe>`);
-  else if (isText(name)) { const txt = await (await api(url)).text(); openModal(`<h3>${name}</h3><pre>${txt.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`); }
-  else openModal(`<h3>${name}</h3><p class="muted">Geen preview.</p><button data-dl="${enc(p)}">Download</button>`);
+  if (isImg(name)) openModal(`<h3>${esc(name)}</h3><img src="${url}">`);
+  else if (/\.pdf$/i.test(name)) openModal(`<h3>${esc(name)}</h3><iframe src="${url}" style="width:82vw;height:74vh"></iframe>`);
+  else if (isText(name)) { const txt = await (await api(url)).text(); openModal(`<h3>${esc(name)}</h3><pre>${txt.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`); }
+  else openModal(`<h3>${esc(name)}</h3><p class="muted">Geen preview.</p><button data-dl="${enc(p)}">Download</button>`);
 }
 async function editFile(p) {
   const name = p.split('/').pop();
   const txt = await (await api('/api/preview?path='+enc(p))).text();
-  openModal(`<h3>✎ ${name}</h3><textarea id="editArea"></textarea><br><button id="saveEdit" data-path="${enc(p)}">Opslaan</button>`);
+  openModal(`<h3>✎ ${esc(name)}</h3><textarea id="editArea"></textarea><br><button id="saveEdit" data-path="${enc(p)}">Opslaan</button>`);
   document.getElementById('editArea').value = txt;
   document.getElementById('saveEdit').onclick = async (e) => {
     await api('/api/save?path='+e.target.dataset.path, { method:'POST', headers:{'Content-Type':'text/plain'}, body: document.getElementById('editArea').value });
@@ -160,7 +163,7 @@ async function showVersions(p) {
     `<li>${new Date(v.date).toLocaleString()} — ${v.size} bytes
       <a href="/api/version/download?path=${enc(p)}&version=${enc(v.version)}">⬇</a>
       <button class="ghost" data-verrestore="${enc(p)}|${enc(v.version)}">herstel</button></li>`).join('') : '<li class="muted">Geen eerdere versies.</li>';
-  openModal(`<h3>🕘 Versies van ${p.split('/').pop()}</h3><ul>${rows}</ul>`);
+  openModal(`<h3>🕘 Versies van ${esc(p.split('/').pop())}</h3><ul>${rows}</ul>`);
 }
 
 // Ontsleutel een .enc-bestand in de browser en download het klaartekstbestand.
@@ -245,10 +248,10 @@ async function renderShared() {
   for (const s of me.shared) {
     const data = await (await api(`/api/shared/list?owner=${enc(s.owner)}&path=${enc(s.path)}`)).json().catch(()=>({items:[]}));
     const rw = (data.mode || s.mode) === 'rw';
-    html += `<h3>${s.owner}: ${s.path} <span class="muted">(${rw?'lezen+schrijven':'alleen-lezen'})</span></h3>`;
+    html += `<h3>${esc(s.owner)}: ${esc(s.path)} <span class="muted">(${rw?'lezen+schrijven':'alleen-lezen'})</span></h3>`;
     if (rw) html += `<div><input type="file" multiple data-shup="${enc(s.owner)}|${enc(s.path)}"></div>`;
     html += '<ul>' + (data.items||[]).map(i =>
-      `<li>${i.isDir?'📂':'📄'} ${i.name} ${i.isDir?'':`<a href="/api/shared/download?owner=${enc(s.owner)}&path=${enc(i.path)}">⬇</a>`}`
+      `<li>${i.isDir?'📂':'📄'} ${esc(i.name)} ${i.isDir?'':`<a href="/api/shared/download?owner=${enc(s.owner)}&path=${enc(i.path)}">⬇</a>`}`
       + (rw?` <button class="danger" data-shdel="${enc(s.owner)}|${enc(i.path)}">🗑</button>`:'') + `</li>`).join('') + '</ul>';
   }
   v.innerHTML = html;
@@ -270,7 +273,7 @@ async function renderTrash() {
   const data = await (await api('/api/trash')).json();
   if (!data.items.length) { v.innerHTML = '<p class="muted">Prullenbak is leeg.</p>'; return; }
   v.innerHTML = `<button class="danger" id="emptyTrash">Prullenbak legen</button><ul>` +
-    data.items.map(i => `<li>${i.isDir?'📂':'📄'} ${i.name.replace(/^\d+_/,'')} <button class="ghost" data-restore="${enc(i.path)}">Herstel</button></li>`).join('') + '</ul>';
+    data.items.map(i => `<li>${i.isDir?'📂':'📄'} ${esc(i.name.replace(/^\d+_/,''))} <button class="ghost" data-restore="${enc(i.path)}">Herstel</button></li>`).join('') + '</ul>';
   document.getElementById('emptyTrash').onclick = async () => { await api('/api/trash/empty',{method:'POST'}); renderTrash(); load(); loadMe(); };
 }
 

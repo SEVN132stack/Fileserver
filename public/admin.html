@@ -86,6 +86,7 @@
   <script>
     async function j(u,o){ const r=await fetch(u,o); if(r.status===401)location='/login.html'; if(r.status===403){document.body.innerHTML='<p style="padding:2rem">Geen beheerrechten.</p>';throw 0;} return r; }
     const fmtSize = (n) => { if(!n) return '0 B'; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; };
+    const esc = (s) => String(s==null?'':s).replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
     // --- Kleine, zelfstandige SVG-grafieken (geen externe libraries) ---
     function barChart(el, data) { // data: [{label, value, color}]
@@ -191,24 +192,24 @@
     async function loadShares() {
       const {shares} = await (await j('/api/admin/shares')).json();
       document.getElementById('shareTable').innerHTML = '<tr><th>Eigenaar</th><th>Pad</th><th>Downloads</th><th>Limiet</th><th>Wachtwoord</th><th>Vervalt</th></tr>' +
-        (shares.length?shares.map(s=>`<tr><td>${s.user}</td><td>${s.path}</td><td>${s.downloads}</td><td>${s.maxDownloads||'∞'}</td><td>${s.hasPassword?'ja':'nee'}</td><td>${s.expires?new Date(s.expires).toLocaleString():'nooit'}</td></tr>`).join(''):'<tr><td colspan="6">Geen deel-links</td></tr>');
+        (shares.length?shares.map(s=>`<tr><td>${esc(s.user)}</td><td>${esc(s.path)}</td><td>${s.downloads}</td><td>${s.maxDownloads||'∞'}</td><td>${s.hasPassword?'ja':'nee'}</td><td>${s.expires?new Date(s.expires).toLocaleString():'nooit'}</td></tr>`).join(''):'<tr><td colspan="6">Geen deel-links</td></tr>');
     }
     async function loadUsers() {
       const {users} = await (await j('/api/admin/users')).json();
       document.getElementById('userTable').innerHTML =
         '<tr><th>Gebruiker</th><th>Rol</th><th>Quota (bytes)</th><th>Bandbreedte (B/s)</th><th>E-mail</th><th>2FA</th><th></th></tr>' +
-        users.map(u=>`<tr><td>${u.username}${u.external?' 🔗':''}</td>
+        users.map(u=>`<tr><td>${esc(u.username)}${u.external?' 🔗':''}</td>
           <td><select data-role="${u.username}"><option ${u.role==='user'?'selected':''}>user</option><option ${u.role==='admin'?'selected':''}>admin</option><option ${u.role==='readonly'?'selected':''}>readonly</option></select></td>
           <td><input data-quota="${u.username}" value="${u.quota||0}" style="width:120px"></td>
           <td><input data-bw="${u.username}" value="${u.bw||0}" style="width:110px"></td>
-          <td><input data-email="${u.username}" value="${u.email||''}" placeholder="e-mail" style="width:150px"></td>
+          <td><input data-email="${u.username}" value="${esc(u.email||'')}" placeholder="e-mail" style="width:150px"></td>
           <td>${u.totp?'aan':'uit'}</td>
           <td><button class="danger" data-del="${u.username}">verwijder</button></td></tr>`).join('');
     }
     async function loadBans() {
       const {bans} = await (await j('/api/admin/bans')).json();
       document.getElementById('banTable').innerHTML = '<tr><th>IP</th><th>Tot</th><th></th></tr>' +
-        (bans.length?bans.map(b=>`<tr><td>${b.ip}</td><td>${b.until?new Date(b.until).toLocaleString():'permanent'}</td><td><button class="danger" data-unban="${b.ip}">deblokkeer</button></td></tr>`).join(''):'<tr><td colspan="3">Geen</td></tr>');
+        (bans.length?bans.map(b=>`<tr><td>${esc(b.ip)}</td><td>${b.until?new Date(b.until).toLocaleString():'permanent'}</td><td><button class="danger" data-unban="${b.ip}">deblokkeer</button></td></tr>`).join(''):'<tr><td colspan="3">Geen</td></tr>');
     }
     async function loadAudit() {
       const {lines} = await (await j('/api/admin/audit')).json();
@@ -239,7 +240,7 @@
     async function loadQuarantine() {
       const {items} = await (await j('/api/admin/quarantine')).json();
       document.getElementById('qTable').innerHTML = '<tr><th>Bestand</th><th>Gebruiker</th><th>Detectie</th><th>Datum</th><th></th></tr>' +
-        (items.length?items.map(q=>`<tr><td>${q.filename}</td><td>${q.user}</td><td>${(q.detail||'').slice(0,60)}</td><td>${q.ts}</td>
+        (items.length?items.map(q=>`<tr><td>${esc(q.filename)}</td><td>${esc(q.user)}</td><td>${esc((q.detail||'').slice(0,60))}</td><td>${q.ts}</td>
           <td><button data-qrel="${q.id}">vrijgeven</button> <button class="danger" data-qdel="${q.id}">wissen</button></td></tr>`).join(''):'<tr><td colspan="5">Leeg</td></tr>');
     }
     document.addEventListener('click', async e => {

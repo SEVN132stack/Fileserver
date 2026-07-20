@@ -372,7 +372,10 @@ export function createWebServer() {
     try {
       const file = resolveWithin(req.home, req.query.path || '');
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).json({ error: 'Niet gevonden' });
-      res.setHeader('Content-Disposition', 'inline; filename="' + path.basename(file) + '"');
+      // Voorkom dat een geüploade HTML/SVG scripts uitvoert in de app-origin.
+      res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'");
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Disposition', 'inline; filename="' + path.basename(file).replace(/[\r\n"]/g, '') + '"');
       res.sendFile(file);
     } catch (err) {
       res.status(400).json({ error: err.message });

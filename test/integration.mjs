@@ -345,6 +345,13 @@ try {
   const allShares = await (await fetch(H + '/api/admin/shares', { headers: jar() })).json();
   ok('admin-deel-links met downloadtellingen', Array.isArray(allShares.shares) && allShares.shares.some((s) => typeof s.downloads === 'number'));
 
+  // 13ab. Preview stuurt beveiligingsheaders (geen script-uitvoering).
+  cookie = ''; await login('admin', 'testpass123');
+  await fetch(H + '/api/save?path=/evil.html', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: '<script>alert(1)</script>' });
+  const pv2 = await fetch(H + '/api/preview?path=/evil.html', { headers: jar() });
+  const csp = pv2.headers.get('content-security-policy') || '';
+  ok('preview stuurt CSP-sandbox + nosniff', csp.includes('sandbox') && pv2.headers.get('x-content-type-options') === 'nosniff');
+
   // 13z. Admin live-events (SSE): activiteit wordt uitgezonden.
   cookie = ''; await login('admin', 'testpass123');
   const adminSse = await new Promise((resolve) => {

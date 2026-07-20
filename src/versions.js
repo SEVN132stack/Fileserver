@@ -10,9 +10,15 @@ function versionsRoot(home) {
   return path.join(home, config.versionsName);
 }
 
-// Relatief pad binnen home -> map met versies van dat bestand.
+// Relatief pad binnen home -> map met versies van dat bestand. Het pad wordt
+// genormaliseerd en binnen de versies-root gehouden (geen path-traversal).
 function versionDir(home, relPath) {
-  return path.join(versionsRoot(home), relPath.replace(/^\//, ''));
+  const norm = path.posix.normalize('/' + String(relPath).replace(/\\/g, '/')).replace(/^\/+/, '');
+  const root = versionsRoot(home);
+  const abs = path.join(root, norm);
+  const rel = path.relative(root, abs);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('Ongeldig pad');
+  return abs;
 }
 
 // Maak een momentopname van een bestand (indien het bestaat) vóór overschrijven.

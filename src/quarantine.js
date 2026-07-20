@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { config } from './config.js';
+import { resolveWithin } from './paths.js';
 
 // Beheer van bestanden in quarantaine. Verdachte uploads worden niet direct
 // verwijderd maar apart gezet; een beheerder kan ze bekijken, vrijgeven of wissen.
@@ -34,7 +35,8 @@ export function release(id) {
   const list = readMeta();
   const item = list.find((q) => q.id === id);
   if (!item) throw new Error('Niet gevonden');
-  const dest = path.join(item.home, item.targetPath.replace(/^\//, ''), item.filename);
+  // Houd de bestemming binnen de home-map (voorkom path-traversal via targetPath).
+  const dest = resolveWithin(item.home, path.posix.join(item.targetPath || '/', path.basename(item.filename)));
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.renameSync(path.join(config.quarantineDir, id), dest);
   writeMeta(list.filter((q) => q.id !== id));
