@@ -192,6 +192,7 @@ voor de link + QR-code. De link:
 - blijft geldig en **volgt het bestand** als je het hernoemt of verplaatst;
 - is publiek bereikbaar via de onraadbare UUID (geen login nodig);
 - vervalt automatisch als het bestand wordt verwijderd;
+- kan optioneel een **wachtwoord** en **vervaldatum** krijgen (net als deel-links);
 - toont met `?inline=1` het bestand inline (afbeelding/tekst/PDF) i.p.v. downloaden.
 
 Stel `APP_BASE_URL=https://transfer.zepta-nas.nl` in zodat de links naar je

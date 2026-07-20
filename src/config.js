@@ -215,7 +215,7 @@ export const config = {
     get enabled() { return !!(this.rpID && this.origin); },
   },
 
-  version: '3.10.0',
+  version: '3.11.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

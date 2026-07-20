@@ -321,7 +321,12 @@ export function createWebServer() {
   // --- Permalink per bestand (stabiele UUID-link, geen auth) ---
   app.get('/f/:uuid', (req, res) => {
     const entry = permalinks.resolve(req.params.uuid);
-    if (!entry) return res.status(404).send('Link niet gevonden.');
+    if (!entry) return res.status(404).send('Link niet gevonden of verlopen.');
+    if (!permalinks.checkPassword(entry, req.query.pw)) {
+      return res.send(`<form style="font-family:sans-serif;max-width:320px;margin:3rem auto">
+        <h3>Beveiligde link</h3><input name="pw" type="password" placeholder="Wachtwoord" style="width:100%;padding:.5rem">
+        <button style="margin-top:.5rem;padding:.5rem 1rem">Openen</button></form>`);
+    }
     let abs;
     try { abs = resolveWithin(homeDir(entry.user), entry.path); } catch { return res.status(404).send('Niet gevonden.'); }
     if (!fs.existsSync(abs)) return res.status(404).send('Bestand bestaat niet meer.');
@@ -868,13 +873,18 @@ export function createWebServer() {
     res.json({ token, url: `/s/${token}` });
   });
 
-  // Stabiele permalink voor een bestand ophalen/aanmaken.
-  app.get('/api/permalink', (req, res) => {
+  // Stabiele permalink voor een bestand ophalen/aanmaken (optioneel met
+  // wachtwoord en vervaldatum).
+  app.post('/api/permalink', requireWrite, express.json(), (req, res) => {
     try {
-      const rel = req.query.path || '';
+      const rel = req.body.path || '';
       resolveWithin(req.home, rel); // valideer dat het pad binnen de home valt
-      const uuid = permalinks.getOrCreate(req.user, rel);
+      const opts = {};
+      if (req.body.password !== undefined) opts.password = req.body.password || null;
+      if (req.body.expiresInHours !== undefined) opts.expiresInHours = req.body.expiresInHours ? Number(req.body.expiresInHours) : 0;
+      const uuid = permalinks.getOrCreate(req.user, rel, opts);
       const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+      audit('web', req.user, 'permalink_create', { path: rel });
       res.json({ uuid, url: `${base}/f/${uuid}` });
     } catch (err) {
       res.status(400).json({ error: err.message });

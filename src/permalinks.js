@@ -1,10 +1,10 @@
 import fs from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
 
 // Stabiele permalink per bestand: een UUID die altijd naar hetzelfde bestand
-// verwijst (zolang het niet hernoemd/verwijderd wordt). Opslag: uuid -> {user, path}.
-// Er is per (gebruiker, pad) hoogstens één UUID, zodat de link stabiel blijft.
+// verwijst (zolang het niet hernoemd/verwijderd wordt). Optioneel met wachtwoord
+// en vervaldatum. Opslag: uuid -> { user, path, password, expires, created }.
 
 function read() {
   try {
@@ -17,23 +17,50 @@ function write(d) {
   fs.writeFileSync(config.permalinksFile, JSON.stringify(d, null, 2), { mode: 0o600 });
 }
 
-// Geef de bestaande UUID voor (user, path) terug of maak er een aan.
-export function getOrCreate(user, path) {
+function hash(pw) {
+  const salt = randomBytes(12).toString('hex');
+  return `${salt}$${scryptSync(pw, salt, 32).toString('hex')}`;
+}
+function verify(pw, stored) {
+  const [salt, h] = String(stored).split('$');
+  if (!salt || !h) return false;
+  const calc = scryptSync(pw, salt, 32);
+  const known = Buffer.from(h, 'hex');
+  return calc.length === known.length && timingSafeEqual(calc, known);
+}
+
+// Geef de bestaande UUID voor (user, path) terug of maak er een aan. Met opts
+// worden wachtwoord/vervaldatum (opnieuw) ingesteld.
+export function getOrCreate(user, path, opts = {}) {
   const d = read();
-  for (const [uuid, v] of Object.entries(d)) {
-    if (v.user === user && v.path === path) return uuid;
+  let uuid = Object.keys(d).find((k) => d[k].user === user && d[k].path === path);
+  if (!uuid) {
+    uuid = randomUUID();
+    d[uuid] = { user, path, password: null, expires: 0, created: Date.now() };
   }
-  const uuid = randomUUID();
-  d[uuid] = { user, path, created: Date.now() };
+  if (opts.password !== undefined) d[uuid].password = opts.password ? hash(opts.password) : null;
+  if (opts.expiresInHours !== undefined) d[uuid].expires = opts.expiresInHours ? Date.now() + opts.expiresInHours * 3600000 : 0;
   write(d);
   return uuid;
 }
 
 export function resolve(uuid) {
-  return read()[uuid] || null;
+  const d = read();
+  const s = d[uuid];
+  if (!s) return null;
+  if (s.expires && s.expires < Date.now()) {
+    delete d[uuid];
+    write(d);
+    return null;
+  }
+  return s;
 }
 
-// Verplaats/hernoem: laat de permalink het bestand volgen.
+export function checkPassword(entry, password) {
+  if (!entry.password) return true;
+  return !!password && verify(password, entry.password);
+}
+
 export function updatePath(user, oldPath, newPath) {
   const d = read();
   let changed = false;
@@ -46,7 +73,6 @@ export function updatePath(user, oldPath, newPath) {
   if (changed) write(d);
 }
 
-// Verwijder alle permalinks voor een pad (en onderliggende paden).
 export function removeForPath(user, path) {
   const d = read();
   let changed = false;
@@ -60,5 +86,7 @@ export function removeForPath(user, path) {
 }
 
 export function listForUser(user) {
-  return Object.entries(read()).filter(([, v]) => v.user === user).map(([uuid, v]) => ({ uuid, path: v.path }));
+  return Object.entries(read())
+    .filter(([, v]) => v.user === user)
+    .map(([uuid, v]) => ({ uuid, path: v.path, hasPassword: !!v.password, expires: v.expires || 0 }));
 }

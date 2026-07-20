@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.11.0] - 2026-07-20
+
+### Gewijzigd
+
+- **Permalinks configureerbaar**: een permalink kan nu een **wachtwoord** en/of
+  **vervaldatum** krijgen (zoals deel-links). De `/f/<uuid>`-route toont een
+  wachtwoordformulier en weigert verlopen links. Endpoint is nu `POST /api/permalink`
+  met `{ path, password, expiresInHours }`.
+
 ## [3.10.0] - 2026-07-20
 
 ### Toegevoegd

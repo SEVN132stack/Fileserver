@@ -403,7 +403,10 @@ document.addEventListener('click', async (e) => {
   }
   if (t2.dataset.revoke) { await api('/api/sessions/'+t2.dataset.revoke,{method:'DELETE'}); showSessions(); return; }
   if (t2.dataset.perma) {
-    const r = await (await api('/api/permalink?path='+enc(decodeURIComponent(t2.dataset.perma)))).json();
+    const p = decodeURIComponent(t2.dataset.perma);
+    const hrs = prompt('Permalink vervalt na hoeveel uur? (leeg = nooit)', ''); if (hrs === null) return;
+    const pw = prompt('Wachtwoord voor de permalink? (leeg = geen)', '') || null;
+    const r = await (await api('/api/permalink',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,expiresInHours:hrs?Number(hrs):0,password:pw})})).json();
     showLink('Vaste link (permalink)', r.url); return;
   }
   if (t2.dataset.dec) { return decryptDownload(decodeURIComponent(t2.dataset.dec)); }

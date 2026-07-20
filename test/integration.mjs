@@ -456,16 +456,27 @@ try {
   // 13am. Permalink per bestand: stabiele UUID-link, publiek bereikbaar, volgt rename.
   cookie = ''; await login('admin', 'testpass123');
   await fetch(H + '/api/save?path=/perma.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'permalink-inhoud' });
-  const pl1 = await (await fetch(H + '/api/permalink?path=/perma.txt', { headers: jar() })).json();
-  const pl2 = await (await fetch(H + '/api/permalink?path=/perma.txt', { headers: jar() })).json();
+  const mkPerma = (body) => fetch(H + '/api/permalink', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) }).then((r) => r.json());
+  const pl1 = await mkPerma({ path: '/perma.txt' });
+  const pl2 = await mkPerma({ path: '/perma.txt' });
   const fetched = await fetch(H + '/f/' + pl1.uuid); // geen auth
   const body = await fetched.text();
-  // hernoemen -> permalink volgt
   await fetch(H + '/api/rename', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ from: '/perma.txt', to: '/perma-nieuw.txt' }) });
   const afterRename = await fetch(H + '/f/' + pl1.uuid);
   ok('permalink: stabiel, publiek bereikbaar en volgt hernoemen',
     pl1.uuid && pl1.uuid === pl2.uuid && /^[0-9a-f-]{36}$/.test(pl1.uuid) &&
     fetched.status === 200 && body === 'permalink-inhoud' && afterRename.status === 200);
+
+  // 13am2. Permalink met wachtwoord: zonder ww een formulier, met ww de inhoud.
+  const plPw = await mkPerma({ path: '/perma-nieuw.txt', password: 'permageheim' });
+  const noPw = await (await fetch(H + '/f/' + plPw.uuid)).text();
+  const withPw = await fetch(H + '/f/' + plPw.uuid + '?pw=permageheim');
+  ok('permalink met wachtwoord', noPw.includes('Beveiligde link') && withPw.status === 200 && (await withPw.text()) === 'permalink-inhoud');
+
+  // 13am3. Permalink met vervaldatum in het verleden -> verlopen (404).
+  const plExp = await mkPerma({ path: '/perma-nieuw.txt', expiresInHours: -1 });
+  const expired = await fetch(H + '/f/' + plExp.uuid);
+  ok('permalink met vervaldatum verloopt', expired.status === 404);
 
   // 14. SFTP password-auth als bob
   await new Promise((res) => {
