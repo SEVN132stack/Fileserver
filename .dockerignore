@@ -11,3 +11,5 @@ uploads-tmp
 .env
 *.log
 .git
+backups
+thumbs-cache

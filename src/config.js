@@ -101,6 +101,37 @@ export const config = {
     get enabled() { return !!(this.issuer && this.clientId && this.clientSecret && this.redirectUri); },
   },
 
+  // Externe basis-URL (voor reset-links in e-mails).
+  appBaseUrl: process.env.APP_BASE_URL || '',
+
+  // SMTP voor wachtwoord-reset-mails. Zonder host wordt de resetlink alleen
+  // in de console gelogd (handig voor ontwikkeling).
+  smtp: {
+    host: process.env.SMTP_HOST || '',
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: bool(process.env.SMTP_SECURE, false),
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    from: process.env.SMTP_FROM || 'fileserver@localhost',
+  },
+
+  // Prometheus-metrics op /metrics. Optioneel bearer-token.
+  metrics: {
+    enabled: bool(process.env.METRICS_ENABLED, true),
+    token: process.env.METRICS_TOKEN || '',
+  },
+
+  // Ingebouwde back-upplanner: maakt periodiek een ZIP van de opslag en
+  // bewaart de laatste N. 0 minuten = uit.
+  backup: {
+    intervalMinutes: parseInt(process.env.BACKUP_INTERVAL_MINUTES || '0', 10),
+    dir: abs(process.env.BACKUP_DIR || 'backups'),
+    keep: parseInt(process.env.BACKUP_KEEP || '7', 10),
+  },
+
+  // Cache-map voor thumbnails.
+  thumbDir: abs(process.env.THUMB_DIR || 'thumbs-cache'),
+
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
     username: process.env.AUTH_USER || 'admin',

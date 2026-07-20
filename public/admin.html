@@ -36,6 +36,10 @@
     <table id="banTable"></table>
     <div style="display:flex;gap:.5rem;margin-bottom:2rem"><input id="banIp" placeholder="IP-adres"><button id="addBan">Blokkeren</button></div>
 
+    <h2>Back-ups</h2>
+    <button id="makeBackup">Nu back-up maken</button>
+    <table id="backupTable" style="margin-top:1rem"></table>
+
     <h2>Audit-log (laatste 200)</h2>
     <pre id="audit"></pre>
   </main>
@@ -44,11 +48,12 @@
     async function loadUsers() {
       const {users} = await (await j('/api/admin/users')).json();
       document.getElementById('userTable').innerHTML =
-        '<tr><th>Gebruiker</th><th>Rol</th><th>Quota (bytes)</th><th>Bandbreedte (B/s)</th><th>2FA</th><th></th></tr>' +
+        '<tr><th>Gebruiker</th><th>Rol</th><th>Quota (bytes)</th><th>Bandbreedte (B/s)</th><th>E-mail</th><th>2FA</th><th></th></tr>' +
         users.map(u=>`<tr><td>${u.username}${u.external?' 🔗':''}</td>
           <td><select data-role="${u.username}"><option ${u.role==='user'?'selected':''}>user</option><option ${u.role==='admin'?'selected':''}>admin</option><option ${u.role==='readonly'?'selected':''}>readonly</option></select></td>
           <td><input data-quota="${u.username}" value="${u.quota||0}" style="width:120px"></td>
           <td><input data-bw="${u.username}" value="${u.bw||0}" style="width:110px"></td>
+          <td><input data-email="${u.username}" value="${u.email||''}" placeholder="e-mail" style="width:150px"></td>
           <td>${u.totp?'aan':'uit'}</td>
           <td><button class="danger" data-del="${u.username}">verwijder</button></td></tr>`).join('');
     }
@@ -75,8 +80,15 @@
       if (d.role) await j('/api/admin/users/'+d.role,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:e.target.value})});
       if (d.quota) await j('/api/admin/users/'+d.quota,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({quota:parseInt(e.target.value||'0',10)})});
       if (d.bw) await j('/api/admin/users/'+d.bw,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({bw:parseInt(e.target.value||'0',10)})});
+      if (d.email) await j('/api/admin/users/'+d.email,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e.target.value})});
     });
-    loadUsers(); loadBans(); loadAudit();
+    async function loadBackups() {
+      const {backups} = await (await j('/api/admin/backups')).json();
+      document.getElementById('backupTable').innerHTML = '<tr><th>Bestand</th><th>Grootte</th></tr>' +
+        (backups.length?backups.map(b=>`<tr><td>${b.name}</td><td>${b.size} bytes</td></tr>`).join(''):'<tr><td colspan="2">Nog geen back-ups</td></tr>');
+    }
+    document.getElementById('makeBackup').onclick = async () => { await j('/api/admin/backup',{method:'POST'}); loadBackups(); };
+    loadUsers(); loadBans(); loadAudit(); loadBackups();
   </script>
 </body>
 </html>

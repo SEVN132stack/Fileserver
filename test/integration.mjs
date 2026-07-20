@@ -14,6 +14,9 @@ process.env.AUTHORIZED_KEYS_DIR = path.join(tmp, 'authorized_keys');
 process.env.AUDIT_LOG = path.join(tmp, 'audit.log');
 process.env.BANS_FILE = path.join(tmp, 'bans.json');
 process.env.SHARES_FILE = path.join(tmp, 'shares.json');
+process.env.CHUNK_DIR = path.join(tmp, 'chunks');
+process.env.BACKUP_DIR = path.join(tmp, 'backups');
+process.env.THUMB_DIR = path.join(tmp, 'thumbs');
 process.env.ENV_FILE = path.join(tmp, '.env');
 process.env.TLS_CERT = path.join(tmp, 'cert.pem');
 process.env.TLS_KEY = path.join(tmp, 'key.pem');
@@ -165,6 +168,66 @@ try {
     }).catch(() => {});
   });
   ok('SSE stuurt change-event', sseGot === true);
+
+  // 13e. Wachtwoord-reset: token -> confirm -> inloggen met nieuw wachtwoord.
+  const { createResetToken } = await import('../src/mailer.js');
+  const rtok = createResetToken('ro');
+  const rc = await fetch(H + '/api/reset/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: rtok, password: 'ronieuw' }) });
+  cookie = ''; const roLogin = await login('ro', 'ronieuw');
+  ok('wachtwoord-reset via token werkt', rc.status === 200 && roLogin.status === 200 && roLogin.body.ok);
+
+  // 13f. Metadata: favoriet markeren -> verschijnt in favorieten.
+  cookie = ''; await login('admin', 'testpass123');
+  await fetch(H + '/api/meta', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/a.txt', tags: ['belangrijk'], comment: 'test', favorite: true }) });
+  const favs = await (await fetch(H + '/api/favorites', { headers: jar() })).json();
+  ok('metadata favoriet + tags opgeslagen', favs.favorites.some((f) => f.path === '/a.txt' && f.tags.includes('belangrijk')));
+
+  // 13g. Thumbnail van een echte afbeelding.
+  const sharpMod = (await import('sharp')).default;
+  const png = await sharpMod({ create: { width: 20, height: 20, channels: 3, background: { r: 200, g: 0, b: 0 } } }).png().toBuffer();
+  const ifd = new FormData(); ifd.append('files', new Blob([png]), 'rood.png');
+  await fetch(H + '/api/upload?path=/', { method: 'POST', headers: jar(), body: ifd });
+  const thumb = await fetch(H + '/api/thumb?path=/rood.png&w=16', { headers: jar() });
+  ok('thumbnail gegenereerd', thumb.status === 200 && (thumb.headers.get('content-type') || '').includes('webp'));
+
+  // 13h. Gedeelde map met schrijfrechten: admin deelt met bob (rw), bob uploadt.
+  await fetch(H + '/api/mkdir', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/', name: 'pub' }) });
+  await fetch(H + '/api/grant', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ to: 'bob', path: '/pub', mode: 'rw' }) });
+  cookie = ''; await login('bob', 'bobpass');
+  const sfd = new FormData(); sfd.append('files', new Blob(['van bob']), 'bob-shared.txt');
+  const shup = await fetch(H + '/api/shared/upload?owner=admin&path=/pub', { method: 'POST', headers: jar(), body: sfd });
+  cookie = ''; await login('admin', 'testpass123');
+  const pubList = await (await fetch(H + '/api/list?path=/pub', { headers: jar() })).json();
+  ok('gedeelde rw-map: schrijven werkt', shup.status === 200 && pubList.items.some((i) => i.name === 'bob-shared.txt'));
+
+  // 13i. tus resumable upload (protocol 1.0.0).
+  const meta = 'filename ' + Buffer.from('tusfile.txt').toString('base64') + ',path ' + Buffer.from('/').toString('base64');
+  const create = await fetch(H + '/tus', { method: 'POST', headers: jar({ 'Upload-Length': '5', 'Upload-Metadata': meta, 'Tus-Resumable': '1.0.0' }) });
+  const loc = create.headers.get('location');
+  const patch = await fetch(H + loc, { method: 'PATCH', headers: jar({ 'Content-Type': 'application/offset+octet-stream', 'Upload-Offset': '0', 'Tus-Resumable': '1.0.0' }), body: Buffer.from('hello') });
+  const tusList = await (await fetch(H + '/api/list', { headers: jar() })).json();
+  ok('tus upload voltooid', create.status === 201 && patch.status === 204 && tusList.items.some((i) => i.name === 'tusfile.txt'));
+
+  // 13j. Prometheus-metrics.
+  const met = await (await fetch(H + '/metrics', { headers: jar() })).text();
+  ok('metrics-endpoint levert tellers', met.includes('fileserver_uploads_total'));
+
+  // 13k. Back-up maken via admin.
+  const bk = await (await fetch(H + '/api/admin/backup', { method: 'POST', headers: jar() })).json();
+  const bl = await (await fetch(H + '/api/admin/backups', { headers: jar() })).json();
+  ok('back-up maken + lijst', bk.ok && bl.backups.length >= 1);
+
+  // 13l. Client-side-versleutelingsformaat (AES-GCM roundtrip).
+  {
+    const enc = new TextEncoder();
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const base = await crypto.subtle.importKey('raw', enc.encode('pw'), 'PBKDF2', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 150000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode('geheim'));
+    const pt = new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct));
+    ok('E2E-versleuteling roundtrip', pt === 'geheim');
+  }
 
   // 14. SFTP password-auth als bob
   await new Promise((res) => {

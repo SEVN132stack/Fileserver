@@ -70,19 +70,29 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Off-site backup via post-upload-commando (bijv. `aws s3 cp`)
 - ✅ Prullenbak telt mee in de opslag/quota
 
+## Geavanceerd+ (v3.2)
+
+- ✅ Wachtwoord-reset via e-mail (SMTP, met resetlink)
+- ✅ Gedeelde mappen met schrijfrechten (ro/rw per deling)
+- ✅ Bestandscommentaar / tags / favorieten
+- ✅ Miniatuurcache voor snellere thumbnails (sharp)
+- ✅ Client-side end-to-end-versleuteling (AES-GCM in de browser)
+- ✅ tus-protocol voor hervatbare, zeer grote overdrachten
+- ✅ Metrics/Prometheus-endpoint voor monitoring
+- ✅ Ingebouwde back-upplanner met retentie + handmatige back-up
+
 ## Toekomstige ideeën
 
 - 💡 Volledige S3/object-storage als primaire backend (storage-abstractielaag)
 - 💡 JWKS-handtekeningverificatie voor OIDC id_tokens
-- 💡 Wachtwoord-reset via e-mail
-- 💡 Gedeelde mappen met schrijfrechten (nu alleen-lezen)
-- 💡 Bestandscommentaar / tags / favorieten
-- 💡 Miniatuurcache voor snellere thumbnails van grote afbeeldingen
-- 💡 Client-side versleuteling (end-to-end)
-- 💡 Rsync-/tus-protocol voor extreem grote overdrachten
 - 💡 Meer talen (ES/IT/PL/...) en RTL-ondersteuning
 - 💡 Mobiele native app (via de bestaande API)
-- 💡 Metrics/Prometheus-endpoint voor monitoring
-- 💡 Ingebouwde back-upplanner (cron) met retentie
+- 💡 Rsync-protocol / delta-sync voor efficiënte updates
+- 💡 Antivirus-quarantaine met beheer i.p.v. directe weigering
+- 💡 Webhook-/e-mailnotificatie bij delen en downloads van deel-links
+- 💡 Versiegeschiedenis per bestand (niet alleen prullenbak)
+- 💡 Sleutelbeheer voor E2E (per-map sleutels, delen van sleutels)
+- 💡 Grafana-dashboard-sjabloon bij de Prometheus-metrics
+- 💡 Back-up naar externe bestemming (S3/rsync) i.p.v. lokaal
 
 > Nieuwe wensen? Voeg ze onderaan toe onder "Toekomstige ideeën".

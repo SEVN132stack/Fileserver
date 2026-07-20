@@ -4,12 +4,15 @@ import { ensureStorage, ensureHostKey } from './util.js';
 import { ensureUsers, listUsernames } from './users.js';
 import { startWebServer } from './web.js';
 import { startSftpServer } from './sftp.js';
+import { startBackupScheduler } from './backup.js';
 
 // Startpunt: bereidt opslag, host key en gebruikers voor en start beide servers.
 ensureStorage();
 ensureHostKey();
 ensureUsers();
 fs.mkdirSync(config.chunkDir, { recursive: true });
+fs.mkdirSync(config.thumbDir, { recursive: true });
+startBackupScheduler();
 
 startWebServer();
 startSftpServer();

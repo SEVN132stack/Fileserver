@@ -10,3 +10,5 @@ shares.json
 uploads-tmp/
 *.log
 .env
+backups/
+thumbs-cache/

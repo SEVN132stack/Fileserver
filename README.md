@@ -136,8 +136,14 @@ home-map van de gebruiker.
 | `POST`/`GET`/`DELETE` | `/api/share` · `/api/shares` · `/api/share/:t` | Deel-links |
 | `GET`  | `/api/shared/list` · `/api/shared/download` | Met mij gedeelde mappen |
 | `POST` | `/api/2fa/setup` · `/enable` · `/disable` | 2FA |
-| `*`    | `/api/admin/*` | Beheer (alleen admin) |
-| `*`    | `/webdav/*` | WebDAV |
+| `GET`/`POST` | `/api/meta` · `/api/favorites` | Tags/commentaar/favorieten |
+| `GET`  | `/api/thumb` | Thumbnail van een afbeelding |
+| `POST`/`DELETE`/`GET` | `/api/grant` · `/api/grants` | Map delen met een gebruiker |
+| `GET`/`POST` | `/api/shared/list·download·upload·mkdir·delete` | Gedeelde mappen |
+| `POST` | `/api/reset/request` · `/api/reset/confirm` | Wachtwoord-reset (geen auth) |
+| `*`    | `/api/admin/*` | Beheer, incl. `/backup`, `/backups` (alleen admin) |
+| `*`    | `/webdav/*` · `/tus/*` | WebDAV / tus resumable uploads |
+| `GET`  | `/metrics` | Prometheus-metrics |
 | `GET`  | `/s/:token` | Publieke deel-link (geen auth) |
 
 ## Publiek gebruik: reverse proxy + echt certificaat
@@ -170,6 +176,23 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
   upload naar bijvoorbeeld een S3-bucket.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
+
+## Extra functies (v3.2)
+
+- **Wachtwoord-reset via e-mail:** "Wachtwoord vergeten?" op de loginpagina.
+  Stel `SMTP_*` in; zonder SMTP wordt de resetlink in de console gelogd.
+- **Gedeelde mappen met schrijfrechten:** deel een map met een gebruiker via de
+  knop 👥, kies alleen-lezen of lezen+schrijven.
+- **Tags, commentaar en favorieten:** via de knop 🏷 per bestand.
+- **Thumbnails:** afbeeldingen krijgen gecachete miniaturen (via `sharp`).
+- **End-to-end-versleuteling:** vink "🔒 Versleutel uploads" aan; bestanden worden
+  in de browser versleuteld (AES-GCM) en met 🔓 weer ontsleuteld. De server ziet
+  alleen cijfertekst.
+- **tus-protocol** (`/tus`) voor hervatbare, zeer grote overdrachten met standaard
+  tus-clients (Uppy, tus-js-client).
+- **Prometheus-metrics** op `/metrics` (optioneel `METRICS_TOKEN`).
+- **Back-ups:** automatische planner (`BACKUP_INTERVAL_MINUTES`) met retentie
+  (`BACKUP_KEEP`), plus handmatige back-up in het admin-dashboard.
 
 ## Tests (browser)
 

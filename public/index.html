@@ -78,6 +78,7 @@
         <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">
           <span data-i18n="choosedir">map</span><input type="file" id="dirInput" webkitdirectory hidden></label>
         <div id="progress"><div></div></div>
+        <div style="margin-top:.6rem;font-size:.85rem"><label><input type="checkbox" id="encToggle"> 🔒 Versleutel uploads (end-to-end)</label></div>
       </div>
       <div class="bar">
         <button class="ghost" id="mkdirBtn" data-i18n="newfolder">＋ Nieuwe map</button>
@@ -98,6 +99,7 @@
 
   <div id="modal"><div class="box"><button class="ghost" id="modalClose" style="float:right">✕</button><div id="modalBody"></div></div></div>
 
+  <script src="/crypto.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

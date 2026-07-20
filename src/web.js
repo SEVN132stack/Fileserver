@@ -26,8 +26,14 @@ import { handleWebdav, WEBDAV_MOUNT } from './webdav.js';
 import { throttleStream } from './throttle.js';
 import { scanFile } from './scan.js';
 import { addClient, emitToUser } from './events.js';
-import { bandwidth, ensureExternalUser } from './users.js';
+import { bandwidth, ensureExternalUser, getEmail } from './users.js';
 import { getAuthUrl, validState, exchange } from './oidc.js';
+import { createResetToken, consumeResetToken, sendResetMail } from './mailer.js';
+import { getMeta, getAllMeta, setMeta } from './metadata.js';
+import { getThumbnail, canThumbnail } from './thumbs.js';
+import * as metrics from './metrics.js';
+import { makeBackup } from './backup.js';
+import { handleTus, TUS_MOUNT } from './tus.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -85,6 +91,7 @@ function authenticate(req, res, next) {
 
 function onLoginFailure(ip, user) {
   recordFailure('web:' + ip);
+  metrics.inc('fileserver_login_failures_total');
   audit('web', user, 'login_failed', { ip });
   if (!checkAllowed('web:' + ip).allowed && !isBanned(ip)) {
     ban(ip, Date.now() + config.rateLimit.blockMs);
@@ -105,7 +112,7 @@ async function listDir(home, dir, base = home) {
   const entries = await fsp.readdir(dir, { withFileTypes: true });
   const items = await Promise.all(
     entries
-      .filter((e) => !(dir === home && e.name === config.trashName))
+      .filter((e) => !(dir === home && (e.name === config.trashName || e.name === '.metadata.json')))
       .map(async (e) => {
         const stat = await fsp.stat(path.join(dir, e.name)).catch(() => null);
         return {
@@ -159,6 +166,7 @@ export function createWebServer() {
     recordSuccess('web:' + ip);
     const sid = createSession(username);
     res.set('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Strict; Path=/${config.tls.enabled ? '; Secure' : ''}`);
+    metrics.inc('fileserver_logins_total');
     audit('web', username, 'login', { ip });
     res.json({ ok: true, role: role(username) });
   });
@@ -168,6 +176,39 @@ export function createWebServer() {
     if (token) destroySession(token);
     res.set('Set-Cookie', 'sid=; HttpOnly; Path=/; Max-Age=0');
     res.json({ ok: true });
+  });
+
+  // --- Wachtwoord-reset via e-mail (geen auth) ---
+  app.post('/api/reset/request', express.json(), async (req, res) => {
+    const { username } = req.body || {};
+    // Altijd ok teruggeven (geen accountenumeratie).
+    if (username && userExists(username)) {
+      const token = createResetToken(username);
+      const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+      const link = `${base}/reset.html?token=${token}`;
+      await sendResetMail(getEmail(username), link, username).catch((e) => console.error('[reset]', e.message));
+      audit('web', username, 'reset_requested', { ip: clientIp(req) });
+    }
+    res.json({ ok: true });
+  });
+  app.post('/api/reset/confirm', express.json(), (req, res) => {
+    const { token, password } = req.body || {};
+    const user = consumeResetToken(token);
+    if (!user || !password) return res.status(400).json({ error: 'Ongeldige of verlopen token' });
+    updateUser(user, { password });
+    audit('web', user, 'reset_done');
+    res.json({ ok: true });
+  });
+
+  // --- Prometheus-metrics (eigen auth via token; geen sessie) ---
+  app.get('/metrics', (req, res) => {
+    if (!config.metrics.enabled) return res.status(404).end();
+    if (config.metrics.token) {
+      const auth = req.headers.authorization || '';
+      if (auth !== 'Bearer ' + config.metrics.token) return res.status(401).end();
+    }
+    res.set('Content-Type', 'text/plain; version=0.0.4');
+    res.end(metrics.render());
   });
 
   // --- OpenID Connect (SSO), optioneel ---
@@ -224,6 +265,9 @@ export function createWebServer() {
   if (config.webdavEnabled) {
     app.use(WEBDAV_MOUNT, authenticate, (req, res) => handleWebdav(req, res));
   }
+
+  // tus resumable-uploadprotocol.
+  app.use(TUS_MOUNT, authenticate, (req, res) => handleTus(req, res));
 
   const upload = multer({
     storage: multer.diskStorage({
@@ -283,6 +327,8 @@ export function createWebServer() {
       const file = resolveWithin(req.home, req.query.path || '');
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).json({ error: 'Niet gevonden' });
       audit('web', req.user, 'download', { path: req.query.path });
+      metrics.inc('fileserver_downloads_total');
+      metrics.inc('fileserver_bytes_downloaded_total', fs.statSync(file).size);
       const bw = bandwidth(req.user);
       if (bw > 0) {
         // Met bandbreedtelimiet: throttle de bytestroom.
@@ -306,6 +352,37 @@ export function createWebServer() {
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
+  });
+
+  // Thumbnail (verkleinde, gecachete afbeelding).
+  app.get('/api/thumb', async (req, res) => {
+    try {
+      const file = resolveWithin(req.home, req.query.path || '');
+      if (!fs.existsSync(file)) return res.status(404).end();
+      const width = Math.min(512, parseInt(req.query.w || '200', 10) || 200);
+      const thumb = await getThumbnail(file, width);
+      if (!thumb) { res.setHeader('Content-Disposition', 'inline'); return res.sendFile(file); }
+      res.setHeader('Cache-Control', 'private, max-age=86400');
+      res.type('webp').sendFile(thumb);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Metadata: tags, commentaar, favorieten.
+  app.get('/api/meta', (req, res) => {
+    if (req.query.all !== undefined) return res.json({ meta: getAllMeta(req.home) });
+    res.json({ meta: getMeta(req.home, req.query.path || '') });
+  });
+  app.post('/api/meta', requireWrite, express.json(), (req, res) => {
+    const meta = setMeta(req.home, req.body.path, {
+      tags: req.body.tags, comment: req.body.comment, favorite: req.body.favorite,
+    });
+    res.json({ meta });
+  });
+  app.get('/api/favorites', (req, res) => {
+    const all = getAllMeta(req.home);
+    res.json({ favorites: Object.entries(all).filter(([, m]) => m.favorite).map(([p, m]) => ({ path: p, ...m })) });
   });
 
   app.get('/api/zip', (req, res) => {
@@ -369,6 +446,8 @@ export function createWebServer() {
     audit('web', req.user, 'upload', { path: req.query.path || '/', files: names });
     notify('upload', { user: req.user, files: names });
     emitToUser(req.user, 'change', { action: 'upload' });
+    metrics.inc('fileserver_uploads_total', names.length);
+    for (const f of req.files || []) metrics.inc('fileserver_bytes_uploaded_total', f.size || 0);
     if (infected.length) return res.status(422).json({ uploaded: names, infected });
     res.json({ uploaded: names });
   });
@@ -469,6 +548,7 @@ export function createWebServer() {
         });
         audit('web', req.user, 'delete', { path: p });
         notify('delete', { user: req.user, path: p });
+        metrics.inc('fileserver_deletes_total');
       }
       emitToUser(req.user, 'change', { action: 'delete' });
       res.json({ ok: true });
@@ -522,25 +602,27 @@ export function createWebServer() {
   app.get('/api/shares', (req, res) => res.json({ shares: listShares(req.user) }));
   app.delete('/api/share/:token', (req, res) => res.json({ ok: deleteShare(req.user, req.params.token) }));
 
-  // --- Gedeelde mappen van anderen (alleen-lezen) ---
-  function resolveShared(req) {
-    const owner = req.query.owner;
-    const rel = req.query.path || '/';
+  // --- Gedeelde mappen van anderen (alleen-lezen of lezen+schrijven) ---
+  // needWrite=true vereist dat de deling mode 'rw' heeft.
+  function resolveShared(req, pathValue, needWrite = false) {
+    const owner = req.query.owner || (req.body && req.body.owner);
+    const rel = pathValue !== undefined ? pathValue : (req.query.path || '/');
     const grants = sharedWith(req.user).filter((s) => s.owner === owner);
     if (!grants.length) throw new Error('Geen toegang');
     const ownerHome = homeDir(owner);
     const abs = resolveWithin(ownerHome, rel);
-    const ok = grants.some((g) => {
+    const match = grants.find((g) => {
       const base = resolveWithin(ownerHome, g.path);
       return abs === base || abs.startsWith(base + path.sep);
     });
-    if (!ok) throw new Error('Geen toegang');
-    return { abs, ownerHome };
+    if (!match) throw new Error('Geen toegang');
+    if (needWrite && match.mode !== 'rw') throw new Error('Alleen-lezen deling');
+    return { abs, ownerHome, mode: match.mode };
   }
   app.get('/api/shared/list', async (req, res) => {
     try {
-      const { abs, ownerHome } = resolveShared(req);
-      res.json({ items: sortItems(await listDir(ownerHome, abs), 'name', 'asc') });
+      const { abs, ownerHome, mode } = resolveShared(req);
+      res.json({ mode, items: sortItems(await listDir(ownerHome, abs), 'name', 'asc') });
     } catch (err) {
       res.status(403).json({ error: err.message });
     }
@@ -553,6 +635,54 @@ export function createWebServer() {
       res.status(403).json({ error: err.message });
     }
   });
+  // Schrijven in een met mij gedeelde 'rw'-map.
+  const sharedUpload = multer({
+    storage: multer.diskStorage({
+      destination(req, file, cb) {
+        try { const { abs } = resolveShared(req, req.query.path || '/', true); fs.mkdirSync(abs, { recursive: true }); cb(null, abs); }
+        catch (err) { cb(err); }
+      },
+      filename(req, file, cb) { cb(null, path.basename(file.originalname)); },
+    }),
+  });
+  app.post('/api/shared/upload', sharedUpload.array('files'), (req, res) => {
+    audit('web', req.user, 'shared_upload', { owner: req.query.owner, path: req.query.path });
+    emitToUser(req.query.owner, 'change', { action: 'shared_upload' });
+    res.json({ uploaded: (req.files || []).map((f) => f.originalname) });
+  });
+  app.post('/api/shared/mkdir', express.json(), async (req, res) => {
+    try {
+      const { abs } = resolveShared(req, path.posix.join(req.body.path || '/', req.body.name || ''), true);
+      await fsp.mkdir(abs, { recursive: true });
+      emitToUser(req.body.owner, 'change', { action: 'shared_mkdir' });
+      res.json({ ok: true });
+    } catch (err) { res.status(403).json({ error: err.message }); }
+  });
+  app.post('/api/shared/delete', express.json(), async (req, res) => {
+    try {
+      const { abs } = resolveShared(req, req.body.path, true);
+      await fsp.rm(abs, { recursive: true, force: true });
+      audit('web', req.user, 'shared_delete', { owner: req.body.owner, path: req.body.path });
+      emitToUser(req.body.owner, 'change', { action: 'shared_delete' });
+      res.json({ ok: true });
+    } catch (err) { res.status(403).json({ error: err.message }); }
+  });
+
+  // Een eigen map delen met een andere gebruiker (grant).
+  app.post('/api/grant', requireWrite, express.json(), (req, res) => {
+    const u = getUser(req.user);
+    const shares = (u.shares || []).filter((s) => !(s.to === req.body.to && s.path === req.body.path));
+    shares.push({ to: req.body.to, path: req.body.path, mode: req.body.mode === 'rw' ? 'rw' : 'ro' });
+    updateUser(req.user, { shares });
+    audit('web', req.user, 'grant', { to: req.body.to, path: req.body.path, mode: req.body.mode });
+    res.json({ ok: true });
+  });
+  app.delete('/api/grant', express.json(), (req, res) => {
+    const u = getUser(req.user);
+    updateUser(req.user, { shares: (u.shares || []).filter((s) => !(s.to === req.body.to && s.path === req.body.path)) });
+    res.json({ ok: true });
+  });
+  app.get('/api/grants', (req, res) => res.json({ grants: (getUser(req.user).shares) || [] }));
 
   // --- 2FA ---
   app.post('/api/2fa/setup', (req, res) => {
@@ -605,6 +735,22 @@ export function createWebServer() {
     const lines = fs.readFileSync(config.auditLog, 'utf8').trim().split('\n').slice(-200).filter(Boolean).map((l) => JSON.parse(l));
     res.json({ lines });
   });
+  // Back-ups (alleen admin).
+  app.get('/api/admin/backups', requireAdmin, (req, res) => {
+    if (!fs.existsSync(config.backup.dir)) return res.json({ backups: [] });
+    const backups = fs.readdirSync(config.backup.dir).filter((f) => f.endsWith('.zip'))
+      .map((f) => ({ name: f, size: fs.statSync(path.join(config.backup.dir, f)).size })).sort((a, b) => b.name.localeCompare(a.name));
+    res.json({ backups });
+  });
+  app.post('/api/admin/backup', requireAdmin, async (req, res) => {
+    try {
+      const dest = await makeBackup();
+      res.json({ ok: true, file: path.basename(dest) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/admin/bans', requireAdmin, (req, res) => res.json({ bans: listBans() }));
   app.post('/api/admin/bans', requireAdmin, express.json(), (req, res) => { ban(req.body.ip, req.body.until || 0); res.json({ ok: true }); });
   app.delete('/api/admin/bans/:ip', requireAdmin, (req, res) => { unban(req.params.ip); res.json({ ok: true }); });
@@ -626,7 +772,7 @@ async function searchRecursive(home, dir, query, depth = 6) {
       return;
     }
     for (const e of entries) {
-      if (current === home && e.name === config.trashName) continue;
+      if (current === home && (e.name === config.trashName || e.name === '.metadata.json')) continue;
       const full = path.join(current, e.name);
       if (e.name.toLowerCase().includes(query)) {
         const stat = await fsp.stat(full).catch(() => null);

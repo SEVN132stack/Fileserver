@@ -5,6 +5,27 @@ Alle noemenswaardige wijzigingen aan dit project worden in dit bestand bijgehoud
 Het formaat is gebaseerd op [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/),
 en dit project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
+## [3.2.0] - 2026-07-20
+
+### Toegevoegd
+
+- **Wachtwoord-reset via e-mail** (SMTP): aanvragen op de loginpagina, resetlink
+  per mail (of gelogd zonder SMTP), bevestigen op een resetpagina.
+- **Gedeelde mappen met schrijfrechten**: delingen kennen nu een modus `ro`/`rw`;
+  ontvangers met `rw` kunnen in de gedeelde map uploaden, mappen maken en verwijderen.
+  Nieuw: gebruikers kunnen zelf mappen delen (`/api/grant`).
+- **Bestandscommentaar, tags en favorieten** per bestand (`/api/meta`,
+  `/api/favorites`), opgeslagen per gebruiker.
+- **Thumbnailcache** met `sharp`: verkleinde afbeeldingen worden gecachet (`/api/thumb`).
+- **Client-side end-to-end-versleuteling** (AES-GCM in de browser): optioneel
+  versleutelen vóór upload en ontsleutelen na download; de server ziet enkel cijfertekst.
+- **tus 1.0.0-protocol** (`/tus`) voor hervatbare, zeer grote overdrachten
+  (interopt met standaard tus-clients).
+- **Prometheus-metrics** op `/metrics` (uploads, downloads, logins, bytes, actieve SSE-clients).
+- **Ingebouwde back-upplanner** met retentie, plus handmatige back-up en overzicht
+  in het admin-dashboard.
+- Admin-dashboard: e-mailadres per gebruiker instelbaar.
+
 ## [3.1.0] - 2026-07-19
 
 ### Toegevoegd

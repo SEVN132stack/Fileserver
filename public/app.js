@@ -80,7 +80,7 @@ async function load() {
   if (!data.items.length) rows.innerHTML = `<tr><td colspan="4" class="muted">${t('empty')}</td></tr>`;
   for (const it of data.items) {
     const tr = document.createElement('tr');
-    const icon = it.isDir ? '📂' : (isImg(it.name) ? `<img class="thumb" src="/api/preview?path=${enc(it.path)}">` : '📄');
+    const icon = it.isDir ? '📂' : (isImg(it.name) ? `<img class="thumb" loading="lazy" src="/api/thumb?path=${enc(it.path)}&w=56">` : '📄');
     const nameCell = it.isDir
       ? `<div class="name" data-dir="${enc(it.path)}">${icon} ${it.name}</div>`
       : `<div class="name" data-open="${enc(it.path)}">${icon} ${it.name}</div>`;
@@ -88,7 +88,10 @@ async function load() {
     if (it.isDir) a += `<button data-zip="${enc(it.path)}">ZIP</button>`;
     else a += `<button data-dl="${enc(it.path)}">⬇</button>`;
     if (!it.isDir && isText(it.name)) a += `<button class="ghost" data-edit="${enc(it.path)}">✎</button>`;
+    if (!it.isDir && /\.enc$/i.test(it.name)) a += `<button class="ghost" data-dec="${enc(it.path)}">🔓</button>`;
+    a += `<button class="ghost" data-meta="${enc(it.path)}">🏷</button>`;
     a += `<button class="ghost" data-share="${enc(it.path)}">🔗</button>`;
+    a += `<button class="ghost" data-grant="${enc(it.path)}">👥</button>`;
     a += `<button class="ghost" data-ren="${enc(it.path)}">✏</button>`;
     a += `<button class="danger" data-del="${enc(it.path)}">🗑</button>`;
     const checked = selected.has(it.path) ? 'checked' : '';
@@ -128,8 +131,32 @@ async function editFile(p) {
 const CHUNK = 4 * 1024 * 1024; // 4MB
 const BIG = 8 * 1024 * 1024;   // vanaf deze grootte: hervatbaar/chunked
 
-function uploadFiles(files, relPaths) {
+// Ontsleutel een .enc-bestand in de browser en download het klaartekstbestand.
+async function decryptDownload(p) {
+  const pass = prompt('Wachtwoord om te ontsleutelen:'); if (!pass) return;
+  try {
+    const buf = await (await api('/api/download?path='+enc(p))).arrayBuffer();
+    const plain = await window.fseDecrypt(buf, pass);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([plain]));
+    a.download = p.split('/').pop().replace(/\.enc$/i, '');
+    a.click();
+  } catch (e) { alert('Ontsleutelen mislukt (verkeerd wachtwoord?)'); }
+}
+
+async function uploadFiles(files, relPaths) {
   if (!files.length) return;
+  // Optionele client-side versleuteling vóór upload.
+  if (document.getElementById('encToggle') && document.getElementById('encToggle').checked) {
+    const pass = prompt('Wachtwoord om te versleutelen:'); if (!pass) return;
+    const encFiles = [], encRel = [];
+    for (let i = 0; i < files.length; i++) {
+      const blob = await window.fseEncrypt(files[i], pass);
+      const nm = ((relPaths && relPaths[i]) || files[i].name) + '.enc';
+      encFiles.push(new File([blob], nm)); encRel.push(nm);
+    }
+    files = encFiles; relPaths = encRel;
+  }
   const bar = document.getElementById('progress'), fill = bar.firstElementChild;
   bar.style.display='block'; fill.style.width='0';
   const small = [], smallRel = [];
@@ -184,11 +211,27 @@ async function renderShared() {
   if (!me.shared || !me.shared.length) { v.innerHTML = '<p class="muted">Niets met je gedeeld.</p>'; return; }
   let html = '';
   for (const s of me.shared) {
-    const items = await (await api(`/api/shared/list?owner=${enc(s.owner)}&path=${enc(s.path)}`)).json().catch(()=>({items:[]}));
-    html += `<h3>${s.owner}: ${s.path}</h3><ul>` + (items.items||[]).map(i =>
-      `<li>${i.isDir?'📂':'📄'} ${i.name} ${i.isDir?'':`<a href="/api/shared/download?owner=${enc(s.owner)}&path=${enc(i.path)}">⬇</a>`}</li>`).join('') + '</ul>';
+    const data = await (await api(`/api/shared/list?owner=${enc(s.owner)}&path=${enc(s.path)}`)).json().catch(()=>({items:[]}));
+    const rw = (data.mode || s.mode) === 'rw';
+    html += `<h3>${s.owner}: ${s.path} <span class="muted">(${rw?'lezen+schrijven':'alleen-lezen'})</span></h3>`;
+    if (rw) html += `<div><input type="file" multiple data-shup="${enc(s.owner)}|${enc(s.path)}"></div>`;
+    html += '<ul>' + (data.items||[]).map(i =>
+      `<li>${i.isDir?'📂':'📄'} ${i.name} ${i.isDir?'':`<a href="/api/shared/download?owner=${enc(s.owner)}&path=${enc(i.path)}">⬇</a>`}`
+      + (rw?` <button class="danger" data-shdel="${enc(s.owner)}|${enc(i.path)}">🗑</button>`:'') + `</li>`).join('') + '</ul>';
   }
   v.innerHTML = html;
+  v.querySelectorAll('[data-shup]').forEach(inp => inp.onchange = async () => {
+    const [owner, base] = inp.dataset.shup.split('|').map(decodeURIComponent);
+    const fd = new FormData(); [...inp.files].forEach(f => fd.append('files', f));
+    await api(`/api/shared/upload?owner=${enc(owner)}&path=${enc(base)}`, { method:'POST', body: fd });
+    renderShared();
+  });
+  v.querySelectorAll('[data-shdel]').forEach(btn => btn.onclick = async () => {
+    const [owner, p] = btn.dataset.shdel.split('|').map(decodeURIComponent);
+    if (!confirm('Verwijderen?')) return;
+    await api('/api/shared/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({owner,path:p})});
+    renderShared();
+  });
 }
 async function renderTrash() {
   const v = document.getElementById('trashView');
@@ -233,6 +276,25 @@ document.addEventListener('click', async (e) => {
     const r = await (await api('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,expiresInHours:hrs?Number(hrs):0,password:pw})})).json();
     prompt('Deel deze link:', location.origin + r.url); return;
   }
+  if (t2.dataset.meta) {
+    const p = decodeURIComponent(t2.dataset.meta);
+    const m = (await (await api('/api/meta?path='+enc(p))).json()).meta;
+    const tags = prompt('Tags (komma-gescheiden):', (m.tags||[]).join(', '));
+    if (tags === null) return;
+    const comment = prompt('Commentaar:', m.comment||'');
+    if (comment === null) return;
+    const fav = confirm('Als favoriet markeren? (OK = ja)');
+    await api('/api/meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,tags:tags.split(',').map(s=>s.trim()).filter(Boolean),comment,favorite:fav})});
+    load(); return;
+  }
+  if (t2.dataset.grant) {
+    const p = decodeURIComponent(t2.dataset.grant);
+    const to = prompt('Delen met welke gebruiker?'); if (!to) return;
+    const rw = confirm('Schrijfrechten geven? (OK = lezen+schrijven, Annuleer = alleen-lezen)');
+    await api('/api/grant',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to,path:p,mode:rw?'rw':'ro'})});
+    alert('Gedeeld met '+to+' ('+(rw?'rw':'ro')+')'); return;
+  }
+  if (t2.dataset.dec) { return decryptDownload(decodeURIComponent(t2.dataset.dec)); }
   if (t2.dataset.ren) {
     const cur = decodeURIComponent(t2.dataset.ren), base = cur.substring(0,cur.lastIndexOf('/')+1);
     const nn = prompt('Nieuwe naam of pad:', cur.split('/').pop()); if (!nn) return;

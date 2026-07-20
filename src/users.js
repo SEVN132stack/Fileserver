@@ -107,17 +107,23 @@ export function ensureExternalUser(username, email) {
   fs.mkdirSync(homeDir(username), { recursive: true });
 }
 
-// Mappen die met deze gebruiker gedeeld zijn: [{owner, path, label}].
+// Mappen die met deze gebruiker gedeeld zijn: [{owner, path, label, mode}].
+// mode is 'ro' (alleen-lezen) of 'rw' (lezen + schrijven).
 export function sharedWith(username) {
   const out = [];
   for (const u of users.values()) {
     for (const s of u.shares || []) {
       if (s.to === username) {
-        out.push({ owner: u.username, path: s.path, label: s.label || `${u.username}:${s.path}` });
+        out.push({ owner: u.username, path: s.path, label: s.label || `${u.username}:${s.path}`, mode: s.mode || 'ro' });
       }
     }
   }
   return out;
+}
+
+export function getEmail(username) {
+  const u = users.get(username);
+  return u && u.email ? u.email : null;
 }
 
 export function verifyPassword(username, password) {
@@ -151,6 +157,7 @@ export function listUsers() {
     role: u.role || 'user',
     quota: u.quota || 0,
     bw: u.bw || 0,
+    email: u.email || '',
     totp: !!u.totp,
     external: !!u.external,
     shares: u.shares || [],
@@ -159,7 +166,7 @@ export function listUsers() {
 
 // --- Beheerfuncties (gebruikt door CLI en admin-dashboard) ---
 
-export function addUser({ username, password, home, role = 'user', quota = 0 }) {
+export function addUser({ username, password, home, role = 'user', quota = 0, email = '' }) {
   if (users.has(username)) throw new Error('Gebruiker bestaat al');
   users.set(username, {
     username,
@@ -167,6 +174,7 @@ export function addUser({ username, password, home, role = 'user', quota = 0 }) 
     home: home || username,
     role,
     quota,
+    email,
     totp: null,
     shares: [],
   });
@@ -179,6 +187,7 @@ export function updateUser(username, patch) {
   if (!u) throw new Error('Gebruiker niet gevonden');
   if (patch.password) u.password = hashPassword(patch.password);
   if (patch.role) u.role = patch.role;
+  if (patch.email !== undefined) u.email = patch.email;
   if (patch.quota !== undefined) u.quota = patch.quota;
   if (patch.bw !== undefined) u.bw = patch.bw;
   if (patch.totp !== undefined) u.totp = patch.totp;

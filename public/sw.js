@@ -16,7 +16,7 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   // API, downloads en WebDAV nooit uit cache.
-  if (url.pathname.startsWith('/api') || url.pathname.startsWith('/webdav') || url.pathname.startsWith('/s/')) return;
+  if (['/api', '/webdav', '/tus', '/metrics', '/s/'].some((p) => url.pathname.startsWith(p))) return;
   if (e.request.method !== 'GET') return;
   e.respondWith(
     fetch(e.request).catch(() => caches.match(e.request).then((r) => r || caches.match('/'))),
