@@ -12,3 +12,6 @@ uploads-tmp/
 .env
 backups/
 thumbs-cache/
+keyring.json
+quarantine.json
+quarantine/

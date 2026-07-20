@@ -81,18 +81,28 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Metrics/Prometheus-endpoint voor monitoring
 - ✅ Ingebouwde back-upplanner met retentie + handmatige back-up
 
+## Geavanceerd++ (v3.3)
+
+- ✅ Delta-sync (rsync-achtig): alleen gewijzigde blokken versturen
+- ✅ Antivirus-quarantaine met beheer (vrijgeven/wissen) i.p.v. directe weigering
+- ✅ Webhook- én e-mailnotificatie bij delen en downloads van deel-links
+- ✅ Versiegeschiedenis per bestand (los van de prullenbak)
+- ✅ Sleutelbeheer voor E2E (per-map sleutels, delen via publieke sleutels)
+- ✅ Grafana-dashboard-sjabloon + Prometheus-scrapevoorbeeld
+- ✅ E-mail via Brevo (API of SMTP-relay)
+- ✅ Quota gelijkgetrokken over web, SFTP én tus
+
 ## Toekomstige ideeën
 
 - 💡 Volledige S3/object-storage als primaire backend (storage-abstractielaag)
 - 💡 JWKS-handtekeningverificatie voor OIDC id_tokens
 - 💡 Meer talen (ES/IT/PL/...) en RTL-ondersteuning
 - 💡 Mobiele native app (via de bestaande API)
-- 💡 Rsync-protocol / delta-sync voor efficiënte updates
-- 💡 Antivirus-quarantaine met beheer i.p.v. directe weigering
-- 💡 Webhook-/e-mailnotificatie bij delen en downloads van deel-links
-- 💡 Versiegeschiedenis per bestand (niet alleen prullenbak)
-- 💡 Sleutelbeheer voor E2E (per-map sleutels, delen van sleutels)
-- 💡 Grafana-dashboard-sjabloon bij de Prometheus-metrics
+- 💡 Rolling-hash (echte librsync) voor delta op byte-niveau i.p.v. vaste blokken
 - 💡 Back-up naar externe bestemming (S3/rsync) i.p.v. lokaal
+- 💡 Automatische sleutelrotatie voor E2E-mapsleutels
+- 💡 Delen van deel-links met verlooptelling/downloadlimiet
+- 💡 Antivirus met meerdere engines / VirusTotal-integratie
+- 💡 Volledige audit-export (SIEM) en alerting-regels bij de metrics
 
 > Nieuwe wensen? Voeg ze onderaan toe onder "Toekomstige ideeën".

@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import ssh2 from 'ssh2';
 import { config } from './config.js';
-import { resolveWithin, toClientPath as toClient } from './paths.js';
-import { homeDir, verifyPassword, verifyPublicKey, userExists, isReadonly } from './users.js';
+import { resolveWithin, toClientPath as toClient, dirSize } from './paths.js';
+import { homeDir, verifyPassword, verifyPublicKey, userExists, isReadonly, quota } from './users.js';
 import { checkAllowed, recordFailure, recordSuccess } from './ratelimit.js';
 import { isBanned, ban } from './bans.js';
 import { audit } from './audit.js';
@@ -98,6 +98,11 @@ export function startSftpServer() {
             }
             const reading = flags & SFTP_OPEN_MODE.READ;
             if (!reading && readonly) return sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED);
+            // Quota: weiger schrijven als de home-map al over het quotum zit.
+            if (!reading) {
+              const q = quota(username);
+              if (q > 0 && dirSize(home) >= q) return sftp.status(reqid, SFTP_STATUS_CODE.FAILURE);
+            }
             let fd;
             try {
               fd = fs.openSync(abs, reading ? 'r' : 'w');

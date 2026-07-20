@@ -24,7 +24,17 @@ process.env.WEB_PORT = '8097';
 process.env.SFTP_PORT = '2239';
 process.env.AUTH_USER = 'admin';
 process.env.AUTH_PASS = 'testpass123';
-process.env.WEBHOOK_URL = '';
+process.env.QUARANTINE_DIR = path.join(tmp, 'quarantine');
+process.env.QUARANTINE_META = path.join(tmp, 'quarantine.json');
+process.env.CLAMSCAN = path.resolve('test/mock-scanner.mjs');
+process.env.WEBHOOK_URL = 'http://localhost:8096/hook';
+
+// Webhook-capture-server voor het testen van notificaties.
+const http = await import('node:http');
+const captured = [];
+http.createServer((rq, rs) => {
+  let b = ''; rq.on('data', (c) => (b += c)); rq.on('end', () => { try { captured.push(JSON.parse(b)); } catch {} rs.end('ok'); });
+}).listen(8096);
 
 const { config } = await import('../src/config.js');
 const { ensureStorage, ensureHostKey } = await import('../src/util.js');
@@ -228,6 +238,53 @@ try {
     const pt = new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct));
     ok('E2E-versleuteling roundtrip', pt === 'geheim');
   }
+
+  // 13m. Antivirus-quarantaine i.p.v. weigeren.
+  cookie = ''; await login('admin', 'testpass123');
+  const vfd = new FormData(); vfd.append('files', new Blob(['dit bevat EICAR test']), 'virus.txt');
+  const vup = await fetch(H + '/api/upload?path=/', { method: 'POST', headers: jar(), body: vfd });
+  const vjson = await vup.json();
+  const qlist = await (await fetch(H + '/api/admin/quarantine', { headers: jar() })).json();
+  ok('besmet bestand in quarantaine (niet geplaatst)', vjson.infected && vjson.infected.includes('virus.txt') && qlist.items.length >= 1);
+  const rel = await fetch(H + `/api/admin/quarantine/${qlist.items[0].id}/release`, { method: 'POST', headers: jar() });
+  const afterRel = await (await fetch(H + '/api/list', { headers: jar() })).json();
+  ok('quarantaine vrijgeven zet bestand terug', rel.status === 200 && afterRel.items.some((i) => i.name === 'virus.txt'));
+
+  // 13n. Versiegeschiedenis.
+  await fetch(H + '/api/save?path=/ver.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'v1' });
+  await fetch(H + '/api/save?path=/ver.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'v2' });
+  const vers = await (await fetch(H + '/api/versions?path=/ver.txt', { headers: jar() })).json();
+  ok('versiegeschiedenis bewaard', vers.versions.length >= 1);
+  await fetch(H + '/api/version/restore', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/ver.txt', version: vers.versions[0].version }) });
+  const restored = await (await fetch(H + '/api/preview?path=/ver.txt', { headers: jar() })).text();
+  ok('oude versie herstellen werkt', restored === 'v1');
+
+  // 13o. Delta-sync: alleen gewijzigd blok versturen.
+  await fetch(H + '/api/save?path=/big2.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'AAAABBBB' });
+  const sig = await (await fetch(H + '/api/sync/signature?path=/big2.txt', { headers: jar() })).json();
+  const ops = [{ c: 0 }, { d: Buffer.from('CCCC').toString('base64') }]; // hergebruik blok 0 (hele bestand < blockSize) → hier 1 blok
+  // Omdat het bestand kleiner is dan de blokgrootte, is er 1 blok; stuur nieuwe data.
+  const applyRes = await fetch(H + '/api/sync/apply?path=/big2.txt', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ blockSize: sig.blockSize, ops: [{ d: Buffer.from('XYZ').toString('base64') }] }) });
+  const synced = await (await fetch(H + '/api/preview?path=/big2.txt', { headers: jar() })).text();
+  ok('delta-sync past bestand aan', applyRes.status === 200 && synced === 'XYZ' && sig.blocks.length === 1);
+
+  // 13p. E2E-keyring: publieke sleutel opslaan en ophalen.
+  await fetch(H + '/api/keys/pubkey', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ jwk: { kty: 'RSA', n: 'test', e: 'AQAB' } }) });
+  const pk = await (await fetch(H + '/api/keys/pubkey?user=admin', { headers: jar() })).json();
+  await fetch(H + '/api/keyring', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ folder: '/geheim', wrappedKey: 'AAAA' }) });
+  const ring = await (await fetch(H + '/api/keyring', { headers: jar() })).json();
+  ok('E2E-keyring: pubkey + wrapped map-sleutel', pk.pubkey && pk.pubkey.n === 'test' && ring.ring['/geheim']);
+
+  // 13q. Webhook-notificatie bij delen + deel-download.
+  const sh = await (await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/ver.txt' }) })).json();
+  await fetch(H + sh.url);
+  await new Promise((r) => setTimeout(r, 400));
+  ok('webhook bij share_create + share_access', captured.some((c) => c.event === 'share_create') && captured.some((c) => c.event === 'share_access'));
+
+  // 13r. Quota afgedwongen op tus.
+  cookie = ''; await login('bob', 'bobpass'); // bob heeft quota 3
+  const tcreate = await fetch(H + '/tus', { method: 'POST', headers: jar({ 'Upload-Length': '100', 'Tus-Resumable': '1.0.0', 'Upload-Metadata': 'filename ' + Buffer.from('x').toString('base64') }) });
+  ok('quota afgedwongen op tus (413)', tcreate.status === 413);
 
   // 14. SFTP password-auth als bob
   await new Promise((res) => {

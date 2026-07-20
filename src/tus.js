@@ -3,7 +3,8 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { config } from './config.js';
-import { resolveWithin } from './paths.js';
+import { resolveWithin, dirSize } from './paths.js';
+import { quota } from './users.js';
 import { audit } from './audit.js';
 import { inc } from './metrics.js';
 import { emitToUser } from './events.js';
@@ -48,6 +49,12 @@ export async function handleTus(req, res) {
   if (req.method === 'POST' && !sub) {
     if (readonly) return res.status(403).end();
     const length = parseInt(req.headers['upload-length'] || '0', 10);
+    // Quota-controle vooraf (Upload-Length is bekend).
+    const q = quota(req.user);
+    if (q > 0 && dirSize(req.home) + length > q) {
+      res.set('Upload-Length', String(length));
+      return res.status(413).end('Quota overschreden');
+    }
     const meta = decodeMetadata(req.headers['upload-metadata']);
     const id = randomBytes(12).toString('hex');
     await fsp.writeFile(metaFile(id), JSON.stringify({

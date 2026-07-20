@@ -140,6 +140,9 @@ home-map van de gebruiker.
 | `GET`  | `/api/thumb` | Thumbnail van een afbeelding |
 | `POST`/`DELETE`/`GET` | `/api/grant` · `/api/grants` | Map delen met een gebruiker |
 | `GET`/`POST` | `/api/shared/list·download·upload·mkdir·delete` | Gedeelde mappen |
+| `GET`/`POST` | `/api/versions` · `/api/version/restore·download` | Versiegeschiedenis |
+| `GET`/`POST` | `/api/sync/signature` · `/api/sync/apply` | Delta-sync |
+| `GET`/`POST`/`DELETE` | `/api/keys/pubkey` · `/api/keyring` | E2E-sleutelbeheer |
 | `POST` | `/api/reset/request` · `/api/reset/confirm` | Wachtwoord-reset (geen auth) |
 | `*`    | `/api/admin/*` | Beheer, incl. `/backup`, `/backups` (alleen admin) |
 | `*`    | `/webdav/*` · `/tus/*` | WebDAV / tus resumable uploads |
@@ -176,6 +179,32 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
   upload naar bijvoorbeeld een S3-bucket.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
+
+## Extra functies (v3.3)
+
+- **Delta-sync (rsync-achtig):** alleen gewijzigde blokken worden verstuurd
+  (`/api/sync/signature` + `/api/sync/apply`) — efficiënt voor grote bestanden die
+  vaak wijzigen.
+- **Antivirus-quarantaine:** besmette uploads gaan in quarantaine i.p.v. weigeren;
+  beheerders geven ze vrij of wissen ze in het dashboard.
+- **Notificaties bij delen:** webhook + e-mail bij aanmaken en downloaden van deel-links.
+- **Versiegeschiedenis per bestand:** vorige versies worden bewaard bij overschrijven
+  (knop 🕘), los van de prullenbak.
+- **E2E-sleutelbeheer:** per-map sleutels (RSA-gewrapt per gebruiker), deelbaar met
+  anderen — geen wachtwoord meer nodig per bestand.
+- **Grafana + Prometheus:** kant-en-klaar dashboard (`deploy/grafana-dashboard.json`)
+  en scrapevoorbeeld (`deploy/prometheus.yml`).
+
+### E-mail via Brevo
+
+Twee opties (zie `.env.example`):
+
+1. **Brevo API (aanbevolen):** zet `BREVO_API_KEY` en `BREVO_FROM`. E-mail loopt dan
+   via de transactionele API van Brevo.
+2. **Brevo SMTP-relay:** `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_USER=<login>`,
+   `SMTP_PASS=<SMTP-key>`.
+
+Zonder configuratie wordt de resetlink in de serverconsole gelogd.
 
 ## Extra functies (v3.2)
 

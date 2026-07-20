@@ -12,6 +12,7 @@ ensureHostKey();
 ensureUsers();
 fs.mkdirSync(config.chunkDir, { recursive: true });
 fs.mkdirSync(config.thumbDir, { recursive: true });
+fs.mkdirSync(config.quarantineDir, { recursive: true });
 startBackupScheduler();
 
 startWebServer();

@@ -36,6 +36,9 @@
     <table id="banTable"></table>
     <div style="display:flex;gap:.5rem;margin-bottom:2rem"><input id="banIp" placeholder="IP-adres"><button id="addBan">Blokkeren</button></div>
 
+    <h2>Quarantaine (antivirus)</h2>
+    <table id="qTable"></table>
+
     <h2>Back-ups</h2>
     <button id="makeBackup">Nu back-up maken</button>
     <table id="backupTable" style="margin-top:1rem"></table>
@@ -88,7 +91,17 @@
         (backups.length?backups.map(b=>`<tr><td>${b.name}</td><td>${b.size} bytes</td></tr>`).join(''):'<tr><td colspan="2">Nog geen back-ups</td></tr>');
     }
     document.getElementById('makeBackup').onclick = async () => { await j('/api/admin/backup',{method:'POST'}); loadBackups(); };
-    loadUsers(); loadBans(); loadAudit(); loadBackups();
+    async function loadQuarantine() {
+      const {items} = await (await j('/api/admin/quarantine')).json();
+      document.getElementById('qTable').innerHTML = '<tr><th>Bestand</th><th>Gebruiker</th><th>Detectie</th><th>Datum</th><th></th></tr>' +
+        (items.length?items.map(q=>`<tr><td>${q.filename}</td><td>${q.user}</td><td>${(q.detail||'').slice(0,60)}</td><td>${q.ts}</td>
+          <td><button data-qrel="${q.id}">vrijgeven</button> <button class="danger" data-qdel="${q.id}">wissen</button></td></tr>`).join(''):'<tr><td colspan="5">Leeg</td></tr>');
+    }
+    document.addEventListener('click', async e => {
+      if (e.target.dataset.qrel) { await j('/api/admin/quarantine/'+e.target.dataset.qrel+'/release',{method:'POST'}); loadQuarantine(); }
+      if (e.target.dataset.qdel) { await j('/api/admin/quarantine/'+e.target.dataset.qdel,{method:'DELETE'}); loadQuarantine(); }
+    });
+    loadUsers(); loadBans(); loadAudit(); loadBackups(); loadQuarantine();
   </script>
 </body>
 </html>

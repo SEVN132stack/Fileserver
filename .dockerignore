@@ -13,3 +13,6 @@ uploads-tmp
 .git
 backups
 thumbs-cache
+keyring.json
+quarantine.json
+quarantine

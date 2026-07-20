@@ -89,6 +89,7 @@ async function load() {
     else a += `<button data-dl="${enc(it.path)}">⬇</button>`;
     if (!it.isDir && isText(it.name)) a += `<button class="ghost" data-edit="${enc(it.path)}">✎</button>`;
     if (!it.isDir && /\.enc$/i.test(it.name)) a += `<button class="ghost" data-dec="${enc(it.path)}">🔓</button>`;
+    if (!it.isDir) a += `<button class="ghost" data-ver="${enc(it.path)}">🕘</button>`;
     a += `<button class="ghost" data-meta="${enc(it.path)}">🏷</button>`;
     a += `<button class="ghost" data-share="${enc(it.path)}">🔗</button>`;
     a += `<button class="ghost" data-grant="${enc(it.path)}">👥</button>`;
@@ -130,6 +131,16 @@ async function editFile(p) {
 // --- Uploads ---
 const CHUNK = 4 * 1024 * 1024; // 4MB
 const BIG = 8 * 1024 * 1024;   // vanaf deze grootte: hervatbaar/chunked
+
+// Toon de versiegeschiedenis van een bestand.
+async function showVersions(p) {
+  const { versions } = await (await api('/api/versions?path='+enc(p))).json();
+  const rows = versions.length ? versions.map(v =>
+    `<li>${new Date(v.date).toLocaleString()} — ${v.size} bytes
+      <a href="/api/version/download?path=${enc(p)}&version=${enc(v.version)}">⬇</a>
+      <button class="ghost" data-verrestore="${enc(p)}|${enc(v.version)}">herstel</button></li>`).join('') : '<li class="muted">Geen eerdere versies.</li>';
+  openModal(`<h3>🕘 Versies van ${p.split('/').pop()}</h3><ul>${rows}</ul>`);
+}
 
 // Ontsleutel een .enc-bestand in de browser en download het klaartekstbestand.
 async function decryptDownload(p) {
@@ -295,6 +306,12 @@ document.addEventListener('click', async (e) => {
     alert('Gedeeld met '+to+' ('+(rw?'rw':'ro')+')'); return;
   }
   if (t2.dataset.dec) { return decryptDownload(decodeURIComponent(t2.dataset.dec)); }
+  if (t2.dataset.ver) { return showVersions(decodeURIComponent(t2.dataset.ver)); }
+  if (t2.dataset.verrestore) {
+    const [p, v] = t2.dataset.verrestore.split('|').map(decodeURIComponent);
+    await api('/api/version/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,version:v})});
+    closeModal(); load(); return;
+  }
   if (t2.dataset.ren) {
     const cur = decodeURIComponent(t2.dataset.ren), base = cur.substring(0,cur.lastIndexOf('/')+1);
     const nn = prompt('Nieuwe naam of pad:', cur.split('/').pop()); if (!nn) return;

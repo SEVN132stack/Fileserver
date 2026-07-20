@@ -5,6 +5,29 @@ Alle noemenswaardige wijzigingen aan dit project worden in dit bestand bijgehoud
 Het formaat is gebaseerd op [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/),
 en dit project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
+## [3.3.0] - 2026-07-20
+
+### Toegevoegd
+
+- **Delta-sync** (rsync-achtig): `/api/sync/signature` + `/api/sync/apply` sturen
+  alleen gewijzigde blokken, met quota-controle en versie-snapshot.
+- **Antivirus-quarantaine**: besmette uploads worden niet meer geweigerd maar
+  apart gezet; beheerders kunnen ze in het dashboard vrijgeven of wissen.
+- **Notificaties bij delen**: webhook én e-mail bij het aanmaken van een deel-link
+  en bij het downloaden ervan (naar de eigenaar of `NOTIFY_EMAIL`).
+- **Versiegeschiedenis per bestand**: vorige versies worden bewaard bij overschrijven
+  (`/api/versions`, `/api/version/restore`, `/api/version/download`), los van de prullenbak.
+- **E2E-sleutelbeheer**: per-map AES-sleutels, gewrapt met een RSA-sleutelpaar per
+  gebruiker; sleutels deelbaar met andere gebruikers via hun publieke sleutel.
+- **Grafana-dashboard-sjabloon** (`deploy/grafana-dashboard.json`) en
+  Prometheus-scrapevoorbeeld (`deploy/prometheus.yml`).
+
+### Gewijzigd
+
+- **E-mail via Brevo**: `BREVO_API_KEY` (transactionele API) of Brevo SMTP-relay;
+  valt terug op generieke SMTP of console-log.
+- **Quota** wordt nu ook afgedwongen op SFTP en tus (voorheen alleen web-uploads).
+
 ## [3.2.0] - 2026-07-20
 
 ### Toegevoegd

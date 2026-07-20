@@ -104,9 +104,15 @@ export const config = {
   // Externe basis-URL (voor reset-links in e-mails).
   appBaseUrl: process.env.APP_BASE_URL || '',
 
-  // SMTP voor wachtwoord-reset-mails. Zonder host wordt de resetlink alleen
-  // in de console gelogd (handig voor ontwikkeling).
+  // E-mail. Bij voorkeur via Brevo (API-sleutel), anders generieke SMTP.
+  // Zonder configuratie wordt de resetlink alleen in de console gelogd.
+  brevo: {
+    apiKey: process.env.BREVO_API_KEY || '',
+    from: process.env.BREVO_FROM || process.env.SMTP_FROM || 'fileserver@localhost',
+    fromName: process.env.BREVO_FROM_NAME || 'SFTP Fileserver',
+  },
   smtp: {
+    // Handig voor Brevo SMTP-relay: SMTP_HOST=smtp-relay.brevo.com, poort 587.
     host: process.env.SMTP_HOST || '',
     port: parseInt(process.env.SMTP_PORT || '587', 10),
     secure: bool(process.env.SMTP_SECURE, false),
@@ -114,6 +120,18 @@ export const config = {
     pass: process.env.SMTP_PASS || '',
     from: process.env.SMTP_FROM || 'fileserver@localhost',
   },
+
+  // Map voor bestanden in quarantaine (antivirus-vondsten).
+  quarantineDir: abs(process.env.QUARANTINE_DIR || 'quarantine'),
+  quarantineMeta: abs(process.env.QUARANTINE_META || 'quarantine.json'),
+
+  // Versiegeschiedenis per bestand: aantal versies dat bewaard blijft (0 = uit).
+  versionsName: process.env.VERSIONS_NAME || '.versions',
+  keepVersions: parseInt(process.env.KEEP_VERSIONS || '10', 10),
+
+  // E-mailadres dat notificaties ontvangt bij deel-gebeurtenissen (leeg = uit;
+  // valt terug op het e-mailadres van de eigenaar).
+  notifyEmail: process.env.NOTIFY_EMAIL || '',
 
   // Prometheus-metrics op /metrics. Optioneel bearer-token.
   metrics: {

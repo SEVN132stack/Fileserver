@@ -28,17 +28,32 @@ import { scanFile } from './scan.js';
 import { addClient, emitToUser } from './events.js';
 import { bandwidth, ensureExternalUser, getEmail } from './users.js';
 import { getAuthUrl, validState, exchange } from './oidc.js';
-import { createResetToken, consumeResetToken, sendResetMail } from './mailer.js';
+import { createResetToken, consumeResetToken, sendResetMail, sendMail } from './mailer.js';
 import { getMeta, getAllMeta, setMeta } from './metadata.js';
 import { getThumbnail, canThumbnail } from './thumbs.js';
 import * as metrics from './metrics.js';
 import { makeBackup } from './backup.js';
 import { handleTus, TUS_MOUNT } from './tus.js';
+import { quarantine, listQuarantine, release as qRelease, remove as qRemove } from './quarantine.js';
+import { snapshot, listVersions, versionPath } from './versions.js';
+import { signature, applyDelta, DEFAULT_BLOCK } from './sync.js';
+import * as keyring from './keyring.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const clientIp = (req) => req.ip || req.socket.remoteAddress || 'onbekend';
 const sanitizeId = (id) => String(id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || 'x';
+
+// Notificeer een deel-gebeurtenis via webhook én (indien mogelijk) e-mail naar
+// de eigenaar of het ingestelde notificatie-adres.
+function notifyShare(event, owner, detail) {
+  notify(event, { owner, ...detail });
+  const to = config.notifyEmail || getEmail(owner);
+  if (!to) return;
+  const subject = event === 'share_access' ? 'Je gedeelde bestand is gedownload' : 'Er is een deel-link aangemaakt';
+  const text = `Gebeurtenis: ${event}\nPad: ${detail.path}\n${detail.ip ? 'IP: ' + detail.ip + '\n' : ''}`;
+  sendMail({ to, subject, text }).catch((e) => console.error('[notify-mail]', e.message));
+}
 
 // Draai het optionele post-upload-commando (bijv. off-site backup naar S3).
 function runPostUpload(filePath) {
@@ -112,7 +127,7 @@ async function listDir(home, dir, base = home) {
   const entries = await fsp.readdir(dir, { withFileTypes: true });
   const items = await Promise.all(
     entries
-      .filter((e) => !(dir === home && (e.name === config.trashName || e.name === '.metadata.json')))
+      .filter((e) => !(dir === home && (e.name === config.trashName || e.name === config.versionsName || e.name === '.metadata.json')))
       .map(async (e) => {
         const stat = await fsp.stat(path.join(dir, e.name)).catch(() => null);
         return {
@@ -248,6 +263,7 @@ export function createWebServer() {
     const abs = resolveWithin(homeDir(share.user), share.path);
     const name = path.basename(abs);
     audit('web', share.user, 'share_access', { path: share.path, token: req.params.token });
+    notifyShare('share_access', share.user, { path: share.path, ip: clientIp(req) });
     if (fs.statSync(abs).isDirectory()) {
       res.attachment(name + '.zip');
       const archive = archiver('zip', { zlib: { level: 9 } });
@@ -283,6 +299,11 @@ export function createWebServer() {
         }
       },
       filename(req, file, cb) {
+        try {
+          // Bewaar de vorige versie vóór overschrijven.
+          const rel = path.posix.join(req.query.path || '/', path.dirname(file.originalname));
+          snapshot(req.home, path.join(resolveWithin(req.home, rel), path.basename(file.originalname)));
+        } catch { /* geen vorige versie */ }
         cb(null, path.basename(file.originalname));
       },
     }),
@@ -385,6 +406,70 @@ export function createWebServer() {
     res.json({ favorites: Object.entries(all).filter(([, m]) => m.favorite).map(([p, m]) => ({ path: p, ...m })) });
   });
 
+  // --- Versiegeschiedenis ---
+  app.get('/api/versions', (req, res) => {
+    res.json({ versions: listVersions(req.home, req.query.path || '') });
+  });
+  app.get('/api/version/download', (req, res) => {
+    try {
+      const p = versionPath(req.home, req.query.path || '', req.query.version || '');
+      res.download(p, path.basename(req.query.path) + '.' + req.query.version);
+    } catch (err) { res.status(404).json({ error: err.message }); }
+  });
+  app.post('/api/version/restore', requireWrite, express.json(), async (req, res) => {
+    try {
+      const cur = resolveWithin(req.home, req.body.path || '');
+      const vp = versionPath(req.home, req.body.path || '', req.body.version || '');
+      snapshot(req.home, cur); // huidige versie ook bewaren
+      await fsp.copyFile(vp, cur);
+      audit('web', req.user, 'version_restore', { path: req.body.path, version: req.body.version });
+      emitToUser(req.user, 'change', { action: 'version_restore' });
+      res.json({ ok: true });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // --- Delta-sync (rsync-achtig) ---
+  app.get('/api/sync/signature', (req, res) => {
+    try {
+      const file = resolveWithin(req.home, req.query.path || '');
+      res.json(signature(file, DEFAULT_BLOCK));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/sync/apply', requireWrite, express.json({ limit: '200mb' }), async (req, res) => {
+    try {
+      const file = resolveWithin(req.home, req.query.path || '');
+      // Quota-controle op de nieuwe grootte.
+      const newSize = (req.body.ops || []).reduce((n, op) => n + (op.d !== undefined ? Buffer.byteLength(op.d, 'base64') : (req.body.blockSize || DEFAULT_BLOCK)), 0);
+      const q = quota(req.user);
+      if (q > 0) {
+        const oldSize = fs.existsSync(file) ? fs.statSync(file).size : 0;
+        if (dirSize(req.home) - oldSize + newSize > q) return res.status(413).json({ error: 'Quota overschreden' });
+      }
+      snapshot(req.home, file);
+      await fsp.mkdir(path.dirname(file), { recursive: true });
+      const tmp = file + '.tmp-' + Date.now();
+      applyDelta(file, tmp, req.body.blockSize || DEFAULT_BLOCK, req.body.ops || []);
+      await fsp.rename(tmp, file);
+      audit('web', req.user, 'sync', { path: req.query.path });
+      emitToUser(req.user, 'change', { action: 'sync' });
+      res.json({ ok: true, size: fs.statSync(file).size });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // --- E2E-sleutelbeheer ---
+  app.get('/api/keys/pubkey', (req, res) => res.json({ pubkey: keyring.getPubkey(req.query.user || req.user) }));
+  app.post('/api/keys/pubkey', express.json(), (req, res) => { keyring.setPubkey(req.user, req.body.jwk); res.json({ ok: true }); });
+  app.get('/api/keyring', (req, res) => res.json({ ring: keyring.getRing(req.user) }));
+  app.post('/api/keyring', express.json(), (req, res) => {
+    // Sla een (met de eigen publieke sleutel) gewrapte map-sleutel op, of deel er
+    // een met een andere gebruiker (dan is target die gebruiker).
+    const target = req.body.to || req.user;
+    keyring.putKey(target, req.body.folder, req.body.wrappedKey, req.user);
+    audit('web', req.user, 'keyshare', { to: target, folder: req.body.folder });
+    res.json({ ok: true });
+  });
+  app.delete('/api/keyring', express.json(), (req, res) => { keyring.removeKey(req.user, req.body.folder); res.json({ ok: true }); });
+
   app.get('/api/zip', (req, res) => {
     try {
       const dir = resolveWithin(req.home, req.query.path || '/');
@@ -435,9 +520,11 @@ export function createWebServer() {
     for (const f of req.files || []) {
       const scan = await scanFile(f.path);
       if (!scan.clean) {
-        await fsp.rm(f.path, { force: true });
+        // Niet weigeren, maar in quarantaine plaatsen voor beoordeling.
+        quarantine(f.path, { user: req.user, home: req.home, targetPath: req.query.path || '/', filename: f.originalname, detail: scan.detail });
         infected.push(f.originalname);
-        audit('web', req.user, 'upload_blocked', { file: f.originalname, detail: scan.detail });
+        audit('web', req.user, 'quarantined', { file: f.originalname, detail: scan.detail });
+        notify('quarantine', { user: req.user, file: f.originalname });
         continue;
       }
       names.push(f.originalname);
@@ -498,6 +585,7 @@ export function createWebServer() {
     try {
       const file = resolveWithin(req.home, req.query.path || '');
       await fsp.mkdir(path.dirname(file), { recursive: true });
+      snapshot(req.home, file);
       await fsp.writeFile(file, req.body ?? '');
       audit('web', req.user, 'edit', { path: req.query.path });
       emitToUser(req.user, 'change', { action: 'edit' });
@@ -597,6 +685,7 @@ export function createWebServer() {
       password: req.body.password || null,
     });
     audit('web', req.user, 'share_create', { path: req.body.path });
+    notifyShare('share_create', req.user, { path: req.body.path, token });
     res.json({ token, url: `/s/${token}` });
   });
   app.get('/api/shares', (req, res) => res.json({ shares: listShares(req.user) }));
@@ -751,6 +840,17 @@ export function createWebServer() {
     }
   });
 
+  // Quarantaine-beheer (alleen admin).
+  app.get('/api/admin/quarantine', requireAdmin, (req, res) => res.json({ items: listQuarantine() }));
+  app.post('/api/admin/quarantine/:id/release', requireAdmin, (req, res) => {
+    try { qRelease(req.params.id); audit('web', req.user, 'quarantine_release', { id: req.params.id }); res.json({ ok: true }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/admin/quarantine/:id', requireAdmin, (req, res) => {
+    try { qRemove(req.params.id); res.json({ ok: true }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
   app.get('/api/admin/bans', requireAdmin, (req, res) => res.json({ bans: listBans() }));
   app.post('/api/admin/bans', requireAdmin, express.json(), (req, res) => { ban(req.body.ip, req.body.until || 0); res.json({ ok: true }); });
   app.delete('/api/admin/bans/:ip', requireAdmin, (req, res) => { unban(req.params.ip); res.json({ ok: true }); });
@@ -772,7 +872,7 @@ async function searchRecursive(home, dir, query, depth = 6) {
       return;
     }
     for (const e of entries) {
-      if (current === home && (e.name === config.trashName || e.name === '.metadata.json')) continue;
+      if (current === home && (e.name === config.trashName || e.name === config.versionsName || e.name === '.metadata.json')) continue;
       const full = path.join(current, e.name);
       if (e.name.toLowerCase().includes(query)) {
         const stat = await fsp.stat(full).catch(() => null);
