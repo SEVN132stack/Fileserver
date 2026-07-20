@@ -18,6 +18,9 @@ process.env.CHUNK_DIR = path.join(tmp, 'chunks');
 process.env.BACKUP_DIR = path.join(tmp, 'backups');
 process.env.THUMB_DIR = path.join(tmp, 'thumbs');
 process.env.METRICS_HISTORY_FILE = path.join(tmp, 'metrics-history.json');
+process.env.GROUPS_FILE = path.join(tmp, 'groups.json');
+process.env.KEYRING_FILE = path.join(tmp, 'keyring.json');
+process.env.SETTINGS_FILE = path.join(tmp, 'settings.json');
 process.env.ENV_FILE = path.join(tmp, '.env');
 process.env.TLS_CERT = path.join(tmp, 'cert.pem');
 process.env.TLS_KEY = path.join(tmp, 'key.pem');
@@ -183,8 +186,8 @@ try {
   // 13e. Wachtwoord-reset: token -> confirm -> inloggen met nieuw wachtwoord.
   const { createResetToken } = await import('../src/mailer.js');
   const rtok = createResetToken('ro');
-  const rc = await fetch(H + '/api/reset/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: rtok, password: 'ronieuw' }) });
-  cookie = ''; const roLogin = await login('ro', 'ronieuw');
+  const rc = await fetch(H + '/api/reset/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: rtok, password: 'ronieuw12' }) });
+  cookie = ''; const roLogin = await login('ro', 'ronieuw12');
   ok('wachtwoord-reset via token werkt', rc.status === 200 && roLogin.status === 200 && roLogin.body.ok);
 
   // 13f. Metadata: favoriet markeren -> verschijnt in favorieten.
@@ -393,6 +396,61 @@ try {
   recordSample(); await new Promise((r) => setTimeout(r, 20)); recordSample();
   const histRes = await (await fetch(H + '/api/admin/metrics/history?minutes=60', { headers: jar() })).json();
   ok('historische metrics worden bewaard en opgevraagd', Array.isArray(histRes.samples) && histRes.samples.length >= 2 && typeof histRes.samples[0].fileserver_uploads_total === 'number');
+
+  // 13ac. /health (geen auth).
+  const health = await (await fetch(H + '/health')).json();
+  ok('health-endpoint', health.status === 'ok' && typeof health.uptime === 'number');
+
+  // 13ad. Drop-link (upload-portaal): anonieme upload.
+  cookie = ''; await login('admin', 'testpass123');
+  await fetch(H + '/api/mkdir', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/', name: 'inbox' }) });
+  const drop = await (await fetch(H + '/api/droplink', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/inbox' }) })).json();
+  const form = await (await fetch(H + drop.url)).text();
+  const dfd = new FormData(); dfd.append('files', new Blob(['aangeleverd']), 'extern.txt');
+  const dup = await fetch(H + drop.url + '/upload', { method: 'POST', body: dfd }); // geen auth
+  const inbox = await (await fetch(H + '/api/list?path=/inbox', { headers: jar() })).json();
+  ok('drop-link: anonieme upload komt binnen', form.includes('Bestanden aanleveren') && dup.status === 200 && inbox.items.some((i) => i.name === 'extern.txt'));
+
+  // 13ae. QR-code (SVG).
+  const qr = await fetch(H + '/api/qr?text=/inbox', { headers: jar() });
+  ok('QR-code endpoint levert SVG', (qr.headers.get('content-type') || '').includes('svg') && (await qr.text()).includes('<svg'));
+
+  // 13af. Actieve sessies bekijken + intrekken.
+  const sess = await (await fetch(H + '/api/sessions', { headers: jar() })).json();
+  ok('sessies tonen huidige sessie', sess.sessions.length >= 1 && sess.sessions.some((s) => s.current));
+
+  // 13ag. Groepen + groep-gebaseerd delen.
+  await fetch(H + '/api/admin/groups/team', { method: 'PUT', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ members: ['bob'] }) });
+  await fetch(H + '/api/grant', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ to: 'group:team', path: '/inbox', mode: 'ro' }) });
+  cookie = ''; await login('bob', 'bobpass');
+  const bobWho = await (await fetch(H + '/api/whoami', { headers: jar() })).json();
+  ok('groep-gebaseerd delen zichtbaar voor lid', (bobWho.shared || []).some((s) => s.owner === 'admin' && s.path === '/inbox'));
+
+  // 13ah. Opslagrapport.
+  cookie = ''; await login('admin', 'testpass123');
+  const rep = await (await fetch(H + '/api/admin/storage-report', { headers: jar() })).json();
+  ok('opslagrapport levert totalen + grootste bestanden', typeof rep.total === 'number' && Array.isArray(rep.largestFiles));
+
+  // 13ai. Volledige-tekst zoeken in inhoud.
+  await fetch(H + '/api/save?path=/zoekbaar.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'geheimwoord xyzzy staat hierin' });
+  const cs = await (await fetch(H + '/api/list?q=xyzzy&content=1', { headers: jar() })).json();
+  const csNoContent = await (await fetch(H + '/api/list?q=xyzzy', { headers: jar() })).json();
+  ok('volledige-tekst zoeken in inhoud', cs.items.some((i) => i.name === 'zoekbaar.txt') && !csNoContent.items.some((i) => i.name === 'zoekbaar.txt'));
+
+  // 13aj. Wachtwoordbeleid dwingt minimale lengte af.
+  const weak = await fetch(H + '/api/admin/users', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ username: 'zwak', password: '123' }) });
+  ok('wachtwoordbeleid weigert te kort wachtwoord', weak.status === 400);
+
+  // 13ak. Onderhoudsmodus: admin erdoor, verder GET settings terug op uit.
+  await fetch(H + '/api/admin/settings', { method: 'PUT', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ maintenance: true }) });
+  const admStill = await fetch(H + '/api/list', { headers: jar() });
+  const setBack = await (await fetch(H + '/api/admin/settings', { method: 'PUT', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ maintenance: false }) })).json();
+  ok('onderhoudsmodus laat admin door + terug uit te zetten', admStill.status === 200 && setBack.settings.maintenance === false);
+
+  // 13al. WebAuthn-status (niet geconfigureerd in test).
+  const wa = await (await fetch(H + '/api/webauthn/enabled')).json();
+  const wc = await (await fetch(H + '/api/webauthn/count', { headers: jar() })).json();
+  ok('webauthn-status endpoint (publiek enabled + authed count)', wa.enabled === false && typeof wc.count === 'number');
 
   // 14. SFTP password-auth als bob
   await new Promise((res) => {

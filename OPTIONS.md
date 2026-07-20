@@ -115,8 +115,28 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Historische metrics bewaren (ring-buffer op schijf)
 - ✅ Configureerbare tijdvensters + legenda's in de grafieken
 
+## Groot pakket (v3.9)
+
+- ✅ Drop-links (upload-portaal, aanleveren zonder account)
+- ✅ QR-code bij deel-links
+- ✅ Gebruikersgroepen (delen/rechten per groep)
+- ✅ Slepen tussen mappen (drag & drop verplaatsen)
+- ✅ Media-preview (video/audio) + gerenderde Markdown
+- ✅ Volledige-tekst zoeken in bestandsinhoud
+- ✅ Foto-upload vanaf de telefoon (camera)
+- ✅ Actieve sessies beheren + op afstand uitloggen
+- ✅ Nieuw-apparaat-melding per e-mail
+- ✅ Passkeys / WebAuthn
+- ✅ IP-allowlist + onderhoudsmodus
+- ✅ Wachtwoordbeleid + accountvergrendeling
+- ✅ /health-endpoint
+- ✅ Geplande opschoning
+- ✅ Opslagrapport
+- ✅ Configuratie via de admin-UI
+
 ## Toekomstige ideeën
 
+- 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — aanbevolen boven app-niveau)
 - 💡 Volledige S3/object-storage als primaire backend (storage-abstractielaag)
 - 💡 JWKS-handtekeningverificatie voor OIDC id_tokens
 - 💡 Meer talen (ES/IT/PL/...) en RTL-ondersteuning

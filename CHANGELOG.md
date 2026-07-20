@@ -1,5 +1,38 @@
 # Changelog
 
+## [3.9.0] - 2026-07-20
+
+### Toegevoegd
+
+**Delen & samenwerken**
+- **Drop-links (upload-portaal)**: deel een link waarmee mensen zónder account
+  bestanden naar een map kunnen aanleveren (met optioneel wachtwoord/vervaldatum).
+- **QR-code** bij deel-/drop-links (`/api/qr`).
+- **Gebruikersgroepen**: delen en rechten per groep (`group:<naam>`).
+
+**Web UI**
+- **Slepen tussen mappen** (drag & drop verplaatsen).
+- **Media-preview**: video/audio afspelen (range-requests) en **gerenderde Markdown**.
+- **Volledige-tekst zoeken** in bestandsinhoud (`?content=1`).
+- **Foto-upload** vanaf de telefoon (camera-capture).
+
+**Beveiliging**
+- **Actieve sessies beheren** + op afstand uitloggen (`/api/sessions`).
+- **Nieuw-apparaat-melding** per e-mail bij login vanaf een onbekend apparaat.
+- **Passkeys / WebAuthn** als sterkere 2FA en wachtwoordloze login.
+- **IP-allowlist** en **onderhoudsmodus**.
+- **Wachtwoordbeleid** (min. lengte/complexiteit) en **accountvergrendeling**.
+
+**Beheer & betrouwbaarheid**
+- **`/health`**-endpoint voor uptime-monitoring.
+- **Geplande opschoning** van oude prullenbak-items.
+- **Opslagrapport**: grootste bestanden/mappen (`/api/admin/storage-report`).
+- **Configuratie via de admin-UI** (onderhoudsmodus, opschoning) als overlay op `.env`.
+
+### Opgelost
+- `/api/webauthn/enabled` en het keyring-pad: 401-popup op de loginpagina voorkomen
+  en het keyring-bestand respecteert nu een configureerbaar pad (i.p.v. de repo-map).
+
 ## [3.8.0] - 2026-07-20
 
 ### Toegevoegd

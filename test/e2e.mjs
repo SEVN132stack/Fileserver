@@ -50,7 +50,7 @@ try {
   await page.goto(base + '/login.html');
   await page.fill('#username', 'admin');
   await page.fill('#password', 'e2epass123');
-  await page.click('button[type=submit]');
+  await page.locator('#password').press('Enter');
   await page.waitForURL(base + '/');
 
   // Wacht tot de bestandenweergave laadt.

@@ -16,3 +16,5 @@ keyring.json
 quarantine.json
 quarantine/
 metrics-history.json
+groups.json
+settings.json

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import ssh2 from 'ssh2';
 import { config } from './config.js';
+import { targetMatches } from './groups.js';
 
 const { parseKey } = ssh2.utils;
 
@@ -112,8 +113,9 @@ export function ensureExternalUser(username, email) {
 export function sharedWith(username) {
   const out = [];
   for (const u of users.values()) {
+    if (u.username === username) continue;
     for (const s of u.shares || []) {
-      if (s.to === username) {
+      if (targetMatches(s.to, username)) {
         out.push({ owner: u.username, path: s.path, label: s.label || `${u.username}:${s.path}`, mode: s.mode || 'ro' });
       }
     }
@@ -202,4 +204,66 @@ export function deleteUser(username) {
 
 export function reload() {
   load();
+}
+
+// --- Wachtwoordbeleid ---
+export function validatePassword(pw) {
+  const p = config.passwordPolicy;
+  if (!pw || pw.length < p.minLength) return `Wachtwoord moet minstens ${p.minLength} tekens zijn`;
+  if (p.requireMixed && !(/[a-zA-Z]/.test(pw) && /[0-9]/.test(pw))) return 'Wachtwoord moet letters én cijfers bevatten';
+  return null;
+}
+
+// --- Accountvergrendeling (per gebruiker, in-memory) ---
+const lockState = new Map(); // username -> { count, until }
+export function isLocked(username) {
+  const st = lockState.get(username);
+  return !!(st && st.until && st.until > Date.now());
+}
+export function recordLoginFailure(username) {
+  const st = lockState.get(username) || { count: 0, until: 0 };
+  st.count += 1;
+  if (st.count >= config.lockout.maxAttempts) {
+    st.until = Date.now() + config.lockout.durationMs;
+    st.count = 0;
+  }
+  lockState.set(username, st);
+}
+export function recordLoginSuccess(username) {
+  lockState.delete(username);
+}
+
+// --- Bekende apparaten (voor nieuw-apparaat-melding) ---
+export function isKnownDevice(username, deviceId) {
+  const u = users.get(username);
+  return !!(u && (u.devices || []).includes(deviceId));
+}
+export function rememberDevice(username, deviceId) {
+  const u = users.get(username);
+  if (!u) return;
+  u.devices = u.devices || [];
+  if (!u.devices.includes(deviceId)) {
+    u.devices.push(deviceId);
+    if (u.devices.length > 50) u.devices = u.devices.slice(-50);
+    saveUsers();
+  }
+}
+
+// --- Passkeys / WebAuthn-credentials ---
+export function getCredentials(username) {
+  const u = users.get(username);
+  return (u && u.credentials) || [];
+}
+export function addCredential(username, cred) {
+  const u = users.get(username);
+  if (!u) return;
+  u.credentials = u.credentials || [];
+  u.credentials.push(cred);
+  saveUsers();
+}
+export function updateCredentialCounter(username, credID, counter) {
+  const u = users.get(username);
+  if (!u || !u.credentials) return;
+  const c = u.credentials.find((x) => x.credID === credID);
+  if (c) { c.counter = counter; saveUsers(); }
 }

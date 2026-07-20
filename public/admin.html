@@ -80,6 +80,26 @@
     <button id="makeBackup">Nu back-up maken</button>
     <table id="backupTable" style="margin-top:1rem"></table>
 
+    <h2>Instellingen</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <label><input type="checkbox" id="setMaintenance"> Onderhoudsmodus (alleen admins hebben toegang)</label><br><br>
+      <label>Prullenbak automatisch legen na <input id="setCleanupDays" type="number" min="0" style="width:70px"> dagen (0 = uit)</label>
+      <div style="margin-top:1rem"><button id="saveSettings">Opslaan</button> <button id="runCleanup">Nu opschonen</button></div>
+    </div>
+
+    <h2>Groepen</h2>
+    <table id="groupTable"></table>
+    <div style="display:flex;gap:.5rem;margin-bottom:2rem">
+      <input id="gName" placeholder="groepsnaam"><input id="gMembers" placeholder="leden (komma-gescheiden)" style="flex:1">
+      <button id="saveGroup">Opslaan</button>
+    </div>
+
+    <h2>Opslagrapport</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:2rem">
+      <div class="card"><div class="l">Grootste bestanden</div><table id="bigFiles"></table></div>
+      <div class="card"><div class="l">Grootste mappen</div><table id="bigDirs"></table></div>
+    </div>
+
     <h2>Audit-log (laatste 200)</h2>
     <pre id="audit"></pre>
   </main>
@@ -247,7 +267,38 @@
       if (e.target.dataset.qrel) { await j('/api/admin/quarantine/'+e.target.dataset.qrel+'/release',{method:'POST'}); loadQuarantine(); }
       if (e.target.dataset.qdel) { await j('/api/admin/quarantine/'+e.target.dataset.qdel,{method:'DELETE'}); loadQuarantine(); }
     });
+    async function loadSettings() {
+      const { settings } = await (await j('/api/admin/settings')).json();
+      document.getElementById('setMaintenance').checked = !!settings.maintenance;
+      document.getElementById('setCleanupDays').value = settings.cleanupTrashDays || 0;
+    }
+    document.getElementById('saveSettings').onclick = async () => {
+      await j('/api/admin/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({ maintenance: document.getElementById('setMaintenance').checked, cleanupTrashDays: parseInt(document.getElementById('setCleanupDays').value||'0',10) })});
+      alert('Instellingen opgeslagen'); loadOverview();
+    };
+    document.getElementById('runCleanup').onclick = async () => { const r=await (await j('/api/admin/cleanup',{method:'POST'})).json(); alert('Opgeschoond: '+r.removed+' item(s)'); };
+    async function loadGroups() {
+      const { groups } = await (await j('/api/admin/groups')).json();
+      document.getElementById('groupTable').innerHTML = '<tr><th>Groep</th><th>Leden</th><th></th></tr>' +
+        (Object.keys(groups).length?Object.entries(groups).map(([n,m])=>`<tr><td>${esc(n)}</td><td>${esc((m||[]).join(', '))}</td><td><button class="danger" data-gdel="${esc(n)}">verwijder</button></td></tr>`).join(''):'<tr><td colspan="3">Geen groepen</td></tr>');
+    }
+    document.getElementById('saveGroup').onclick = async () => {
+      const n=document.getElementById('gName').value.trim(); if(!n)return;
+      const members=document.getElementById('gMembers').value.split(',').map(s=>s.trim()).filter(Boolean);
+      await j('/api/admin/groups/'+encodeURIComponent(n),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({members})});
+      document.getElementById('gName').value=''; document.getElementById('gMembers').value=''; loadGroups();
+    };
+    async function loadStorageReport() {
+      const r = await (await j('/api/admin/storage-report')).json();
+      document.getElementById('bigFiles').innerHTML = r.largestFiles.map(f=>`<tr><td>${esc(f.path)}</td><td style="text-align:right">${fmtSize(f.size)}</td></tr>`).join('')||'<tr><td>Leeg</td></tr>';
+      document.getElementById('bigDirs').innerHTML = r.largestDirs.map(d=>`<tr><td>${esc(d.path)}</td><td style="text-align:right">${fmtSize(d.size)}</td></tr>`).join('')||'<tr><td>Leeg</td></tr>';
+    }
+    document.addEventListener('click', async e => {
+      if (e.target.dataset.gdel) { await j('/api/admin/groups/'+encodeURIComponent(e.target.dataset.gdel),{method:'DELETE'}); loadGroups(); }
+    });
+
     loadOverview(); loadShares(); loadUsers(); loadBans(); loadAudit(); loadBackups(); loadQuarantine();
+    loadSettings(); loadGroups(); loadStorageReport();
 
     // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
     // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.

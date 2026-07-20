@@ -6,7 +6,7 @@ import { config } from './config.js';
 //  - de publieke sleutel per gebruiker (om map-sleutels naartoe te versleutelen);
 //  - per gebruiker een keyring: per map een met de publieke sleutel *gewrapte*
 //    AES-sleutel. De server ziet nooit de klaartekst-sleutel of het wachtwoord.
-const file = () => path.join(config.rootDir, 'keyring.json');
+const file = () => config.keyringFile;
 
 function read() {
   try { return JSON.parse(fs.readFileSync(file(), 'utf8')); } catch { return { pubkeys: {}, rings: {} }; }

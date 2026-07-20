@@ -34,6 +34,19 @@ import { getThumbnail, canThumbnail } from './thumbs.js';
 import * as metrics from './metrics.js';
 import { makeBackup } from './backup.js';
 import { getHistory, recordSample } from './metrics-history.js';
+import { countUpload } from './shares.js';
+import { listGroups, setGroup, deleteGroup } from './groups.js';
+import { getSettings, updateSettings, getSetting } from './settings.js';
+import { runCleanup } from './cleanup.js';
+import { storageReport } from './storage-report.js';
+import { qrSvg } from './qr.js';
+import { listSessions, revokeSession } from './sessions.js';
+import {
+  validatePassword, isLocked, recordLoginFailure, recordLoginSuccess,
+  isKnownDevice, rememberDevice, getCredentials,
+} from './users.js';
+import * as webauthn from './webauthn.js';
+import { createHash } from 'node:crypto';
 import { handleTus, TUS_MOUNT } from './tus.js';
 import { quarantine, listQuarantine, release as qRelease, remove as qRemove } from './quarantine.js';
 import { snapshot, listVersions, versionPath } from './versions.js';
@@ -156,10 +169,29 @@ function sortItems(items, sort, order) {
   return items;
 }
 
+function ipAllowed(ip) {
+  if (!config.ipAllowlist.length) return true;
+  // Eenvoudige match: exact IP of prefix (voor CIDR /24-achtig gebruik prefix).
+  return config.ipAllowlist.some((entry) => {
+    if (entry.includes('/')) return ip.startsWith(entry.split('/')[0].split('.').slice(0, 3).join('.'));
+    return ip === entry || (ip && ip.endsWith(entry));
+  });
+}
+
 export function createWebServer() {
   const app = express();
   app.set('trust proxy', true);
   app.disable('x-powered-by');
+
+  // Health-endpoint voor uptime-monitoring (geen auth, geen geheimen).
+  app.get('/health', (req, res) => res.json({ status: 'ok', version: config.version, uptime: Math.round(process.uptime()) }));
+
+  // IP-allowlist: buiten de toegestane IP's meteen weigeren.
+  app.use((req, res, next) => {
+    if (req.path === '/health') return next();
+    if (!ipAllowed(clientIp(req))) return res.status(403).send('Toegang geweigerd (IP niet toegestaan).');
+    next();
+  });
 
   // --- Login / sessies (geen auth vereist) ---
   app.post('/api/login', express.json(), (req, res) => {
@@ -167,8 +199,10 @@ export function createWebServer() {
     if (isBanned(ip)) return res.status(403).json({ error: 'IP geblokkeerd' });
     if (!checkAllowed('web:' + ip).allowed) return res.status(429).json({ error: 'Te veel pogingen' });
     const { username, password, token } = req.body || {};
+    if (username && isLocked(username)) return res.status(423).json({ error: 'Account tijdelijk vergrendeld na te veel pogingen' });
     if (!userExists(username) || !verifyPassword(username, password)) {
       onLoginFailure(ip, username);
+      if (username) recordLoginFailure(username);
       return res.status(401).json({ error: 'Onjuiste inloggegevens' });
     }
     const u = getUser(username);
@@ -176,11 +210,20 @@ export function createWebServer() {
       if (!token) return res.status(200).json({ need2fa: true });
       if (!verifyTotp(u.totp, token)) {
         onLoginFailure(ip, username);
+        recordLoginFailure(username);
         return res.status(401).json({ error: 'Onjuiste 2FA-code' });
       }
     }
     recordSuccess('web:' + ip);
-    const sid = createSession(username);
+    recordLoginSuccess(username);
+    // Nieuw-apparaat-melding per e-mail.
+    const deviceId = createHash('sha256').update((req.headers['user-agent'] || '') + '|' + ip).digest('hex').slice(0, 16);
+    if (!isKnownDevice(username, deviceId)) {
+      rememberDevice(username, deviceId);
+      const to = getEmail(username);
+      if (to) sendMail({ to, subject: 'Nieuwe login op je account', text: `Er is ingelogd op je account vanaf een nieuw apparaat.\nIP: ${ip}\nBrowser: ${req.headers['user-agent'] || 'onbekend'}\nTijd: ${new Date().toISOString()}\n\nWas jij dit niet? Wijzig direct je wachtwoord.` }).catch((e) => console.error('[login-mail]', e.message));
+    }
+    const sid = createSession(username, { ip, ua: req.headers['user-agent'] });
     res.set('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Strict; Path=/${config.tls.enabled ? '; Secure' : ''}`);
     metrics.inc('fileserver_logins_total');
     emitAdmin('activity', { kind: 'login', user: username });
@@ -212,6 +255,8 @@ export function createWebServer() {
     const { token, password } = req.body || {};
     const user = consumeResetToken(token);
     if (!user || !password) return res.status(400).json({ error: 'Ongeldige of verlopen token' });
+    const perr = validatePassword(password);
+    if (perr) return res.status(400).json({ error: perr });
     updateUser(user, { password });
     audit('web', user, 'reset_done');
     res.json({ ok: true });
@@ -253,15 +298,48 @@ export function createWebServer() {
     }
   });
 
+  // --- Passkey-login (geen auth) ---
+  app.get('/api/webauthn/enabled', (req, res) => res.json({ enabled: config.webauthn.enabled }));
+  app.post('/api/webauthn/login/options', express.json(), async (req, res) => {
+    if (!config.webauthn.enabled || !userExists(req.body.username)) return res.status(400).json({ error: 'Niet beschikbaar' });
+    res.json(await webauthn.authenticationOptions(req.body.username));
+  });
+  app.post('/api/webauthn/login/verify', express.json(), async (req, res) => {
+    const ip = clientIp(req);
+    try {
+      const { username, response } = req.body || {};
+      await webauthn.verifyAuthentication(username, response);
+      const sid = createSession(username, { ip, ua: req.headers['user-agent'] });
+      res.set('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Strict; Path=/${config.tls.enabled ? '; Secure' : ''}`);
+      metrics.inc('fileserver_logins_total');
+      audit('web', username, 'login', { method: 'passkey', ip });
+      res.json({ ok: true, role: role(username) });
+    } catch (err) { res.status(401).json({ error: err.message }); }
+  });
+
   // --- Publieke deel-links (geen auth) ---
+  const pwForm = () => `<form style="font-family:sans-serif;max-width:320px;margin:3rem auto">
+    <h3>Beveiligde link</h3><input name="pw" type="password" placeholder="Wachtwoord" style="width:100%;padding:.5rem">
+    <button style="margin-top:.5rem;padding:.5rem 1rem">Openen</button></form>`;
+
   app.get('/s/:token', (req, res) => {
     const share = getShare(req.params.token);
     if (!share) return res.status(404).send('Link niet gevonden of verlopen.');
-    if (!checkSharePassword(share, req.query.pw)) {
-      return res.send(`<form style="font-family:sans-serif;max-width:300px;margin:3rem auto">
-        <h3>Beveiligde link</h3><input name="pw" type="password" placeholder="Wachtwoord" style="width:100%;padding:.5rem">
-        <button style="margin-top:.5rem;padding:.5rem 1rem">Openen</button></form>`);
+    if (!checkSharePassword(share, req.query.pw)) return res.send(pwForm());
+
+    // Drop-link (upload-portaal): toon een uploadformulier i.p.v. download.
+    if (share.type === 'upload') {
+      const pw = req.query.pw ? `?pw=${encodeURIComponent(req.query.pw)}` : '';
+      return res.send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+        <div style="font-family:system-ui,sans-serif;max-width:420px;margin:3rem auto;padding:1.5rem;border:1px solid #ccc;border-radius:10px">
+        <h2>📤 Bestanden aanleveren</h2>
+        <p style="color:#666">Kies bestanden om te uploaden naar deze gedeelde map.</p>
+        <form method="post" action="/s/${req.params.token}/upload${pw}" enctype="multipart/form-data">
+          <input type="file" name="files" multiple required>
+          <button style="margin-top:1rem;padding:.6rem 1.2rem">Uploaden</button>
+        </form></div>`);
     }
+
     const abs = resolveWithin(homeDir(share.user), share.path);
     const name = path.basename(abs);
     audit('web', share.user, 'share_access', { path: share.path, token: req.params.token });
@@ -277,8 +355,46 @@ export function createWebServer() {
     res.download(abs, name);
   });
 
+  // Ontvang uploads op een drop-link (geen account nodig).
+  const dropUpload = multer({
+    storage: multer.diskStorage({
+      destination(req, file, cb) {
+        const share = getShare(req.params.token);
+        if (!share || share.type !== 'upload' || !checkSharePassword(share, req.query.pw)) return cb(new Error('Ongeldige link'));
+        try {
+          const dir = resolveWithin(homeDir(share.user), share.path);
+          fs.mkdirSync(dir, { recursive: true });
+          cb(null, dir);
+        } catch (err) { cb(err); }
+      },
+      filename(req, file, cb) { cb(null, path.basename(file.originalname)); },
+    }),
+  });
+  app.post('/s/:token/upload', dropUpload.array('files'), async (req, res) => {
+    const share = getShare(req.params.token);
+    if (!share || share.type !== 'upload') return res.status(404).send('Link niet gevonden.');
+    // Scan aangeleverde bestanden; besmette naar quarantaine.
+    for (const f of req.files || []) {
+      const scan = await scanFile(f.path);
+      if (!scan.clean) { quarantine(f.path, { user: share.user, home: homeDir(share.user), targetPath: share.path, filename: f.originalname, detail: scan.detail }); }
+    }
+    countUpload(req.params.token);
+    audit('web', share.user, 'drop_upload', { path: share.path, files: (req.files || []).map((f) => f.originalname), ip: clientIp(req) });
+    notifyShare('drop_upload', share.user, { path: share.path, ip: clientIp(req) });
+    emitToUser(share.user, 'change', { action: 'drop_upload' });
+    res.send('<p style="font-family:sans-serif">✅ Bedankt, je bestanden zijn ontvangen. <a href="/s/' + req.params.token + '">Meer uploaden</a></p>');
+  });
+
   // --- Alles hieronder vereist authenticatie ---
   app.use('/api', authenticate);
+
+  // Onderhoudsmodus: alleen admins mogen erdoor.
+  app.use('/api', (req, res, next) => {
+    if (getSetting('maintenance') && !isAdmin(req.user) && req.path !== '/whoami') {
+      return res.status(503).json({ error: 'Onderhoudsmodus actief' });
+    }
+    next();
+  });
 
   // WebDAV (Basic Auth; eigen mount).
   if (config.webdavEnabled) {
@@ -338,7 +454,8 @@ export function createWebServer() {
     try {
       const dir = resolveWithin(req.home, req.query.path || '/');
       const query = (req.query.q || '').toString().toLowerCase();
-      let items = query ? await searchRecursive(req.home, dir, query) : await listDir(req.home, dir);
+      const inContent = req.query.content === '1';
+      let items = query ? await searchRecursive(req.home, dir, query, 6, inContent) : await listDir(req.home, dir);
       items = sortItems(items, (req.query.sort || 'name').toString(), (req.query.order || 'asc').toString());
       res.json({ path: req.query.path || '/', items });
     } catch (err) {
@@ -711,6 +828,42 @@ export function createWebServer() {
   app.get('/api/shares', (req, res) => res.json({ shares: listShares(req.user) }));
   app.delete('/api/share/:token', (req, res) => res.json({ ok: deleteShare(req.user, req.params.token) }));
 
+  // Drop-link (upload-portaal) aanmaken.
+  app.post('/api/droplink', requireWrite, express.json(), (req, res) => {
+    const token = createShare(req.user, req.body.path || '/', {
+      type: 'upload',
+      expiresInHours: req.body.expiresInHours ? Number(req.body.expiresInHours) : 0,
+      password: req.body.password || null,
+    });
+    audit('web', req.user, 'droplink_create', { path: req.body.path });
+    res.json({ token, url: `/s/${token}` });
+  });
+
+  // QR-code (SVG) voor een deel-link/tekst.
+  app.get('/api/qr', async (req, res) => {
+    try {
+      const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+      const text = (req.query.text || '').toString();
+      const url = text.startsWith('http') ? text : base + text;
+      res.type('svg').send(await qrSvg(url));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // --- Actieve sessies beheren ---
+  app.get('/api/sessions', (req, res) => res.json({ sessions: listSessions(req.user, tokenFromReq(req)) }));
+  app.delete('/api/sessions/:id', (req, res) => res.json({ ok: revokeSession(req.user, req.params.id) }));
+
+  // --- Passkeys / WebAuthn (aangemeld) ---
+  app.get('/api/webauthn/count', (req, res) => res.json({ enabled: config.webauthn.enabled, count: getCredentials(req.user).length }));
+  app.post('/api/webauthn/register/options', async (req, res) => {
+    if (!config.webauthn.enabled) return res.status(400).json({ error: 'WebAuthn niet geconfigureerd' });
+    res.json(await webauthn.registrationOptions(req.user));
+  });
+  app.post('/api/webauthn/register/verify', express.json(), async (req, res) => {
+    try { await webauthn.verifyRegistration(req.user, req.body); audit('web', req.user, 'passkey_added'); res.json({ ok: true }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
   // --- Gedeelde mappen van anderen (alleen-lezen of lezen+schrijven) ---
   // needWrite=true vereist dat de deling mode 'rw' heeft.
   function resolveShared(req, pathValue, needWrite = false) {
@@ -816,6 +969,8 @@ export function createWebServer() {
   app.get('/api/admin/users', requireAdmin, (req, res) => res.json({ users: listUsers() }));
   app.post('/api/admin/users', requireAdmin, express.json(), (req, res) => {
     try {
+      const perr = validatePassword(req.body.password);
+      if (perr) return res.status(400).json({ error: perr });
       addUser(req.body);
       audit('web', req.user, 'admin_add_user', { target: req.body.username });
       res.json({ ok: true });
@@ -892,6 +1047,21 @@ export function createWebServer() {
     res.json({ samples: getHistory(minutes) });
   });
 
+  // Groepen beheren (alleen admin).
+  app.get('/api/admin/groups', requireAdmin, (req, res) => res.json({ groups: listGroups() }));
+  app.put('/api/admin/groups/:name', requireAdmin, express.json(), (req, res) => { setGroup(req.params.name, req.body.members || []); res.json({ ok: true }); });
+  app.delete('/api/admin/groups/:name', requireAdmin, (req, res) => { deleteGroup(req.params.name); res.json({ ok: true }); });
+
+  // Opslagrapport (alleen admin).
+  app.get('/api/admin/storage-report', requireAdmin, (req, res) => res.json(storageReport(15)));
+
+  // Runtime-instellingen (onderhoudsmodus, opschoning) — admin-UI-config.
+  app.get('/api/admin/settings', requireAdmin, (req, res) => res.json({ settings: getSettings() }));
+  app.put('/api/admin/settings', requireAdmin, express.json(), (req, res) => res.json({ settings: updateSettings(req.body || {}) }));
+
+  // Handmatige opschoning starten.
+  app.post('/api/admin/cleanup', requireAdmin, (req, res) => res.json(runCleanup()));
+
   // Live-stroom voor het admin-dashboard (SSE).
   app.get('/api/admin/events', requireAdmin, (req, res) => {
     res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
@@ -921,7 +1091,8 @@ export function createWebServer() {
   return app;
 }
 
-async function searchRecursive(home, dir, query, depth = 6) {
+const TEXT_EXT = /\.(txt|md|json|js|mjs|ts|css|html?|csv|log|xml|ya?ml|ini|sh|conf|py|java|c|cpp|go|rs|php|sql)$/i;
+async function searchRecursive(home, dir, query, depth = 6, inContent = false) {
   const out = [];
   async function walk(current, d) {
     if (d < 0) return;
@@ -934,7 +1105,18 @@ async function searchRecursive(home, dir, query, depth = 6) {
     for (const e of entries) {
       if (current === home && (e.name === config.trashName || e.name === config.versionsName || e.name === '.metadata.json')) continue;
       const full = path.join(current, e.name);
-      if (e.name.toLowerCase().includes(query)) {
+      let match = e.name.toLowerCase().includes(query);
+      // Volledige-tekst zoeken in bestandsinhoud (tekstbestanden, max 2MB).
+      if (!match && inContent && !e.isDirectory() && TEXT_EXT.test(e.name)) {
+        try {
+          const st = await fsp.stat(full);
+          if (st.size <= 2 * 1024 * 1024) {
+            const content = await fsp.readFile(full, 'utf8');
+            if (content.toLowerCase().includes(query)) match = true;
+          }
+        } catch { /* overslaan */ }
+      }
+      if (match) {
         const stat = await fsp.stat(full).catch(() => null);
         out.push({
           name: e.name,

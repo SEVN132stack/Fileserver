@@ -28,12 +28,25 @@
       <div id="totp"><label>2FA-code</label><input id="token" inputmode="numeric" autocomplete="one-time-code" /></div>
       <button type="submit">Inloggen</button>
       <a id="sso" href="/api/oidc/login" style="display:none;margin-top:.8rem;text-align:center;color:#38bdf8">Inloggen met SSO</a>
+      <button type="button" id="passkeyLogin" style="width:100%;margin-top:.6rem;background:#334155;color:#e2e8f0;display:none">🔑 Inloggen met passkey</button>
       <a href="/reset.html" style="display:block;margin-top:.8rem;text-align:center;color:#94a3b8;font-size:.85rem">Wachtwoord vergeten?</a>
       <div class="err" id="err"></div>
     </form>
   </div>
+  <script src="/webauthn.js"></script>
   <script>
     fetch('/api/oidc/enabled').then(r=>r.json()).then(d=>{ if(d.enabled){ const s=document.getElementById('sso'); s.style.display='block'; } }).catch(()=>{});
+    fetch('/api/webauthn/enabled').then(r=>r.json()).then(d=>{ if(d.enabled) document.getElementById('passkeyLogin').style.display='block'; }).catch(()=>{});
+    document.getElementById('passkeyLogin').onclick = async () => {
+      const username = document.getElementById('username').value;
+      if (!username) { document.getElementById('err').textContent='Vul eerst je gebruikersnaam in.'; return; }
+      try {
+        const opts = await (await fetch('/api/webauthn/login/options',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username})})).json();
+        const assertion = await window.fseWebAuthnGet(opts);
+        const r = await fetch('/api/webauthn/login/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,response:assertion})});
+        if (r.ok) window.location='/'; else document.getElementById('err').textContent='Passkey-login mislukt';
+      } catch(e){ document.getElementById('err').textContent='Passkey-login mislukt: '+e.message; }
+    };
     const form = document.getElementById('form');
     form.onsubmit = async (e) => {
       e.preventDefault();

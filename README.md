@@ -183,6 +183,23 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Extra functies (v3.9)
+
+- **Drop-links (upload-portaal):** knop "📤 Drop-link" maakt een link waarmee mensen
+  zónder account bestanden naar de map kunnen aanleveren. Deel-/drop-links tonen een QR-code.
+- **Gebruikersgroepen:** deel met `group:<naam>` (beheer in het admin-dashboard).
+- **Slepen tussen mappen**, **media-preview** (video/audio) en **gerenderde Markdown**,
+  **volledige-tekst zoeken** (vink "inhoud" aan) en **foto-upload** vanaf de telefoon.
+- **Passkeys/WebAuthn** (🔑), **actieve sessies** beheren (🖥️), **nieuw-apparaat-melding**
+  per e-mail, **IP-allowlist**, **onderhoudsmodus**, **wachtwoordbeleid** en **accountvergrendeling**.
+- **`/health`** voor monitoring, **geplande opschoning**, **opslagrapport** en
+  **configuratie via de admin-UI**.
+
+> **At-rest-encryptie:** voor versleuteling van de opslag *op schijf* gebruik je bij
+> voorkeur filesysteem-encryptie op de NAS (LUKS/eCryptfs). Dat werkt transparant voor
+> web, SFTP én WebDAV; app-niveau-encryptie zou SFTP-toegang breken. De ingebouwde
+> **client-side E2E-encryptie** (🔒/🔑) blijft beschikbaar voor losse bestanden/mappen.
+
 ## Admin-dashboard (v3.5)
 
 Beheerders vinden op `/admin.html` een overzicht met stat-kaarten (gebruikers,

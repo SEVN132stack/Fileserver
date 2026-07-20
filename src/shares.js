@@ -27,20 +27,31 @@ function verify(pw, stored) {
   return calc.length === known.length && timingSafeEqual(calc, known);
 }
 
-export function createShare(user, path, { expiresInHours, password, maxDownloads } = {}) {
+export function createShare(user, path, { expiresInHours, password, maxDownloads, type } = {}) {
   const data = read();
   const token = randomBytes(12).toString('base64url');
   data[token] = {
     user,
     path,
+    type: type === 'upload' ? 'upload' : 'download', // 'upload' = drop-link (aanleveren)
     expires: expiresInHours ? Date.now() + expiresInHours * 3600000 : 0,
     password: password ? hash(password) : null,
     maxDownloads: maxDownloads ? Number(maxDownloads) : 0,
     downloads: 0,
+    uploads: 0,
     created: Date.now(),
   };
   write(data);
   return token;
+}
+
+// Registreer een upload op een drop-link.
+export function countUpload(token) {
+  const data = read();
+  const s = data[token];
+  if (!s) return;
+  s.uploads = (s.uploads || 0) + 1;
+  write(data);
 }
 
 export function getShare(token) {
@@ -79,15 +90,15 @@ export function listShares(user) {
   const data = read();
   return Object.entries(data)
     .filter(([, s]) => s.user === user)
-    .map(([token, s]) => ({ token, path: s.path, expires: s.expires, hasPassword: !!s.password, maxDownloads: s.maxDownloads || 0, downloads: s.downloads || 0 }));
+    .map(([token, s]) => ({ token, path: s.path, type: s.type || 'download', expires: s.expires, hasPassword: !!s.password, maxDownloads: s.maxDownloads || 0, downloads: s.downloads || 0, uploads: s.uploads || 0 }));
 }
 
 // Alle deel-links (voor het admin-dashboard).
 export function listAllShares() {
   const data = read();
   return Object.entries(data).map(([token, s]) => ({
-    token, user: s.user, path: s.path, expires: s.expires,
-    hasPassword: !!s.password, maxDownloads: s.maxDownloads || 0, downloads: s.downloads || 0,
+    token, user: s.user, path: s.path, type: s.type || 'download', expires: s.expires,
+    hasPassword: !!s.password, maxDownloads: s.maxDownloads || 0, downloads: s.downloads || 0, uploads: s.uploads || 0,
     created: s.created,
   }));
 }

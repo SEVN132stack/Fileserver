@@ -44,6 +44,21 @@ function applyTheme() {
 const fmtSize = (n) => { if (!n) return ''; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; };
 const isImg = (name) => /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(name);
 const isText = (name) => /\.(txt|md|json|js|mjs|css|html?|csv|log|xml|ya?ml|ini|sh|conf)$/i.test(name);
+const isVideo = (name) => /\.(mp4|webm|ogv|mov|m4v)$/i.test(name);
+const isAudio = (name) => /\.(mp3|wav|ogg|oga|flac|m4a|aac)$/i.test(name);
+const isMd = (name) => /\.md$/i.test(name);
+
+// Minimale, veilige Markdown-render (escape eerst, dan een subset opmaken).
+function renderMarkdown(src) {
+  let h = esc(src);
+  h = h.replace(/^### (.*)$/gm, '<h3>$1</h3>').replace(/^## (.*)$/gm, '<h2>$1</h2>').replace(/^# (.*)$/gm, '<h1>$1</h1>');
+  h = h.replace(/```([\s\S]*?)```/g, (m, c) => `<pre>${c}</pre>`);
+  h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  h = h.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  h = h.replace(/^[-*] (.*)$/gm, '<li>$1</li>').replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
+  return h.replace(/\n{2,}/g, '<br><br>');
+}
 
 async function api(url, opts) { const r = await fetch(url, opts); if (r.status === 401) { window.location = '/login.html'; throw new Error('unauth'); } return r; }
 
@@ -75,7 +90,8 @@ function connectEvents() {
 async function load() {
   const q = document.getElementById('search').value.trim();
   const sort = document.getElementById('sort').value, order = document.getElementById('order').value;
-  const url = `/api/list?path=${enc(cwd)}&sort=${sort}&order=${order}` + (q?`&q=${enc(q)}`:'');
+  const inhoud = document.getElementById('contentSearch')?.checked ? '&content=1' : '';
+  const url = `/api/list?path=${enc(cwd)}&sort=${sort}&order=${order}` + (q?`&q=${enc(q)}${inhoud}`:'');
   const data = await (await api(url)).json();
   renderCrumbs();
   const rows = document.getElementById('rows');
@@ -101,6 +117,21 @@ async function load() {
     a += `<button class="danger" data-del="${enc(it.path)}">🗑</button>`;
     const checked = selected.has(it.path) ? 'checked' : '';
     tr.innerHTML = `<td><input type="checkbox" data-sel="${enc(it.path)}" ${checked}></td><td>${nameCell}</td><td>${fmtSize(it.size)}</td><td class="actions">${a}</td>`;
+    // Drag & drop: sleep een bestand op een map om te verplaatsen.
+    tr.draggable = true;
+    tr.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/fspath', it.path));
+    if (it.isDir) {
+      tr.addEventListener('dragover', (e) => { e.preventDefault(); tr.style.outline = '2px solid var(--accent)'; });
+      tr.addEventListener('dragleave', () => { tr.style.outline = ''; });
+      tr.addEventListener('drop', async (e) => {
+        e.preventDefault(); tr.style.outline = '';
+        const from = e.dataTransfer.getData('text/fspath');
+        if (!from || from === it.path) return;
+        const to = it.path + '/' + from.split('/').pop();
+        await api('/api/rename', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ from, to }) });
+        load();
+      });
+    }
     rows.appendChild(tr);
   }
 }
@@ -117,7 +148,10 @@ function closeModal() { document.getElementById('modal').style.display='none'; d
 async function openFile(p) {
   const name = p.split('/').pop(); const url = '/api/preview?path='+enc(p);
   if (isImg(name)) openModal(`<h3>${esc(name)}</h3><img src="${url}">`);
+  else if (isVideo(name)) openModal(`<h3>${esc(name)}</h3><video src="${url}" controls autoplay style="max-width:82vw;max-height:74vh"></video>`);
+  else if (isAudio(name)) openModal(`<h3>${esc(name)}</h3><audio src="${url}" controls autoplay style="width:70vw"></audio>`);
   else if (/\.pdf$/i.test(name)) openModal(`<h3>${esc(name)}</h3><iframe src="${url}" style="width:82vw;height:74vh"></iframe>`);
+  else if (isMd(name)) { const txt = await (await api(url)).text(); openModal(`<h3>${esc(name)}</h3><div style="max-width:80vw;max-height:74vh;overflow:auto;line-height:1.5">${renderMarkdown(txt)}</div>`); }
   else if (isText(name)) { const txt = await (await api(url)).text(); openModal(`<h3>${esc(name)}</h3><pre>${txt.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`); }
   else openModal(`<h3>${esc(name)}</h3><p class="muted">Geen preview.</p><button data-dl="${enc(p)}">Download</button>`);
 }
@@ -154,6 +188,42 @@ async function deltaSync(p) {
     } else alert('Bijwerken mislukt');
   };
   input.click();
+}
+
+// Toon een link met QR-code in een modal.
+function showLink(title, url) {
+  openModal(`<h3>${esc(title)}</h3>
+    <input value="${esc(url)}" readonly style="width:100%;padding:.5rem" onclick="this.select()">
+    <div style="margin-top:1rem;text-align:center"><img alt="QR" style="width:220px;height:220px;background:#fff;padding:6px;border-radius:8px" src="/api/qr?text=${enc(url)}"></div>
+    <p class="muted">Scan de QR-code met je telefoon.</p>`);
+}
+
+// Maak een drop-link (upload-portaal) voor de huidige map.
+async function makeDropLink() {
+  const hrs = prompt('Drop-link vervalt na hoeveel uur? (leeg = nooit)', ''); if (hrs === null) return;
+  const pw = prompt('Wachtwoord voor de drop-link? (leeg = geen)', '') || null;
+  const r = await (await api('/api/droplink',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:cwd,expiresInHours:hrs?Number(hrs):0,password:pw})})).json();
+  showLink('Drop-link (anderen kunnen hier uploaden)', location.origin + r.url);
+}
+
+// Actieve sessies tonen + intrekken.
+async function showSessions() {
+  const { sessions } = await (await api('/api/sessions')).json();
+  const rows = sessions.map(s => `<li>${new Date(s.created).toLocaleString()} · ${esc(s.ip||'?')} · ${esc((s.ua||'').slice(0,40))}
+    ${s.current?'<strong>(deze sessie)</strong>':`<button class="danger" data-revoke="${s.id}">uitloggen</button>`}</li>`).join('');
+  openModal(`<h3>🖥️ Actieve sessies</h3><ul>${rows||'<li class="muted">Geen</li>'}</ul>`);
+}
+
+// Passkey (WebAuthn) registreren.
+async function addPasskey() {
+  const { enabled } = await (await api('/api/webauthn/enabled')).json();
+  if (!enabled) { alert('Passkeys zijn niet geconfigureerd op de server (WEBAUTHN_RP_ID/ORIGIN).'); return; }
+  try {
+    const opts = await (await api('/api/webauthn/register/options',{method:'POST'})).json();
+    const att = await window.fseWebAuthnCreate(opts);
+    const res = await api('/api/webauthn/register/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(att)});
+    alert(res.ok ? 'Passkey toegevoegd ✅' : 'Toevoegen mislukt');
+  } catch (e) { alert('Passkey toevoegen mislukt: ' + e.message); }
 }
 
 // Toon de versiegeschiedenis van een bestand.
@@ -310,7 +380,7 @@ document.addEventListener('click', async (e) => {
     const pw = prompt('Wachtwoord voor de link? (leeg = geen)', '') || null;
     const max = prompt('Maximaal aantal downloads? (leeg = onbeperkt)', '') || 0;
     const r = await (await api('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,expiresInHours:hrs?Number(hrs):0,password:pw,maxDownloads:Number(max)||0})})).json();
-    prompt('Deel deze link:', location.origin + r.url); return;
+    showLink('Deel-link (download)', location.origin + r.url); return;
   }
   if (t2.dataset.meta) {
     const p = decodeURIComponent(t2.dataset.meta);
@@ -330,6 +400,7 @@ document.addEventListener('click', async (e) => {
     await api('/api/grant',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to,path:p,mode:rw?'rw':'ro'})});
     alert('Gedeeld met '+to+' ('+(rw?'rw':'ro')+')'); return;
   }
+  if (t2.dataset.revoke) { await api('/api/sessions/'+t2.dataset.revoke,{method:'DELETE'}); showSessions(); return; }
   if (t2.dataset.dec) { return decryptDownload(decodeURIComponent(t2.dataset.dec)); }
   if (t2.dataset.sync) { return deltaSync(decodeURIComponent(t2.dataset.sync)); }
   if (t2.dataset.ver) { return showVersions(decodeURIComponent(t2.dataset.ver)); }
@@ -363,6 +434,11 @@ document.getElementById('fileInput').onchange = e => uploadFiles([...e.target.fi
 document.getElementById('dirInput').onchange = e => { const files=[...e.target.files]; uploadFiles(files, files.map(f=>f.webkitRelativePath||f.name)); };
 document.getElementById('logoutBtn').onclick = async () => { await fetch('/api/logout',{method:'POST'}); window.location='/login.html'; };
 document.getElementById('2faBtn').onclick = setup2fa;
+document.getElementById('passkeyBtn').onclick = addPasskey;
+document.getElementById('sessionsBtn').onclick = showSessions;
+document.getElementById('camInput').onchange = (e) => uploadFiles([...e.target.files]);
+document.getElementById('contentSearch').onchange = load;
+const dropBtn = document.getElementById('dropLinkBtn'); if (dropBtn) dropBtn.onclick = makeDropLink;
 document.getElementById('adminBtn').onclick = () => window.location='/admin.html';
 document.getElementById('themeBtn').onclick = () => { const cur=localStorage.getItem('theme')||'dark'; localStorage.setItem('theme',cur==='dark'?'light':'dark'); applyTheme(); };
 document.getElementById('langBtn').onclick = () => { lang = LANGS[(LANGS.indexOf(lang)+1)%LANGS.length]; localStorage.setItem('lang',lang); applyI18n(); loadMe(); load(); };

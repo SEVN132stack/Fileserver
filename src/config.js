@@ -179,6 +179,42 @@ export const config = {
     keep: parseInt(process.env.METRICS_HISTORY_KEEP || '1440', 10), // 24u bij 1/min
   },
 
+  // E2E-keyring-bestand (publieke sleutels + gewrapte map-sleutels).
+  keyringFile: abs(process.env.KEYRING_FILE || 'keyring.json'),
+  // Groepen-bestand (voor delen/rechten per groep).
+  groupsFile: abs(process.env.GROUPS_FILE || 'groups.json'),
+  // Runtime-instellingen die via de admin-UI aanpasbaar zijn (overlay op .env).
+  settingsFile: abs(process.env.SETTINGS_FILE || 'settings.json'),
+
+  // Toegang beperken tot bepaalde IP's/CIDR's (komma-gescheiden; leeg = alles toe).
+  ipAllowlist: (process.env.IP_ALLOWLIST || '').split(',').map((s) => s.trim()).filter(Boolean),
+
+  // Wachtwoordbeleid.
+  passwordPolicy: {
+    minLength: parseInt(process.env.PASSWORD_MIN_LENGTH || '8', 10),
+    requireMixed: bool(process.env.PASSWORD_REQUIRE_MIXED, false), // letters + cijfers
+  },
+  // Accountvergrendeling: na N mislukte pogingen op een account, lock voor M ms.
+  lockout: {
+    maxAttempts: parseInt(process.env.LOCKOUT_MAX_ATTEMPTS || '10', 10),
+    durationMs: parseInt(process.env.LOCKOUT_DURATION_MS || '900000', 10), // 15 min
+  },
+
+  // Geplande opschoning: prullenbak-items ouder dan N dagen verwijderen (0 = uit).
+  cleanupTrashDays: parseInt(process.env.CLEANUP_TRASH_DAYS || '0', 10),
+  cleanupIntervalHours: parseInt(process.env.CLEANUP_INTERVAL_HOURS || '24', 10),
+
+  // WebAuthn/passkeys.
+  webauthn: {
+    rpName: process.env.WEBAUTHN_RP_NAME || 'SFTP Fileserver',
+    // rpID = domein (bijv. transfer.zepta-nas.nl); origin = volledige URL.
+    rpID: process.env.WEBAUTHN_RP_ID || '',
+    origin: process.env.WEBAUTHN_ORIGIN || '',
+    get enabled() { return !!(this.rpID && this.origin); },
+  },
+
+  version: '3.9.0',
+
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
     username: process.env.AUTH_USER || 'admin',

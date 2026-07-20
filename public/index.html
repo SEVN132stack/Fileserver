@@ -58,6 +58,8 @@
     <span class="who" id="who"></span>
     <button class="ghost" id="adminBtn" style="display:none" data-i18n="admin">Beheer</button>
     <button class="ghost" id="2faBtn" data-i18n="twofa">2FA</button>
+    <button class="ghost" id="passkeyBtn" title="Passkey toevoegen">🔑</button>
+    <button class="ghost" id="sessionsBtn" title="Actieve sessies">🖥️</button>
     <button class="ghost" id="langBtn">EN</button>
     <button class="ghost" id="themeBtn">🌓</button>
     <button class="ghost" id="logoutBtn" data-i18n="logout">Uitloggen</button>
@@ -77,16 +79,21 @@
         &nbsp;/&nbsp;
         <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">
           <span data-i18n="choosedir">map</span><input type="file" id="dirInput" webkitdirectory hidden></label>
+        &nbsp;/&nbsp;
+        <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">
+          📷 foto<input type="file" id="camInput" accept="image/*" capture="environment" multiple hidden></label>
         <div id="progress"><div></div></div>
         <div style="margin-top:.6rem;font-size:.85rem"><label><input type="checkbox" id="encToggle"> 🔒 Versleutel uploads (end-to-end)</label></div>
       </div>
       <div class="bar">
         <button class="ghost" id="mkdirBtn" data-i18n="newfolder">＋ Nieuwe map</button>
         <button class="ghost" id="newfileBtn" data-i18n="newfile">＋ Nieuw bestand</button>
+        <button class="ghost" id="dropLinkBtn" title="Deel een link waarmee anderen hier kunnen uploaden">📤 Drop-link</button>
         <button class="ghost" id="bulkDl" data-i18n="bulkdl">Download selectie</button>
         <button class="danger" id="bulkDel" data-i18n="bulkdel">Verwijder selectie</button>
         <button class="ghost" id="refreshBtn">↻</button>
         <input type="search" id="search" data-i18n-ph="searchph" placeholder="Zoeken…" />
+        <label class="muted" title="Ook in bestandsinhoud zoeken"><input type="checkbox" id="contentSearch"> inhoud</label>
         <select id="sort"><option value="name">naam</option><option value="size">grootte</option><option value="mtime">datum</option></select>
         <select id="order"><option value="asc">↑</option><option value="desc">↓</option></select>
       </div>
@@ -102,6 +109,7 @@
   <script src="/crypto.js"></script>
   <script src="/keyring.js"></script>
   <script src="/rsync.js"></script>
+  <script src="/webauthn.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
