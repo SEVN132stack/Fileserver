@@ -5,6 +5,7 @@
 import { setGauge } from './metrics.js';
 
 const clients = new Map(); // user -> Set<res>
+const adminClients = new Set(); // res-verbindingen van admin-dashboards
 
 function updateGauge() {
   let total = 0;
@@ -32,6 +33,24 @@ export function emitToUser(user, event, data = {}) {
   if (!set) return;
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const res of set) {
+    try {
+      res.write(payload);
+    } catch {
+      /* verbinding weg */
+    }
+  }
+}
+
+// Admin-dashboard-verbindingen (live overzicht).
+export function addAdminClient(res) {
+  adminClients.add(res);
+  res.on('close', () => adminClients.delete(res));
+}
+
+// Broadcast een activiteits-event naar alle admin-dashboards.
+export function emitAdmin(event, data = {}) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of adminClients) {
     try {
       res.write(payload);
     } catch {

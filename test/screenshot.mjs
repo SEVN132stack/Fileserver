@@ -65,6 +65,13 @@ try {
   await fetch(base + '/api/download?path=/notities.txt', { headers: { Authorization: auth } });
   await page.goto(base + '/admin.html');
   await page.waitForSelector('#cards .card');
+  // Genereer wat activiteit zodat de live-sparklines gevuld raken.
+  for (let i = 0; i < 4; i++) {
+    await fetch(base + '/api/download?path=/notities.txt', { headers: { Authorization: auth } });
+    const fd = new FormData(); fd.append('files', new Blob(['sample ' + i]), 'sample' + i + '.txt');
+    await fetch(base + '/api/upload?path=/Documenten', { method: 'POST', headers: { Authorization: auth }, body: fd });
+    await page.waitForTimeout(3200);
+  }
   await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(outDir, 'admin.png'), fullPage: true });
 

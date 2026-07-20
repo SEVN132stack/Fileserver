@@ -107,6 +107,12 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Delta-sync ook in de web UI (knop ⟳)
 - ✅ VirusTotal-upload voor onbekende bestanden
 
+## Dashboard (v3.6)
+
+- ✅ Grafische grafieken in het admin-dashboard (bar chart + live sparklines)
+- ✅ Live-verversend admin-dashboard via SSE
+- ✅ Sendmail-testscript (`npm run sendmail`)
+
 ## Toekomstige ideeën
 
 - 💡 Volledige S3/object-storage als primaire backend (storage-abstractielaag)
@@ -115,7 +121,7 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - 💡 Mobiele native app (via de bestaande API)
 - 💡 Back-up naar externe bestemming (S3/rsync) i.p.v. lokaal
 - 💡 Volledige audit-export (SIEM) en alerting-regels bij de metrics
-- 💡 Grafische grafieken in het admin-dashboard (i.p.v. alleen tellers)
-- 💡 Live-verversend admin-dashboard via SSE
+- 💡 Historische metrics bewaren (nu alleen live in de browser)
+- 💡 Configureerbare tijdvensters/legenda's in de dashboardgrafieken
 
 > Nieuwe wensen? Voeg ze onderaan toe onder "Toekomstige ideeën".

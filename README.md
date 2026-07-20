@@ -186,7 +186,18 @@ Beheerders vinden op `/admin.html` een overzicht met stat-kaarten (gebruikers,
 opslag, uploads/downloads, logins, actieve realtime-clients, deel-links,
 quarantaine, IP-bans, back-ups), status-badges (HTTPS/WebDAV/SSO/antivirus) en
 recente activiteit, plus panelen om gebruikers, IP-bans, quarantaine, deel-links
-(met downloadtellingen) en back-ups te beheren.
+(met downloadtellingen) en back-ups te beheren. Het dashboard toont **grafieken**
+(bar chart + live sparklines) en ververst **live via SSE** (`/api/admin/events`)
+bij nieuwe activiteit.
+
+### E-mail testen
+
+```bash
+npm run sendmail jij@voorbeeld.nl
+```
+
+Verstuurt een testmail met de huidige `.env`-configuratie (Brevo/SMTP) en toont
+welke verzendmethode is gebruikt.
 
 Verder in v3.5:
 

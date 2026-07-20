@@ -344,6 +344,26 @@ try {
   const allShares = await (await fetch(H + '/api/admin/shares', { headers: jar() })).json();
   ok('admin-deel-links met downloadtellingen', Array.isArray(allShares.shares) && allShares.shares.some((s) => typeof s.downloads === 'number'));
 
+  // 13z. Admin live-events (SSE): activiteit wordt uitgezonden.
+  cookie = ''; await login('admin', 'testpass123');
+  const adminSse = await new Promise((resolve) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => { ctrl.abort(); resolve(false); }, 4000);
+    fetch(H + '/api/admin/events', { headers: jar(), signal: ctrl.signal }).then(async (r) => {
+      const reader = r.body.getReader();
+      const fd = new FormData(); fd.append('files', new Blob(['x']), 'act.txt');
+      fetch(H + '/api/upload?path=/', { method: 'POST', headers: jar(), body: fd });
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += Buffer.from(value).toString();
+        if (buf.includes('event: activity')) { clearTimeout(timer); ctrl.abort(); resolve(true); break; }
+      }
+    }).catch(() => {});
+  });
+  ok('admin live-events (SSE activity)', adminSse === true);
+
   // 14. SFTP password-auth als bob
   await new Promise((res) => {
     const c = new ssh2.Client();

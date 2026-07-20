@@ -5,6 +5,20 @@ Alle noemenswaardige wijzigingen aan dit project worden in dit bestand bijgehoud
 Het formaat is gebaseerd op [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/),
 en dit project volgt [Semantic Versioning](https://semver.org/lang/nl/).
 
+## [3.6.0] - 2026-07-20
+
+### Toegevoegd
+
+- **Grafieken in het admin-dashboard**: een bar chart met totalen en live
+  sparklines voor uploads/s, downloads/s en actieve realtime-clients (zelfstandige
+  inline-SVG, geen externe libraries).
+- **Live-verversend admin-dashboard via SSE**: `/api/admin/events` zendt
+  activiteits-events uit; het dashboard ververst direct bij uploads, downloads,
+  logins, deel-links en quarantaine (met een 'live'-indicator), plus een periodieke
+  sample elke 3 s voor de grafieken.
+- **Sendmail-testscript**: `npm run sendmail <ontvanger>` verstuurt een testmail
+  met de huidige e-mailconfiguratie.
+
 ## [3.5.0] - 2026-07-20
 
 ### Toegevoegd

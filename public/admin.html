@@ -30,7 +30,15 @@
   <main>
     <h2>Overzicht</h2>
     <div class="cards" id="cards"></div>
-    <div class="badges" id="badges" style="margin-bottom:2rem"></div>
+    <div class="badges" id="badges" style="margin-bottom:1.5rem"></div>
+
+    <h2>Grafieken <span id="liveDot" style="font-size:.7rem;color:#4ade80">● live</span></h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin-bottom:2rem">
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Totalen</div><div id="barChart"></div></div>
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Uploads/s (live)</div><div id="spUp"></div></div>
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Downloads/s (live)</div><div id="spDown"></div></div>
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Actieve realtime-clients</div><div id="spClients"></div></div>
+    </div>
 
     <h2>Recente activiteit</h2>
     <pre id="recent"></pre>
@@ -66,9 +74,53 @@
   <script>
     async function j(u,o){ const r=await fetch(u,o); if(r.status===401)location='/login.html'; if(r.status===403){document.body.innerHTML='<p style="padding:2rem">Geen beheerrechten.</p>';throw 0;} return r; }
     const fmtSize = (n) => { if(!n) return '0 B'; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; };
+
+    // --- Kleine, zelfstandige SVG-grafieken (geen externe libraries) ---
+    function barChart(el, data) { // data: [{label, value, color}]
+      const w=260, h=140, pad=24, max=Math.max(1,...data.map(d=>d.value));
+      const bw=(w-pad*2)/data.length*0.6, gap=(w-pad*2)/data.length;
+      let bars='';
+      data.forEach((d,i)=>{ const bh=(h-pad*2)*(d.value/max); const x=pad+i*gap+ (gap-bw)/2; const y=h-pad-bh;
+        bars+=`<rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="3" fill="${d.color}"></rect>`
+            + `<text x="${x+bw/2}" y="${h-pad+12}" fill="#94a3b8" font-size="9" text-anchor="middle">${d.label}</text>`
+            + `<text x="${x+bw/2}" y="${y-3}" fill="#e2e8f0" font-size="9" text-anchor="middle">${d.value}</text>`; });
+      el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" width="100%" height="140">${bars}</svg>`;
+    }
+    function sparkline(el, values, color, unit='') {
+      const w=260, h=70, pad=6, max=Math.max(1,...values), n=values.length;
+      if (n<2) { el.innerHTML='<div class="l">verzamelt gegevens…</div>'; return; }
+      const pts=values.map((v,i)=>`${pad+i*(w-pad*2)/(n-1)},${h-pad-(h-pad*2)*(v/max)}`).join(' ');
+      const last=values[values.length-1];
+      el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" width="100%" height="70">
+        <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"/>
+        </svg><div class="l">nu: ${last}${unit} · piek: ${max}${unit}</div>`;
+    }
+
+    const hist = { up: [], down: [], clients: [] };
+    let prev = null;
+    function pushHistory(m) {
+      if (prev) {
+        hist.up.push(Math.max(0, m.fileserver_uploads_total - prev.up));
+        hist.down.push(Math.max(0, m.fileserver_downloads_total - prev.down));
+      }
+      hist.clients.push(m.fileserver_active_sse_clients || 0);
+      for (const k of ['up','down','clients']) if (hist[k].length>40) hist[k].shift();
+      prev = { up: m.fileserver_uploads_total, down: m.fileserver_downloads_total };
+      barChart(document.getElementById('barChart'), [
+        { label:'uploads', value:m.fileserver_uploads_total, color:'#38bdf8' },
+        { label:'downloads', value:m.fileserver_downloads_total, color:'#818cf8' },
+        { label:'logins', value:m.fileserver_logins_total, color:'#4ade80' },
+        { label:'mislukt', value:m.fileserver_login_failures_total, color:'#f87171' },
+      ]);
+      sparkline(document.getElementById('spUp'), hist.up, '#38bdf8');
+      sparkline(document.getElementById('spDown'), hist.down, '#818cf8');
+      sparkline(document.getElementById('spClients'), hist.clients, '#4ade80');
+    }
+
     async function loadOverview() {
       const o = await (await j('/api/admin/overview')).json();
       const m = o.metrics;
+      pushHistory(m);
       const cards = [
         ['Gebruikers', o.users.total, `${o.users.admins} admin · ${o.users.readonly} r-o · ${o.users.with2fa}× 2FA`],
         ['Opslag gebruikt', fmtSize(o.storageUsed), ''],
@@ -146,6 +198,18 @@
       if (e.target.dataset.qdel) { await j('/api/admin/quarantine/'+e.target.dataset.qdel,{method:'DELETE'}); loadQuarantine(); }
     });
     loadOverview(); loadShares(); loadUsers(); loadBans(); loadAudit(); loadBackups(); loadQuarantine();
+
+    // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
+    // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.
+    let refreshTimer;
+    const refreshTables = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => { loadShares(); loadQuarantine(); loadBans(); loadAudit(); }, 800); };
+    setInterval(loadOverview, 3000);
+    try {
+      const es = new EventSource('/api/admin/events');
+      es.addEventListener('activity', () => { loadOverview(); refreshTables(); document.getElementById('liveDot').style.opacity='1'; });
+      es.onerror = () => { const d=document.getElementById('liveDot'); if(d){ d.style.color='#94a3b8'; d.textContent='● verbinden…'; } };
+      es.onopen = () => { const d=document.getElementById('liveDot'); if(d){ d.style.color='#4ade80'; d.textContent='● live'; } };
+    } catch {}
   </script>
 </body>
 </html>

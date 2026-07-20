@@ -25,7 +25,7 @@ import { ensureTls } from './tls.js';
 import { handleWebdav, WEBDAV_MOUNT } from './webdav.js';
 import { throttleStream } from './throttle.js';
 import { scanFile } from './scan.js';
-import { addClient, emitToUser } from './events.js';
+import { addClient, emitToUser, addAdminClient, emitAdmin } from './events.js';
 import { bandwidth, ensureExternalUser, getEmail } from './users.js';
 import { getAuthUrl, validState, exchange } from './oidc.js';
 import { createResetToken, consumeResetToken, sendResetMail, sendMail } from './mailer.js';
@@ -182,6 +182,7 @@ export function createWebServer() {
     const sid = createSession(username);
     res.set('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Strict; Path=/${config.tls.enabled ? '; Secure' : ''}`);
     metrics.inc('fileserver_logins_total');
+    emitAdmin('activity', { kind: 'login', user: username });
     audit('web', username, 'login', { ip });
     res.json({ ok: true, role: role(username) });
   });
@@ -351,6 +352,7 @@ export function createWebServer() {
       audit('web', req.user, 'download', { path: req.query.path });
       metrics.inc('fileserver_downloads_total');
       metrics.inc('fileserver_bytes_downloaded_total', fs.statSync(file).size);
+      emitAdmin('activity', { kind: 'download', user: req.user });
       const bw = bandwidth(req.user);
       if (bw > 0) {
         // Met bandbreedtelimiet: throttle de bytestroom.
@@ -534,6 +536,7 @@ export function createWebServer() {
         infected.push(f.originalname);
         audit('web', req.user, 'quarantined', { file: f.originalname, detail: scan.detail });
         notify('quarantine', { user: req.user, file: f.originalname });
+        emitAdmin('activity', { kind: 'quarantine', user: req.user });
         continue;
       }
       names.push(f.originalname);
@@ -544,6 +547,7 @@ export function createWebServer() {
     emitToUser(req.user, 'change', { action: 'upload' });
     metrics.inc('fileserver_uploads_total', names.length);
     for (const f of req.files || []) metrics.inc('fileserver_bytes_uploaded_total', f.size || 0);
+    emitAdmin('activity', { kind: 'upload', user: req.user });
     if (infected.length) return res.status(422).json({ uploaded: names, infected });
     res.json({ uploaded: names });
   });
@@ -647,6 +651,7 @@ export function createWebServer() {
         notify('delete', { user: req.user, path: p });
         metrics.inc('fileserver_deletes_total');
       }
+      emitAdmin('activity', { kind: 'delete', user: req.user });
       emitToUser(req.user, 'change', { action: 'delete' });
       res.json({ ok: true });
     } catch (err) {
@@ -696,6 +701,7 @@ export function createWebServer() {
     });
     audit('web', req.user, 'share_create', { path: req.body.path });
     notifyShare('share_create', req.user, { path: req.body.path, token });
+    emitAdmin('activity', { kind: 'share', user: req.user });
     res.json({ token, url: `/s/${token}` });
   });
   app.get('/api/shares', (req, res) => res.json({ shares: listShares(req.user) }));
@@ -875,6 +881,14 @@ export function createWebServer() {
 
   // Alle deel-links met statistieken (alleen admin).
   app.get('/api/admin/shares', requireAdmin, (req, res) => res.json({ shares: listAllShares() }));
+
+  // Live-stroom voor het admin-dashboard (SSE).
+  app.get('/api/admin/events', requireAdmin, (req, res) => {
+    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.flushHeaders?.();
+    res.write(': verbonden\n\n');
+    addAdminClient(res);
+  });
 
   // Quarantaine-beheer (alleen admin).
   app.get('/api/admin/quarantine', requireAdmin, (req, res) => res.json({ items: listQuarantine() }));
