@@ -173,7 +173,10 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
   hervatten automatisch na een onderbreking.
 - **Realtime updates:** de UI ververst vanzelf bij wijzigingen (ook via SFTP/WebDAV).
 - **Bandbreedtelimiet:** per gebruiker instelbaar in het admin-dashboard.
-- **Antivirus (optioneel):** zet `CLAMSCAN` naar het pad van `clamdscan`/`clamscan`.
+- **Antivirus (optioneel):** zet `CLAMSCAN` naar het pad van `clamdscan`/`clamscan`
+  en/of `VT_API_KEY` voor VirusTotal. Met `AV_FAIL_CLOSED=true` wordt een upload
+  geweigerd als geen enkele engine kon scannen (een bestand mag door zodra minstens
+  één engine het goedkeurt; besmet bij één engine blokkeert altijd).
 - **SSO (optioneel):** vul de `OIDC_*`-variabelen in voor OpenID Connect-login.
 - **Off-site backup (optioneel):** `POST_UPLOAD_CMD="aws s3 cp"` kopieert elke
   upload naar bijvoorbeeld een S3-bucket.

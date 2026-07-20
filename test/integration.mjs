@@ -240,6 +240,22 @@ try {
     ok('E2E-versleuteling roundtrip', pt === 'geheim');
   }
 
+  // 13m0. Antivirus-aggregatiebeleid (fail-open vs fail-closed).
+  {
+    const { aggregate } = await import('../src/scan.js');
+    const infected = aggregate([{ clean: false, engine: 'clamav', detail: 'X' }, { clean: true }]);
+    const oneClean = aggregate([{ error: true, engine: 'virustotal' }, { clean: true, engine: 'clamav' }]);
+    const allErrClosed = aggregate([{ error: true, engine: 'clamav' }], true);
+    const allErrOpen = aggregate([{ error: true, engine: 'clamav' }], false);
+    const noneConfigured = aggregate([{ skipped: true }, { skipped: true }], true);
+    ok('AV-beleid: besmet wint / min. 1 schoon = ok / fail-closed blokkeert / fail-open laat door / uit = ok',
+      infected.clean === false &&
+      oneClean.clean === true &&
+      allErrClosed.clean === false && allErrClosed.engine === 'scan-unavailable' &&
+      allErrOpen.clean === true &&
+      noneConfigured.clean === true);
+  }
+
   // 13m. Antivirus-quarantaine i.p.v. weigeren.
   cookie = ''; await login('admin', 'testpass123');
   const vfd = new FormData(); vfd.append('files', new Blob(['dit bevat EICAR test']), 'virus.txt');

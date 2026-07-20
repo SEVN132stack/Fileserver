@@ -98,6 +98,14 @@ export const config = {
     maxUploadBytes: parseInt(process.env.VT_MAX_UPLOAD_BYTES || '33554432', 10), // 32MB VT-limiet
   },
 
+  // Antivirus-beleid. failClosed: als GEEN enkele engine het bestand kon scannen
+  // (onbereikbaar/niet geïnstalleerd), wordt de upload geweigerd i.p.v. doorgelaten.
+  // timeoutMs: maximale wachttijd per engine.
+  antivirus: {
+    failClosed: bool(process.env.AV_FAIL_CLOSED, false),
+    timeoutMs: parseInt(process.env.AV_TIMEOUT_MS || '15000', 10),
+  },
+
   // Optioneel commando dat na elke upload draait (bijv. `aws s3 cp` voor een
   // off-site backup). Ontvangt het bestandspad als argument. Leeg = uit.
   postUploadCmd: process.env.POST_UPLOAD_CMD || '',

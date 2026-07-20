@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.8.0] - 2026-07-20
+
+### Toegevoegd
+
+- **Configureerbaar antivirus-beleid (fail-closed)**: engines geven nu expliciet
+  aan of ze konden scannen. Beleid: besmet bij één engine blokkeert; minstens één
+  succesvolle "schoon" laat toe; kon geen enkele engine scannen, dan bepaalt
+  `AV_FAIL_CLOSED` of de upload wordt geweigerd (quarantaine) of doorgelaten.
+  Per-engine timeout via `AV_TIMEOUT_MS`. Zo wordt het "fail-open"-gat gedicht
+  zonder dat een niet-geïnstalleerde engine álle uploads blokkeert.
+
 Alle noemenswaardige wijzigingen aan dit project worden in dit bestand bijgehouden.
 
 Het formaat is gebaseerd op [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/),
