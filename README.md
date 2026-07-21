@@ -62,8 +62,17 @@ staan allemaal in `.gitignore`.
 ## Met Docker
 
 ```bash
-docker compose up --build
+cp .env.example .env   # vul je waarden in (optioneel)
+docker compose up -d --build
 ```
+
+`docker-compose.yml` leest je `.env` **automatisch** in (`env_file`), dus je hoeft
+niets handmatig door te geven. `.env` is optioneel: zonder dit bestand start de app
+ook en genereert hij zelf een `.env` met een willekeurig wachtwoord in het
+`/data`-volume (zichtbaar in `docker compose logs`). Alle data leeft in het volume
+onder `/data`. Het meegeleverde **Watchtower** werkt de container automatisch bij
+naar `ghcr.io/sevn132stack/fileserver`; vervang `image:` door alleen `build: .` om
+lokaal te bouwen.
 
 ## Tests
 
