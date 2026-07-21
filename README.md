@@ -183,6 +183,25 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Onderhoud & up-to-date houden (v3.13)
+
+- **Automatische dependency-updates** via Dependabot; CI faalt bij kwetsbaarheden (`npm audit`).
+- **Bare-metal/NAS updaten:** `bash deploy/update.sh` (maakt back-up, haalt code op,
+  `npm ci`, herstart de systemd-service, rolt terug bij een mislukte start).
+- **Docker updaten:** de meegeleverde **Watchtower**-service werkt de container
+  automatisch bij; images worden door CI naar **GHCR** gepusht.
+- **Update-checker & schijf/back-up/integriteit:** in het admin-dashboard onder
+  *Onderhoud* — toont of er een nieuwe versie is, vrije schijfruimte, verifieert de
+  laatste back-up, en controleert bestandsintegriteit (SHA-256).
+- **Alerts** per e-mail/webhook bij schijf bijna vol, mislukte back-up of gewijzigde
+  bestanden (`ALERT_EMAIL`, `DISK_WARN_PERCENT`).
+- **Log-rotatie** van `audit.log` (`LOG_MAX_BYTES`/`LOG_KEEP`).
+- **Config export/import** voor migratie of herstel naar een nieuwe server.
+- **Security-headers** (CSP, HSTS bij TLS, nosniff, X-Frame-Options) op alles.
+
+Verder: **galerij-weergave** voor mappen met afbeeldingen en **gedeelde reacties**
+onder bestanden (zichtbaar voor iedereen met toegang).
+
 ## Permalinks per bestand (v3.10)
 
 Elk bestand kan een **stabiele, vaste link** krijgen met een UUID, bijvoorbeeld

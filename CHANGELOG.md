@@ -1,5 +1,29 @@
 # Changelog
 
+## [3.13.0] - 2026-07-20
+
+### Toegevoegd — onderhoud & ops
+
+- **Geautomatiseerde dependency-updates**: `.github/dependabot.yml` (npm + actions).
+- **`npm audit` in CI**: build faalt bij hoge/kritieke kwetsbaarheden.
+- **Update-script** `deploy/update.sh` (back-up → pull → npm ci → herstart, met rollback).
+- **Docker auto-update**: Watchtower-service in compose + workflow die een image naar GHCR pusht.
+- **Ingebouwde update-checker**: `/api/admin/update-check` vergelijkt met de nieuwste GitHub-release; melding in het dashboard.
+- **Log-rotatie** van `audit.log` (`LOG_MAX_BYTES`/`LOG_KEEP`).
+- **Alerts** (e-mail/webhook/log) bij schijf bijna vol, mislukte/ongeldige back-up en integriteitswijzigingen.
+- **Schijfruimte-bewaking** met waarschuwingsdrempel (`DISK_WARN_PERCENT`).
+- **Prometheus alert-rules** (`deploy/prometheus-alerts.yml`).
+- **Back-up-verificatie** (geldige ZIP) — handmatig en na elke geplande back-up.
+
+### Toegevoegd — beveiliging & functioneel
+
+- **Security-headers** op alle antwoorden (CSP, X-Frame-Options, nosniff, Referrer-Policy, HSTS bij TLS).
+- **Bestandsintegriteit**: SHA-256-baseline + controle op wijzigingen/bit-rot.
+- **Config/gebruikers export & import** voor migratie/herstel.
+- **Galerij-weergave** voor mappen met afbeeldingen.
+- **Gedeelde bestandscommentaren** (zichtbaar voor iedereen met toegang).
+
+
 ## [3.12.0] - 2026-07-20
 
 ### Toegevoegd

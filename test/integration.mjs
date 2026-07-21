@@ -21,6 +21,9 @@ process.env.METRICS_HISTORY_FILE = path.join(tmp, 'metrics-history.json');
 process.env.GROUPS_FILE = path.join(tmp, 'groups.json');
 process.env.KEYRING_FILE = path.join(tmp, 'keyring.json');
 process.env.PERMALINKS_FILE = path.join(tmp, 'permalinks.json');
+process.env.COMMENTS_FILE = path.join(tmp, 'comments.json');
+process.env.INTEGRITY_FILE = path.join(tmp, 'integrity.json');
+process.env.UPDATE_CHECK = 'false';
 process.env.SETTINGS_FILE = path.join(tmp, 'settings.json');
 process.env.ENV_FILE = path.join(tmp, '.env');
 process.env.TLS_CERT = path.join(tmp, 'cert.pem');
@@ -495,6 +498,40 @@ try {
   ok('admin beheert links (lijst, wachtwoord zetten, intrekken)',
     allSh.shares.some((s) => s.token === shToken) && allPl.permalinks.some((p) => p.uuid === bPerma.uuid) &&
     nowProtected.includes('Beveiligde link') && revoked.status === 404);
+
+  // 13ao. Onderhoud: schijf, back-up-verificatie, integriteit, export.
+  cookie = ''; await login('admin', 'testpass123');
+  const disk = await (await fetch(H + '/api/admin/disk', { headers: jar() })).json();
+  const baseline = await (await fetch(H + '/api/admin/integrity/baseline', { method: 'POST', headers: jar() })).json();
+  const verify = await (await fetch(H + '/api/admin/integrity/verify', { method: 'POST', headers: jar() })).json();
+  const exp = await (await fetch(H + '/api/admin/export', { headers: jar() })).json();
+  ok('onderhoud: schijf/integriteit/export',
+    typeof disk.freePct === 'number' && baseline.files >= 0 && Array.isArray(verify.changed) && exp.users && exp.version);
+
+  // 13ap. Security-headers aanwezig.
+  const hdr = await fetch(H + '/api/whoami', { headers: jar() });
+  ok('security-headers (CSP + nosniff + frame-options)',
+    (hdr.headers.get('content-security-policy') || '').includes("default-src 'self'") &&
+    hdr.headers.get('x-content-type-options') === 'nosniff' &&
+    hdr.headers.get('x-frame-options') === 'SAMEORIGIN');
+
+  // 13aq. Gedeelde bestandscommentaren.
+  await fetch(H + '/api/save?path=/doc.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'inhoud' });
+  await fetch(H + '/api/comments', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/doc.txt', text: 'eerste reactie' }) });
+  const cm = await (await fetch(H + '/api/comments?path=/doc.txt', { headers: jar() })).json();
+  ok('gedeelde comments toevoegen/tonen', cm.comments.length === 1 && cm.comments[0].text === 'eerste reactie' && cm.comments[0].user === 'admin');
+
+  // 13ar. Update-checker respecteert de UPDATE_CHECK-schakelaar (hier uit).
+  const upd = await (await fetch(H + '/api/admin/update-check', { headers: jar() })).json();
+  ok('update-checker (endpoint werkt, respecteert config)', upd.enabled === false);
+
+  // 13as. Log-rotatie werkt (audit.log wordt geroteerd bij overschrijding).
+  const { audit: auditFn } = await import('../src/audit.js');
+  const origMax = config.logMaxBytes;
+  config.logMaxBytes = 200; // forceer rotatie
+  for (let i = 0; i < 40; i++) auditFn('test', 'x', 'ping', { i });
+  config.logMaxBytes = origMax;
+  ok('audit-log-rotatie', fs.existsSync(config.auditLog + '.1'));
 
   // 14. SFTP password-auth als bob
   await new Promise((res) => {

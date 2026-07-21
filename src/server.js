@@ -7,6 +7,7 @@ import { startSftpServer } from './sftp.js';
 import { startBackupScheduler } from './backup.js';
 import { startMetricsHistory } from './metrics-history.js';
 import { startCleanupScheduler } from './cleanup.js';
+import { startDiskMonitor } from './diskmonitor.js';
 
 // Startpunt: bereidt opslag, host key en gebruikers voor en start beide servers.
 ensureStorage();
@@ -18,6 +19,7 @@ fs.mkdirSync(config.quarantineDir, { recursive: true });
 startBackupScheduler();
 startMetricsHistory();
 startCleanupScheduler();
+startDiskMonitor();
 
 startWebServer();
 startSftpServer();

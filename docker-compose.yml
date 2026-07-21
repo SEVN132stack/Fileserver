@@ -12,6 +12,18 @@ services:
     volumes:
       - fileserver-data:/data
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # Automatische container-updates: Watchtower checkt periodiek op een nieuwer
+  # image en herstart de fileserver. Verwijder deze service als je handmatig
+  # wilt updaten.
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --cleanup --interval 86400
+    restart: unless-stopped
 
 volumes:
   fileserver-data:

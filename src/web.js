@@ -26,7 +26,7 @@ import { handleWebdav, WEBDAV_MOUNT } from './webdav.js';
 import { throttleStream } from './throttle.js';
 import { scanFile } from './scan.js';
 import { addClient, emitToUser, addAdminClient, emitAdmin } from './events.js';
-import { bandwidth, ensureExternalUser, getEmail } from './users.js';
+import { bandwidth, ensureExternalUser, getEmail, reload as reloadUsers } from './users.js';
 import { getAuthUrl, validState, exchange } from './oidc.js';
 import { createResetToken, consumeResetToken, sendResetMail, sendMail } from './mailer.js';
 import { getMeta, getAllMeta, setMeta } from './metadata.js';
@@ -41,6 +41,11 @@ import { runCleanup } from './cleanup.js';
 import { storageReport } from './storage-report.js';
 import { qrSvg } from './qr.js';
 import * as permalinks from './permalinks.js';
+import { checkForUpdate } from './updatecheck.js';
+import { checkDisk } from './diskmonitor.js';
+import { verifyLatestBackup } from './backup.js';
+import * as integrity from './integrity.js';
+import * as comments from './comments.js';
 import { listSessions, revokeSession } from './sessions.js';
 import {
   validatePassword, isLocked, recordLoginFailure, recordLoginSuccess,
@@ -191,6 +196,17 @@ export function createWebServer() {
   app.use((req, res, next) => {
     if (req.path === '/health') return next();
     if (!ipAllowed(clientIp(req))) return res.status(403).send('Toegang geweigerd (IP niet toegestaan).');
+    next();
+  });
+
+  // Security-headers op alle antwoorden (de preview-route zet een striktere CSP).
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Content-Security-Policy',
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; frame-ancestors 'self'; base-uri 'self'");
+    if (config.tls.enabled) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     next();
   });
 
@@ -560,6 +576,34 @@ export function createWebServer() {
   app.get('/api/favorites', (req, res) => {
     const all = getAllMeta(req.home);
     res.json({ favorites: Object.entries(all).filter(([, m]) => m.favorite).map(([p, m]) => ({ path: p, ...m })) });
+  });
+
+  // Gedeelde bestandscommentaren (zichtbaar voor iedereen met toegang).
+  // Met ?owner= kan een gebruiker met gedeelde toegang de comments van de
+  // eigenaar zien/toevoegen.
+  function commentOwner(req, p) {
+    const owner = (req.query.owner || (req.body && req.body.owner));
+    if (!owner || owner === req.user) return req.user;
+    const ok = sharedWith(req.user).some((s) => s.owner === owner && (p === s.path || p.startsWith(s.path + '/') || s.path === '/'));
+    if (!ok) throw new Error('Geen toegang');
+    return owner;
+  }
+  app.get('/api/comments', (req, res) => {
+    try { res.json({ comments: comments.getComments(commentOwner(req, req.query.path || ''), req.query.path || '') }); }
+    catch (err) { res.status(403).json({ error: err.message }); }
+  });
+  app.post('/api/comments', express.json(), (req, res) => {
+    if (!req.body.text) return res.status(400).json({ error: 'Lege comment' });
+    try {
+      const owner = commentOwner(req, req.body.path || '');
+      const list = comments.addComment(owner, req.body.path || '', req.user, req.body.text);
+      emitToUser(owner, 'change', { action: 'comment' });
+      res.json({ comments: list });
+    } catch (err) { res.status(403).json({ error: err.message }); }
+  });
+  app.delete('/api/comments', express.json(), (req, res) => {
+    const ok = comments.deleteComment(req.user, req.body.path || '', req.body.index, req.user, isAdmin(req.user));
+    res.json({ ok });
   });
 
   // --- Versiegeschiedenis ---
@@ -1136,6 +1180,37 @@ export function createWebServer() {
 
   // Handmatige opschoning starten.
   app.post('/api/admin/cleanup', requireAdmin, (req, res) => res.json(runCleanup()));
+
+  // Onderhoud: update-check, schijf, back-up-verificatie, integriteit.
+  app.get('/api/admin/update-check', requireAdmin, async (req, res) => res.json(await checkForUpdate()));
+  app.get('/api/admin/disk', requireAdmin, (req, res) => res.json(checkDisk()));
+  app.get('/api/admin/backup-verify', requireAdmin, (req, res) => res.json(verifyLatestBackup()));
+  app.post('/api/admin/integrity/baseline', requireAdmin, (req, res) => res.json(integrity.buildBaseline()));
+  app.post('/api/admin/integrity/verify', requireAdmin, (req, res) => res.json(integrity.verify()));
+
+  // Configuratie/gebruikers exporteren en importeren (migratie/herstel).
+  app.get('/api/admin/export', requireAdmin, (req, res) => {
+    const bundle = {};
+    for (const [name, file] of [
+      ['users', config.usersFile], ['groups', config.groupsFile], ['settings', config.settingsFile],
+      ['shares', config.sharesFile], ['permalinks', config.permalinksFile],
+    ]) {
+      try { bundle[name] = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { bundle[name] = null; }
+    }
+    audit('web', req.user, 'config_export');
+    res.setHeader('Content-Disposition', 'attachment; filename="fileserver-config.json"');
+    res.json({ exportedAt: new Date().toISOString(), version: config.version, ...bundle });
+  });
+  app.post('/api/admin/import', requireAdmin, express.json({ limit: '20mb' }), (req, res) => {
+    const map = { users: config.usersFile, groups: config.groupsFile, settings: config.settingsFile, shares: config.sharesFile, permalinks: config.permalinksFile };
+    const imported = [];
+    for (const [name, file] of Object.entries(map)) {
+      if (req.body[name]) { fs.writeFileSync(file, JSON.stringify(req.body[name], null, 2), { mode: 0o600 }); imported.push(name); }
+    }
+    reloadUsers();
+    audit('web', req.user, 'config_import', { imported });
+    res.json({ ok: true, imported, note: 'Herstart aanbevolen om alles te herladen.' });
+  });
 
   // Live-stroom voor het admin-dashboard (SSE).
   app.get('/api/admin/events', requireAdmin, (req, res) => {

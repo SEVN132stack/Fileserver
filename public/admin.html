@@ -83,6 +83,21 @@
     <button id="makeBackup">Nu back-up maken</button>
     <table id="backupTable" style="margin-top:1rem"></table>
 
+    <h2>Onderhoud</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <div id="updateInfo" class="l">Updates controleren…</div>
+      <div id="diskInfo" class="l" style="margin-top:.4rem"></div>
+      <div style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
+        <button id="btnUpdate">Check updates</button>
+        <button id="btnDisk">Schijfruimte</button>
+        <button id="btnVerifyBackup">Back-up verifiëren</button>
+        <button id="btnBaseline">Integriteit-baseline</button>
+        <button id="btnVerify">Integriteit controleren</button>
+        <button id="btnExport">Config exporteren</button>
+      </div>
+      <div id="maintOut" class="l" style="margin-top:.8rem;white-space:pre-wrap"></div>
+    </div>
+
     <h2>Instellingen</h2>
     <div class="card" style="margin-bottom:2rem">
       <label><input type="checkbox" id="setMaintenance"> Onderhoudsmodus (alleen admins hebben toegang)</label><br><br>
@@ -324,7 +339,29 @@
     });
 
     loadOverview(); loadShares(); loadUsers(); loadBans(); loadAudit(); loadBackups(); loadQuarantine();
-    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks();
+    const mo = (t) => document.getElementById('maintOut').textContent = t;
+    async function loadUpdate() {
+      const u = await (await j('/api/admin/update-check')).json();
+      const el = document.getElementById('updateInfo');
+      if (u.error) el.textContent = 'Update-check mislukt: ' + u.error;
+      else if (u.updateAvailable) { el.innerHTML = `<span style="color:#4ade80">⬆ Update beschikbaar: v${u.latest}</span> (huidig: v${u.current})`; }
+      else el.textContent = `Up-to-date (v${u.current})`;
+    }
+    async function loadDisk() {
+      const d = await (await j('/api/admin/disk')).json();
+      document.getElementById('diskInfo').textContent = d.error ? '' : `Schijf: ${d.freePct.toFixed(1)}% vrij (${(d.free/1e9).toFixed(1)} GB van ${(d.total/1e9).toFixed(1)} GB)`;
+    }
+    document.getElementById('btnUpdate').onclick = loadUpdate;
+    document.getElementById('btnDisk').onclick = loadDisk;
+    document.getElementById('btnVerifyBackup').onclick = async () => { const r=await (await j('/api/admin/backup-verify')).json(); mo(r.ok?`Back-up geldig: ${r.file} (${r.size} bytes)`:`Back-up NIET geldig: ${r.reason||''}`); };
+    document.getElementById('btnBaseline').onclick = async () => { mo('Baseline berekenen…'); const r=await (await j('/api/admin/integrity/baseline',{method:'POST'})).json(); mo(`Baseline aangemaakt voor ${r.files} bestand(en).`); };
+    document.getElementById('btnVerify').onclick = async () => { mo('Controleren…'); const r=await (await j('/api/admin/integrity/verify',{method:'POST'})).json(); mo(`Gecontroleerd: ${r.checked}. Gewijzigd: ${r.changed.length}, nieuw: ${r.added.length}, verdwenen: ${r.removed.length}.`); };
+    document.getElementById('btnExport').onclick = async () => {
+      const r = await j('/api/admin/export'); const blob = await r.blob();
+      const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='fileserver-config.json'; a.click();
+    };
+
+    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk();
 
     // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
     // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.

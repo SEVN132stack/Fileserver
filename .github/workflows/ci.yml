@@ -16,6 +16,17 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      # Faal de build bij bekende kwetsbaarheden (hoog/kritiek) in dependencies.
+      - run: npm audit --omit=dev --audit-level=high
+
   e2e:
     runs-on: ubuntu-latest
     steps:

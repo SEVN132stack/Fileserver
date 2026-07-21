@@ -183,6 +183,23 @@ export const config = {
   keyringFile: abs(process.env.KEYRING_FILE || 'keyring.json'),
   // Permalinks: stabiele per-bestand-link (uuid -> pad).
   permalinksFile: abs(process.env.PERMALINKS_FILE || 'permalinks.json'),
+  // Gedeelde bestandscommentaren (zichtbaar voor iedereen met toegang).
+  commentsFile: abs(process.env.COMMENTS_FILE || 'comments.json'),
+  // Manifest voor bestandsintegriteit (checksums).
+  integrityFile: abs(process.env.INTEGRITY_FILE || 'integrity.json'),
+
+  // Alerts: e-mailadres dat waarschuwingen ontvangt (leeg = alleen webhook/log).
+  alertEmail: process.env.ALERT_EMAIL || process.env.NOTIFY_EMAIL || '',
+  // Schijfruimte-bewaking: waarschuwen als vrije ruimte onder dit percentage komt.
+  diskWarnPercent: parseInt(process.env.DISK_WARN_PERCENT || '10', 10),
+
+  // Audit-log-rotatie: roteer als het bestand groter wordt dan N bytes; bewaar K.
+  logMaxBytes: parseInt(process.env.LOG_MAX_BYTES || '5242880', 10), // 5MB
+  logKeep: parseInt(process.env.LOG_KEEP || '5', 10),
+
+  // Update-checker: GitHub-repo (owner/repo) om op nieuwe releases te controleren.
+  updateRepo: process.env.UPDATE_REPO || 'SEVN132stack/Fileserver',
+  updateCheck: bool(process.env.UPDATE_CHECK, true),
   // Groepen-bestand (voor delen/rechten per groep).
   groupsFile: abs(process.env.GROUPS_FILE || 'groups.json'),
   // Runtime-instellingen die via de admin-UI aanpasbaar zijn (overlay op .env).
@@ -215,7 +232,7 @@ export const config = {
     get enabled() { return !!(this.rpID && this.origin); },
   },
 
-  version: '3.12.0',
+  version: '3.13.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

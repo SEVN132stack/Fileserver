@@ -155,6 +155,8 @@ async function openFile(p) {
   else if (isMd(name)) { const txt = await (await api(url)).text(); openModal(`<h3>${esc(name)}</h3><div style="max-width:80vw;max-height:74vh;overflow:auto;line-height:1.5">${renderMarkdown(txt)}</div>`); }
   else if (isText(name)) { const txt = await (await api(url)).text(); openModal(`<h3>${esc(name)}</h3><pre>${txt.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`); }
   else openModal(`<h3>${esc(name)}</h3><p class="muted">Geen preview.</p><button data-dl="${enc(p)}">Download</button>`);
+  // Gedeelde reacties onder de preview.
+  try { document.getElementById('modalBody').insertAdjacentHTML('beforeend', await commentsHtml(p)); } catch {}
 }
 async function editFile(p) {
   const name = p.split('/').pop();
@@ -189,6 +191,26 @@ async function deltaSync(p) {
     } else alert('Bijwerken mislukt');
   };
   input.click();
+}
+
+// Galerij: toon alle afbeeldingen in de huidige map als raster.
+async function showGallery() {
+  const data = await (await api(`/api/list?path=${enc(cwd)}`)).json();
+  const imgs = data.items.filter(i => !i.isDir && isImg(i.name));
+  if (!imgs.length) { openModal('<p class="muted">Geen afbeeldingen in deze map.</p>'); return; }
+  const grid = imgs.map(i => `<div style="cursor:pointer" data-open="${enc(i.path)}">
+    <img loading="lazy" src="/api/thumb?path=${enc(i.path)}&w=200" style="width:150px;height:150px;object-fit:cover;border-radius:6px">
+    <div style="font-size:.75rem;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(i.name)}</div></div>`).join('');
+  openModal(`<h3>🖼️ Galerij (${imgs.length})</h3><div style="display:flex;flex-wrap:wrap;gap:.6rem;max-width:82vw">${grid}</div>`);
+}
+
+// Comments-sectie (gedeeld) opbouwen voor een bestand.
+async function commentsHtml(p) {
+  const { comments } = await (await api('/api/comments?path='+enc(p))).json();
+  const list = comments.map((c, idx) => `<li><strong>${esc(c.user)}</strong> <span class="muted">${new Date(c.ts).toLocaleString()}</span><br>${esc(c.text)}
+    <button class="ghost" data-cdel="${enc(p)}|${idx}" style="font-size:.7rem">×</button></li>`).join('');
+  return `<hr><h4>💬 Reacties</h4><ul style="list-style:none;padding:0">${list||'<li class="muted">Nog geen reacties.</li>'}</ul>
+    <div style="display:flex;gap:.4rem"><input id="cinput" placeholder="Reactie…" style="flex:1"><button data-cadd="${enc(p)}">Plaats</button></div>`;
 }
 
 // Toon een link met QR-code in een modal.
@@ -409,6 +431,17 @@ document.addEventListener('click', async (e) => {
     const r = await (await api('/api/permalink',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,expiresInHours:hrs?Number(hrs):0,password:pw})})).json();
     showLink('Vaste link (permalink)', r.url); return;
   }
+  if (t2.dataset.cadd) {
+    const p = decodeURIComponent(t2.dataset.cadd); const inp = document.getElementById('cinput');
+    if (!inp || !inp.value.trim()) return;
+    await api('/api/comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,text:inp.value.trim()})});
+    openFile(p); return;
+  }
+  if (t2.dataset.cdel) {
+    const [p, idx] = t2.dataset.cdel.split('|'); const pp = decodeURIComponent(p);
+    await api('/api/comments',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:pp,index:Number(idx)})});
+    openFile(pp); return;
+  }
   if (t2.dataset.dec) { return decryptDownload(decodeURIComponent(t2.dataset.dec)); }
   if (t2.dataset.sync) { return deltaSync(decodeURIComponent(t2.dataset.sync)); }
   if (t2.dataset.ver) { return showVersions(decodeURIComponent(t2.dataset.ver)); }
@@ -447,6 +480,7 @@ document.getElementById('sessionsBtn').onclick = showSessions;
 document.getElementById('camInput').onchange = (e) => uploadFiles([...e.target.files]);
 document.getElementById('contentSearch').onchange = load;
 const dropBtn = document.getElementById('dropLinkBtn'); if (dropBtn) dropBtn.onclick = makeDropLink;
+const galBtn = document.getElementById('galleryBtn'); if (galBtn) galBtn.onclick = showGallery;
 document.getElementById('adminBtn').onclick = () => window.location='/admin.html';
 document.getElementById('themeBtn').onclick = () => { const cur=localStorage.getItem('theme')||'dark'; localStorage.setItem('theme',cur==='dark'?'light':'dark'); applyTheme(); };
 document.getElementById('langBtn').onclick = () => { lang = LANGS[(LANGS.indexOf(lang)+1)%LANGS.length]; localStorage.setItem('lang',lang); applyI18n(); loadMe(); load(); };

@@ -134,6 +134,24 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Opslagrapport
 - ✅ Configuratie via de admin-UI
 
+## Onderhoud & ops (v3.13)
+
+- ✅ Geautomatiseerde dependency-updates (Dependabot)
+- ✅ `npm audit` in CI (security-gate)
+- ✅ Update-script voor de NAS (met back-up + rollback)
+- ✅ Docker auto-update (Watchtower) + image naar GHCR
+- ✅ Ingebouwde update-checker (melding in dashboard)
+- ✅ Log-rotatie van het audit-log
+- ✅ Alerts (e-mail/webhook) bij schijf vol, back-up-fout, integriteitswijziging
+- ✅ Schijfruimte-bewaking
+- ✅ Prometheus alert-rules
+- ✅ Back-up-verificatie
+- ✅ Security-headers (CSP/HSTS/nosniff/frame-options)
+- ✅ Bestandsintegriteit (SHA-256-baseline + controle)
+- ✅ Config/gebruikers export & import
+- ✅ Galerij-weergave voor afbeeldingen
+- ✅ Gedeelde bestandscommentaren
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — aanbevolen boven app-niveau)
