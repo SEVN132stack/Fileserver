@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Beheer — SFTP Fileserver</title>
+  <style>
+    body { margin:0; font-family:system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
+    header { background:#1e293b; padding:.9rem 1.5rem; display:flex; gap:1rem; align-items:center; }
+    header a { color:#38bdf8; text-decoration:none; }
+    main { max-width:1000px; margin:1.2rem auto; padding:0 1rem; }
+    h2 { font-size:1rem; border-bottom:1px solid #334155; padding-bottom:.3rem; }
+    table { width:100%; border-collapse:collapse; background:#1e293b; border-radius:8px; overflow:hidden; margin-bottom:2rem; }
+    th, td { text-align:left; padding:.5rem .8rem; border-bottom:1px solid #334155; font-size:.9rem; }
+    input, select { background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:6px; padding:.4rem; }
+    button { background:#38bdf8; color:#04283a; border:0; border-radius:6px; padding:.4rem .7rem; cursor:pointer; font-weight:600; }
+    button.danger { background:transparent; color:#f87171; border:1px solid #334155; }
+    pre { background:#1e293b; padding:1rem; border-radius:8px; max-height:320px; overflow:auto; font-size:.8rem; }
+    .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:.8rem; margin-bottom:2rem; }
+    .card { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:1rem; }
+    .card .v { font-size:1.6rem; font-weight:700; }
+    .card .l { color:#94a3b8; font-size:.8rem; margin-top:.2rem; }
+    .badges span { display:inline-block; background:#0f172a; border:1px solid #334155; border-radius:999px; padding:.15rem .6rem; font-size:.75rem; margin:.15rem .2rem 0 0; }
+    .badges .on { border-color:#22c55e; color:#4ade80; }
+    .badges .off { color:#94a3b8; }
+  </style>
+</head>
+<body>
+  <header><strong>🛠️ Beheer</strong><a href="/">← terug naar bestanden</a></header>
+  <main>
+    <h2>Overzicht</h2>
+    <div class="cards" id="cards"></div>
+    <div class="badges" id="badges" style="margin-bottom:1.5rem"></div>
+
+    <h2>Grafieken
+      <span id="liveDot" style="font-size:.7rem;color:#4ade80">● live</span>
+      <select id="range" style="float:right;font-size:.85rem">
+        <option value="live">Live (browser)</option>
+        <option value="60">Laatste uur</option>
+        <option value="360">Laatste 6 uur</option>
+        <option value="1440">Laatste 24 uur</option>
+      </select>
+    </h2>
+    <div id="liveCharts" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin-bottom:2rem">
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Totalen</div><div id="barChart"></div></div>
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Uploads/s (live)</div><div id="spUp"></div></div>
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Downloads/s (live)</div><div id="spDown"></div></div>
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Actieve realtime-clients</div><div id="spClients"></div></div>
+    </div>
+    <div id="histCharts" style="display:none;grid-template-columns:1fr;gap:1rem;margin-bottom:2rem">
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Activiteit per interval</div><div id="histActivity"></div></div>
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Doorvoer (bytes per interval)</div><div id="histBytes"></div></div>
+    </div>
+
+    <h2>Recente activiteit</h2>
+    <pre id="recent"></pre>
+
+    <h2>Gebruikers</h2>
+    <table id="userTable"></table>
+    <h3>Nieuwe gebruiker</h3>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:2rem">
+      <input id="nu" placeholder="gebruikersnaam">
+      <input id="np" placeholder="wachtwoord" type="password">
+      <select id="nr"><option value="user">user</option><option value="admin">admin</option><option value="readonly">readonly</option></select>
+      <input id="nq" placeholder="quota bytes (0=∞)" style="width:130px">
+      <button id="addUser">Toevoegen</button>
+    </div>
+
+    <h2>Geblokkeerde IP's</h2>
+    <table id="banTable"></table>
+    <div style="display:flex;gap:.5rem;margin-bottom:2rem"><input id="banIp" placeholder="IP-adres"><button id="addBan">Blokkeren</button></div>
+
+    <h2>Quarantaine (antivirus)</h2>
+    <table id="qTable"></table>
+
+    <h2>Deel-links</h2>
+    <table id="shareTable"></table>
+
+    <h2>Permalinks</h2>
+    <table id="permaTable"></table>
+
+    <h2>Back-ups</h2>
+    <button id="makeBackup">Nu back-up maken</button>
+    <table id="backupTable" style="margin-top:1rem"></table>
+
+    <h2>Onderhoud</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <div id="updateInfo" class="l">Updates controleren…</div>
+      <div id="diskInfo" class="l" style="margin-top:.4rem"></div>
+      <div style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
+        <button id="btnUpdate">Check updates</button>
+        <button id="btnDisk">Schijfruimte</button>
+        <button id="btnVerifyBackup">Back-up verifiëren</button>
+        <button id="btnBaseline">Integriteit-baseline</button>
+        <button id="btnVerify">Integriteit controleren</button>
+        <button id="btnExport">Config exporteren</button>
+      </div>
+      <div id="maintOut" class="l" style="margin-top:.8rem;white-space:pre-wrap"></div>
+    </div>
+
+    <h2>Instellingen</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <label><input type="checkbox" id="setMaintenance"> Onderhoudsmodus (alleen admins hebben toegang)</label><br><br>
+      <label>Prullenbak automatisch legen na <input id="setCleanupDays" type="number" min="0" style="width:70px"> dagen (0 = uit)</label>
+      <div style="margin-top:1rem"><button id="saveSettings">Opslaan</button> <button id="runCleanup">Nu opschonen</button></div>
+    </div>
+
+    <h2>Groepen</h2>
+    <table id="groupTable"></table>
+    <div style="display:flex;gap:.5rem;margin-bottom:2rem">
+      <input id="gName" placeholder="groepsnaam"><input id="gMembers" placeholder="leden (komma-gescheiden)" style="flex:1">
+      <button id="saveGroup">Opslaan</button>
+    </div>
+
+    <h2>Opslagrapport</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:2rem">
+      <div class="card"><div class="l">Grootste bestanden</div><table id="bigFiles"></table></div>
+      <div class="card"><div class="l">Grootste mappen</div><table id="bigDirs"></table></div>
+    </div>
+
+    <h2>Audit-log (laatste 200)</h2>
+    <pre id="audit"></pre>
+  </main>
+  <script>
+    async function j(u,o){ const r=await fetch(u,o); if(r.status===401)location='/login.html'; if(r.status===403){document.body.innerHTML='<p style="padding:2rem">Geen beheerrechten.</p>';throw 0;} return r; }
+    const fmtSize = (n) => { if(!n) return '0 B'; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; };
+    const esc = (s) => String(s==null?'':s).replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    // --- Kleine, zelfstandige SVG-grafieken (geen externe libraries) ---
+    function barChart(el, data) { // data: [{label, value, color}]
+      const w=260, h=140, pad=24, max=Math.max(1,...data.map(d=>d.value));
+      const bw=(w-pad*2)/data.length*0.6, gap=(w-pad*2)/data.length;
+      let bars='';
+      data.forEach((d,i)=>{ const bh=(h-pad*2)*(d.value/max); const x=pad+i*gap+ (gap-bw)/2; const y=h-pad-bh;
+        bars+=`<rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="3" fill="${d.color}"></rect>`
+            + `<text x="${x+bw/2}" y="${h-pad+12}" fill="#94a3b8" font-size="9" text-anchor="middle">${d.label}</text>`
+            + `<text x="${x+bw/2}" y="${y-3}" fill="#e2e8f0" font-size="9" text-anchor="middle">${d.value}</text>`; });
+      el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" width="100%" height="140">${bars}</svg>`;
+    }
+    function sparkline(el, values, color, unit='') {
+      const w=260, h=70, pad=6, max=Math.max(1,...values), n=values.length;
+      if (n<2) { el.innerHTML='<div class="l">verzamelt gegevens…</div>'; return; }
+      const pts=values.map((v,i)=>`${pad+i*(w-pad*2)/(n-1)},${h-pad-(h-pad*2)*(v/max)}`).join(' ');
+      const last=values[values.length-1];
+      el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" width="100%" height="70">
+        <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"/>
+        </svg><div class="l">nu: ${last}${unit} · piek: ${max}${unit}</div>`;
+    }
+
+    // Multi-serie lijngrafiek met legenda en tijd-as (inline SVG).
+    function lineChart(el, series, times) {
+      const w=760, h=220, padL=44, padR=12, padT=12, padB=42;
+      const n = times.length;
+      if (n < 2) { el.innerHTML='<div class="l">verzamelt gegevens… (nog te weinig samples)</div>'; return; }
+      const max = Math.max(1, ...series.flatMap(s => s.values));
+      const X = (i) => padL + i*(w-padL-padR)/(n-1);
+      const Y = (v) => h-padB - (h-padT-padB)*(v/max);
+      const grid = [0,0.25,0.5,0.75,1].map(f => { const y=h-padB-(h-padT-padB)*f;
+        return `<line x1="${padL}" y1="${y}" x2="${w-padR}" y2="${y}" stroke="#334155" stroke-width="1"/>`
+             + `<text x="${padL-6}" y="${y+3}" fill="#94a3b8" font-size="9" text-anchor="end">${Math.round(max*f)}</text>`; }).join('');
+      const lines = series.map(s => `<polyline points="${s.values.map((v,i)=>`${X(i)},${Y(v)}`).join(' ')}" fill="none" stroke="${s.color}" stroke-width="2"/>`).join('');
+      const nLabels = Math.min(6, n);
+      const xlabels = Array.from({length:nLabels}, (_,k) => { const i=Math.round(k*(n-1)/(nLabels-1)); const t=new Date(times[i]);
+        return `<text x="${X(i)}" y="${h-padB+14}" fill="#94a3b8" font-size="9" text-anchor="middle">${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}</text>`; }).join('');
+      const legend = series.map((s,i) => `<g transform="translate(${padL+i*130},${h-8})"><rect width="10" height="10" y="-9" rx="2" fill="${s.color}"/><text x="15" y="0" fill="#e2e8f0" font-size="10">${s.label}</text></g>`).join('');
+      el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%">${grid}${lines}${xlabels}${legend}</svg>`;
+    }
+
+    async function loadHistory(minutes) {
+      const { samples } = await (await j('/api/admin/metrics/history?minutes='+minutes)).json();
+      if (samples.length < 2) { document.getElementById('histActivity').innerHTML='<div class="l">Nog te weinig historische samples (worden elke minuut bewaard).</div>'; document.getElementById('histBytes').innerHTML=''; return; }
+      const times=[], up=[], down=[], logins=[], bUp=[], bDown=[];
+      for (let i=1;i<samples.length;i++){ const a=samples[i-1], b=samples[i];
+        times.push(b.ts);
+        up.push(Math.max(0,b.fileserver_uploads_total-a.fileserver_uploads_total));
+        down.push(Math.max(0,b.fileserver_downloads_total-a.fileserver_downloads_total));
+        logins.push(Math.max(0,b.fileserver_logins_total-a.fileserver_logins_total));
+        bUp.push(Math.max(0,b.fileserver_bytes_uploaded_total-a.fileserver_bytes_uploaded_total));
+        bDown.push(Math.max(0,b.fileserver_bytes_downloaded_total-a.fileserver_bytes_downloaded_total));
+      }
+      lineChart(document.getElementById('histActivity'), [
+        {label:'uploads',color:'#38bdf8',values:up},{label:'downloads',color:'#818cf8',values:down},{label:'logins',color:'#4ade80',values:logins}], times);
+      lineChart(document.getElementById('histBytes'), [
+        {label:'bytes up',color:'#38bdf8',values:bUp},{label:'bytes down',color:'#818cf8',values:bDown}], times);
+    }
+
+    const hist = { up: [], down: [], clients: [] };
+    let prev = null;
+    function pushHistory(m) {
+      if (prev) {
+        hist.up.push(Math.max(0, m.fileserver_uploads_total - prev.up));
+        hist.down.push(Math.max(0, m.fileserver_downloads_total - prev.down));
+      }
+      hist.clients.push(m.fileserver_active_sse_clients || 0);
+      for (const k of ['up','down','clients']) if (hist[k].length>40) hist[k].shift();
+      prev = { up: m.fileserver_uploads_total, down: m.fileserver_downloads_total };
+      barChart(document.getElementById('barChart'), [
+        { label:'uploads', value:m.fileserver_uploads_total, color:'#38bdf8' },
+        { label:'downloads', value:m.fileserver_downloads_total, color:'#818cf8' },
+        { label:'logins', value:m.fileserver_logins_total, color:'#4ade80' },
+        { label:'mislukt', value:m.fileserver_login_failures_total, color:'#f87171' },
+      ]);
+      sparkline(document.getElementById('spUp'), hist.up, '#38bdf8');
+      sparkline(document.getElementById('spDown'), hist.down, '#818cf8');
+      sparkline(document.getElementById('spClients'), hist.clients, '#4ade80');
+    }
+
+    async function loadOverview() {
+      const o = await (await j('/api/admin/overview')).json();
+      const m = o.metrics;
+      pushHistory(m);
+      const cards = [
+        ['Gebruikers', o.users.total, `${o.users.admins} admin · ${o.users.readonly} r-o · ${o.users.with2fa}× 2FA`],
+        ['Opslag gebruikt', fmtSize(o.storageUsed), ''],
+        ['Uploads', m.fileserver_uploads_total, fmtSize(m.fileserver_bytes_uploaded_total)],
+        ['Downloads', m.fileserver_downloads_total, fmtSize(m.fileserver_bytes_downloaded_total)],
+        ['Logins', m.fileserver_logins_total, m.fileserver_login_failures_total+' mislukt'],
+        ['Actieve clients', m.fileserver_active_sse_clients, 'realtime'],
+        ['Deel-links', o.shares, ''],
+        ['Quarantaine', o.quarantine, ''],
+        ['Geblokkeerde IPs', o.bans, ''],
+        ['Back-ups', o.backups, ''],
+      ];
+      document.getElementById('cards').innerHTML = cards.map(([l,v,s]) => `<div class="card"><div class="v">${v}</div><div class="l">${l}${s?` · ${s}`:''}</div></div>`).join('');
+      const badge = (name, on) => `<span class="${on?'on':'off'}">${on?'✓':'—'} ${name}</span>`;
+      document.getElementById('badges').innerHTML =
+        badge('HTTPS', o.tls) + badge('WebDAV', o.webdav) + badge('SSO/OIDC', o.oidc) + badge('Antivirus', o.antivirus);
+      document.getElementById('recent').textContent = o.recentAudit.map(l => `${l.ts} [${l.channel}] ${l.user||'-'} ${l.action}`).join('\n') || '(nog geen activiteit)';
+    }
+    async function loadShares() {
+      const {shares} = await (await j('/api/admin/shares')).json();
+      document.getElementById('shareTable').innerHTML = '<tr><th>Eigenaar</th><th>Type</th><th>Pad</th><th>Dl</th><th>Limiet</th><th>Ww</th><th>Vervalt</th><th></th></tr>' +
+        (shares.length?shares.map(s=>`<tr><td>${esc(s.user)}</td><td>${s.type||'download'}</td><td>${esc(s.path)}</td><td>${s.downloads}</td><td>${s.maxDownloads||'∞'}</td><td>${s.hasPassword?'🔒':'—'}</td><td>${s.expires?new Date(s.expires).toLocaleString():'nooit'}</td>
+          <td><button data-sedit="${s.token}">wijzig</button> <button class="danger" data-sdel="${s.token}">intrek</button></td></tr>`).join(''):'<tr><td colspan="8">Geen deel-links</td></tr>');
+    }
+    async function loadPermalinks() {
+      const {permalinks} = await (await j('/api/admin/permalinks')).json();
+      document.getElementById('permaTable').innerHTML = '<tr><th>Eigenaar</th><th>Pad</th><th>UUID</th><th>Ww</th><th>Vervalt</th><th></th></tr>' +
+        (permalinks.length?permalinks.map(p=>`<tr><td>${esc(p.user)}</td><td>${esc(p.path)}</td><td style="font-size:.7rem">${p.uuid}</td><td>${p.hasPassword?'🔒':'—'}</td><td>${p.expires?new Date(p.expires).toLocaleString():'nooit'}</td>
+          <td><button data-pedit="${p.uuid}">wijzig</button> <button class="danger" data-pdel="${p.uuid}">intrek</button></td></tr>`).join(''):'<tr><td colspan="6">Geen permalinks</td></tr>');
+    }
+    // Beheer-acties voor beide linktypes.
+    document.addEventListener('click', async e => {
+      const d = e.target.dataset;
+      if (d.sdel) { if(confirm('Deel-link intrekken?')){ await j('/api/admin/shares/'+d.sdel,{method:'DELETE'}); loadShares(); } }
+      if (d.pdel) { if(confirm('Permalink intrekken?')){ await j('/api/admin/permalinks/'+d.pdel,{method:'DELETE'}); loadPermalinks(); } }
+      if (d.sedit || d.pedit) {
+        const hrs = prompt('Nieuwe vervaldatum in uren? (leeg = laten staan, 0 = nooit)', '');
+        const pw = prompt('Nieuw wachtwoord? (leeg = laten staan, "-" = verwijderen)', '');
+        const body = {};
+        if (hrs !== '' && hrs !== null) body.expiresInHours = Number(hrs);
+        if (pw !== '' && pw !== null) body.password = pw === '-' ? null : pw;
+        const url = d.sedit ? '/api/admin/shares/'+d.sedit : '/api/admin/permalinks/'+d.pedit;
+        await j(url,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        d.sedit ? loadShares() : loadPermalinks();
+      }
+    });
+    async function loadUsers() {
+      const {users} = await (await j('/api/admin/users')).json();
+      document.getElementById('userTable').innerHTML =
+        '<tr><th>Gebruiker</th><th>Rol</th><th>Quota (bytes)</th><th>Bandbreedte (B/s)</th><th>E-mail</th><th>2FA</th><th></th></tr>' +
+        users.map(u=>`<tr><td>${esc(u.username)}${u.external?' 🔗':''}</td>
+          <td><select data-role="${u.username}"><option ${u.role==='user'?'selected':''}>user</option><option ${u.role==='admin'?'selected':''}>admin</option><option ${u.role==='readonly'?'selected':''}>readonly</option></select></td>
+          <td><input data-quota="${u.username}" value="${u.quota||0}" style="width:120px"></td>
+          <td><input data-bw="${u.username}" value="${u.bw||0}" style="width:110px"></td>
+          <td><input data-email="${u.username}" value="${esc(u.email||'')}" placeholder="e-mail" style="width:150px"></td>
+          <td>${u.totp?'aan':'uit'}</td>
+          <td><button class="danger" data-del="${u.username}">verwijder</button></td></tr>`).join('');
+    }
+    async function loadBans() {
+      const {bans} = await (await j('/api/admin/bans')).json();
+      document.getElementById('banTable').innerHTML = '<tr><th>IP</th><th>Tot</th><th></th></tr>' +
+        (bans.length?bans.map(b=>`<tr><td>${esc(b.ip)}</td><td>${b.until?new Date(b.until).toLocaleString():'permanent'}</td><td><button class="danger" data-unban="${b.ip}">deblokkeer</button></td></tr>`).join(''):'<tr><td colspan="3">Geen</td></tr>');
+    }
+    async function loadAudit() {
+      const {lines} = await (await j('/api/admin/audit')).json();
+      document.getElementById('audit').textContent = lines.map(l=>`${l.ts} [${l.channel}] ${l.user||'-'} ${l.action} ${JSON.stringify(Object.fromEntries(Object.entries(l).filter(([k])=>!['ts','channel','user','action'].includes(k))))}`).reverse().join('\n');
+    }
+    document.getElementById('addUser').onclick = async () => {
+      await j('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:nu.value,password:np.value,role:nr.value,quota:parseInt(nq.value||'0',10)})});
+      nu.value=np.value=nq.value=''; loadUsers();
+    };
+    document.getElementById('addBan').onclick = async () => { await j('/api/admin/bans',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ip:banIp.value})}); banIp.value=''; loadBans(); };
+    document.addEventListener('click', async e => {
+      if (e.target.dataset.del) { if(confirm('Verwijderen?')){ await j('/api/admin/users/'+e.target.dataset.del,{method:'DELETE'}); loadUsers(); } }
+      if (e.target.dataset.unban) { await j('/api/admin/bans/'+encodeURIComponent(e.target.dataset.unban),{method:'DELETE'}); loadBans(); }
+    });
+    document.addEventListener('change', async e => {
+      const d = e.target.dataset;
+      if (d.role) await j('/api/admin/users/'+d.role,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:e.target.value})});
+      if (d.quota) await j('/api/admin/users/'+d.quota,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({quota:parseInt(e.target.value||'0',10)})});
+      if (d.bw) await j('/api/admin/users/'+d.bw,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({bw:parseInt(e.target.value||'0',10)})});
+      if (d.email) await j('/api/admin/users/'+d.email,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e.target.value})});
+    });
+    async function loadBackups() {
+      const {backups} = await (await j('/api/admin/backups')).json();
+      document.getElementById('backupTable').innerHTML = '<tr><th>Bestand</th><th>Grootte</th></tr>' +
+        (backups.length?backups.map(b=>`<tr><td>${b.name}</td><td>${b.size} bytes</td></tr>`).join(''):'<tr><td colspan="2">Nog geen back-ups</td></tr>');
+    }
+    document.getElementById('makeBackup').onclick = async () => { await j('/api/admin/backup',{method:'POST'}); loadBackups(); };
+    async function loadQuarantine() {
+      const {items} = await (await j('/api/admin/quarantine')).json();
+      document.getElementById('qTable').innerHTML = '<tr><th>Bestand</th><th>Gebruiker</th><th>Detectie</th><th>Datum</th><th></th></tr>' +
+        (items.length?items.map(q=>`<tr><td>${esc(q.filename)}</td><td>${esc(q.user)}</td><td>${esc((q.detail||'').slice(0,60))}</td><td>${q.ts}</td>
+          <td><button data-qrel="${q.id}">vrijgeven</button> <button class="danger" data-qdel="${q.id}">wissen</button></td></tr>`).join(''):'<tr><td colspan="5">Leeg</td></tr>');
+    }
+    document.addEventListener('click', async e => {
+      if (e.target.dataset.qrel) { await j('/api/admin/quarantine/'+e.target.dataset.qrel+'/release',{method:'POST'}); loadQuarantine(); }
+      if (e.target.dataset.qdel) { await j('/api/admin/quarantine/'+e.target.dataset.qdel,{method:'DELETE'}); loadQuarantine(); }
+    });
+    async function loadSettings() {
+      const { settings } = await (await j('/api/admin/settings')).json();
+      document.getElementById('setMaintenance').checked = !!settings.maintenance;
+      document.getElementById('setCleanupDays').value = settings.cleanupTrashDays || 0;
+    }
+    document.getElementById('saveSettings').onclick = async () => {
+      await j('/api/admin/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({ maintenance: document.getElementById('setMaintenance').checked, cleanupTrashDays: parseInt(document.getElementById('setCleanupDays').value||'0',10) })});
+      alert('Instellingen opgeslagen'); loadOverview();
+    };
+    document.getElementById('runCleanup').onclick = async () => { const r=await (await j('/api/admin/cleanup',{method:'POST'})).json(); alert('Opgeschoond: '+r.removed+' item(s)'); };
+    async function loadGroups() {
+      const { groups } = await (await j('/api/admin/groups')).json();
+      document.getElementById('groupTable').innerHTML = '<tr><th>Groep</th><th>Leden</th><th></th></tr>' +
+        (Object.keys(groups).length?Object.entries(groups).map(([n,m])=>`<tr><td>${esc(n)}</td><td>${esc((m||[]).join(', '))}</td><td><button class="danger" data-gdel="${esc(n)}">verwijder</button></td></tr>`).join(''):'<tr><td colspan="3">Geen groepen</td></tr>');
+    }
+    document.getElementById('saveGroup').onclick = async () => {
+      const n=document.getElementById('gName').value.trim(); if(!n)return;
+      const members=document.getElementById('gMembers').value.split(',').map(s=>s.trim()).filter(Boolean);
+      await j('/api/admin/groups/'+encodeURIComponent(n),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({members})});
+      document.getElementById('gName').value=''; document.getElementById('gMembers').value=''; loadGroups();
+    };
+    async function loadStorageReport() {
+      const r = await (await j('/api/admin/storage-report')).json();
+      document.getElementById('bigFiles').innerHTML = r.largestFiles.map(f=>`<tr><td>${esc(f.path)}</td><td style="text-align:right">${fmtSize(f.size)}</td></tr>`).join('')||'<tr><td>Leeg</td></tr>';
+      document.getElementById('bigDirs').innerHTML = r.largestDirs.map(d=>`<tr><td>${esc(d.path)}</td><td style="text-align:right">${fmtSize(d.size)}</td></tr>`).join('')||'<tr><td>Leeg</td></tr>';
+    }
+    document.addEventListener('click', async e => {
+      if (e.target.dataset.gdel) { await j('/api/admin/groups/'+encodeURIComponent(e.target.dataset.gdel),{method:'DELETE'}); loadGroups(); }
+    });
+
+    loadOverview(); loadShares(); loadUsers(); loadBans(); loadAudit(); loadBackups(); loadQuarantine();
+    const mo = (t) => document.getElementById('maintOut').textContent = t;
+    async function loadUpdate() {
+      const u = await (await j('/api/admin/update-check')).json();
+      const el = document.getElementById('updateInfo');
+      if (u.error) el.textContent = 'Update-check mislukt: ' + u.error;
+      else if (u.updateAvailable) { el.innerHTML = `<span style="color:#4ade80">⬆ Update beschikbaar: v${u.latest}</span> (huidig: v${u.current})`; }
+      else el.textContent = `Up-to-date (v${u.current})`;
+    }
+    async function loadDisk() {
+      const d = await (await j('/api/admin/disk')).json();
+      document.getElementById('diskInfo').textContent = d.error ? '' : `Schijf: ${d.freePct.toFixed(1)}% vrij (${(d.free/1e9).toFixed(1)} GB van ${(d.total/1e9).toFixed(1)} GB)`;
+    }
+    document.getElementById('btnUpdate').onclick = loadUpdate;
+    document.getElementById('btnDisk').onclick = loadDisk;
+    document.getElementById('btnVerifyBackup').onclick = async () => { const r=await (await j('/api/admin/backup-verify')).json(); mo(r.ok?`Back-up geldig: ${r.file} (${r.size} bytes)`:`Back-up NIET geldig: ${r.reason||''}`); };
+    document.getElementById('btnBaseline').onclick = async () => { mo('Baseline berekenen…'); const r=await (await j('/api/admin/integrity/baseline',{method:'POST'})).json(); mo(`Baseline aangemaakt voor ${r.files} bestand(en).`); };
+    document.getElementById('btnVerify').onclick = async () => { mo('Controleren…'); const r=await (await j('/api/admin/integrity/verify',{method:'POST'})).json(); mo(`Gecontroleerd: ${r.checked}. Gewijzigd: ${r.changed.length}, nieuw: ${r.added.length}, verdwenen: ${r.removed.length}.`); };
+    document.getElementById('btnExport').onclick = async () => {
+      const r = await j('/api/admin/export'); const blob = await r.blob();
+      const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='fileserver-config.json'; a.click();
+    };
+
+    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk();
+
+    // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
+    // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.
+    let refreshTimer;
+    const refreshTables = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => { loadShares(); loadQuarantine(); loadBans(); loadAudit(); }, 800); };
+    setInterval(loadOverview, 3000);
+
+    // Wisselen tussen live-grafieken en historische tijdvensters.
+    const rangeSel = document.getElementById('range');
+    let histTimer;
+    function applyRange() {
+      const v = rangeSel.value;
+      const live = v === 'live';
+      document.getElementById('liveCharts').style.display = live ? 'grid' : 'none';
+      document.getElementById('histCharts').style.display = live ? 'none' : 'grid';
+      document.getElementById('liveDot').style.display = live ? '' : 'none';
+      clearInterval(histTimer);
+      if (!live) { loadHistory(parseInt(v,10)); histTimer = setInterval(() => loadHistory(parseInt(v,10)), 30000); }
+    }
+    rangeSel.onchange = applyRange;
+    try {
+      const es = new EventSource('/api/admin/events');
+      es.addEventListener('activity', () => { loadOverview(); refreshTables(); document.getElementById('liveDot').style.opacity='1'; });
+      es.onerror = () => { const d=document.getElementById('liveDot'); if(d){ d.style.color='#94a3b8'; d.textContent='● verbinden…'; } };
+      es.onopen = () => { const d=document.getElementById('liveDot'); if(d){ d.style.color='#4ade80'; d.textContent='● live'; } };
+    } catch {}
+  </script>
+</body>
+</html>

@@ -4,152 +4,113 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SFTP Fileserver</title>
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0f172a" />
   <style>
-    :root { --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --text:#e2e8f0; --muted:#94a3b8; }
+    :root { --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --text:#e2e8f0; --muted:#94a3b8; --danger:#f87171; --border:#334155; }
+    :root[data-theme="light"] { --bg:#f1f5f9; --panel:#fff; --accent:#0284c7; --text:#0f172a; --muted:#64748b; --danger:#dc2626; --border:#cbd5e1; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); }
-    header { background:var(--panel); padding:1rem 1.5rem; display:flex; align-items:center; gap:1rem; }
-    header h1 { font-size:1.1rem; margin:0; }
-    main { max-width:900px; margin:1.5rem auto; padding:0 1rem; }
+    header { background:var(--panel); padding:.9rem 1.5rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap; border-bottom:1px solid var(--border); }
+    header h1 { font-size:1.05rem; margin:0; }
+    header .spacer { flex:1; }
+    header .who { color:var(--muted); font-size:.85rem; }
+    main { max-width:1000px; margin:1.2rem auto; padding:0 1rem; }
     .bar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
     .crumbs { color:var(--muted); font-size:.9rem; word-break:break-all; }
     .crumbs a { color:var(--accent); cursor:pointer; text-decoration:none; }
-    button, input[type=file]::file-selector-button {
-      background:var(--accent); color:#04283a; border:none; padding:.5rem .9rem;
-      border-radius:6px; cursor:pointer; font-weight:600; }
-    button.ghost { background:var(--panel); color:var(--text); }
+    input, select { background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:.45rem .6rem; }
+    button { background:var(--accent); color:#04283a; border:none; padding:.5rem .8rem; border-radius:6px; cursor:pointer; font-weight:600; }
+    :root[data-theme="light"] button { color:#fff; }
+    button.ghost { background:var(--panel); color:var(--text); border:1px solid var(--border); }
+    button.danger { background:transparent; color:var(--danger); border:1px solid var(--border); }
     button:hover { opacity:.9; }
+    .quota { font-size:.8rem; color:var(--muted); }
+    .quota .barwrap { height:6px; width:140px; background:var(--border); border-radius:3px; overflow:hidden; display:inline-block; vertical-align:middle; margin-left:.4rem; }
+    .quota .barwrap > div { height:100%; background:var(--accent); }
     table { width:100%; border-collapse:collapse; background:var(--panel); border-radius:8px; overflow:hidden; }
-    th, td { text-align:left; padding:.6rem .9rem; border-bottom:1px solid #334155; }
-    th { color:var(--muted); font-weight:600; font-size:.8rem; text-transform:uppercase; }
+    th, td { text-align:left; padding:.5rem .8rem; border-bottom:1px solid var(--border); }
+    th { color:var(--muted); font-weight:600; font-size:.72rem; text-transform:uppercase; }
     tr:last-child td { border-bottom:none; }
     .name { display:flex; align-items:center; gap:.5rem; cursor:pointer; }
-    .name.file { cursor:default; }
-    .actions { display:flex; gap:.4rem; justify-content:flex-end; }
-    .actions button { padding:.3rem .6rem; font-size:.8rem; }
+    .thumb { width:28px; height:28px; object-fit:cover; border-radius:4px; }
+    .actions { display:flex; gap:.3rem; justify-content:flex-end; flex-wrap:wrap; }
+    .actions button { padding:.28rem .5rem; font-size:.76rem; }
     .muted { color:var(--muted); font-size:.85rem; }
-    #drop { border:2px dashed #334155; border-radius:8px; padding:1.2rem; text-align:center;
-      color:var(--muted); margin-bottom:1rem; transition:.2s; }
+    #drop { border:2px dashed var(--border); border-radius:8px; padding:1rem; text-align:center; color:var(--muted); margin-bottom:1rem; }
     #drop.over { border-color:var(--accent); color:var(--accent); }
+    #progress { height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin-top:.6rem; display:none; }
+    #progress > div { height:100%; width:0; background:var(--accent); transition:width .1s; }
+    #modal { position:fixed; inset:0; background:rgba(0,0,0,.7); display:none; align-items:center; justify-content:center; padding:1rem; }
+    #modal .box { background:var(--panel); border-radius:10px; max-width:92vw; max-height:92vh; overflow:auto; padding:1rem; }
+    #modal img, #modal iframe { max-width:86vw; max-height:76vh; border:0; background:#fff; }
+    #modal pre, #modal textarea { width:80vw; max-height:70vh; overflow:auto; white-space:pre-wrap; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:.6rem; }
+    #modal textarea { height:60vh; font-family:monospace; }
+    .tabs { display:flex; gap:.4rem; margin-bottom:1rem; }
+    .tabs button.active { outline:2px solid var(--accent); }
   </style>
 </head>
 <body>
   <header>
     <h1>📁 SFTP Fileserver</h1>
-    <span class="muted">Web UI</span>
+    <span class="quota" id="quota"></span>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="ghost" id="adminBtn" style="display:none" data-i18n="admin">Beheer</button>
+    <button class="ghost" id="2faBtn" data-i18n="twofa">2FA</button>
+    <button class="ghost" id="passkeyBtn" title="Passkey toevoegen">🔑</button>
+    <button class="ghost" id="sessionsBtn" title="Actieve sessies">🖥️</button>
+    <button class="ghost" id="langBtn">EN</button>
+    <button class="ghost" id="themeBtn">🌓</button>
+    <button class="ghost" id="logoutBtn" data-i18n="logout">Uitloggen</button>
   </header>
   <main>
-    <div class="bar">
-      <div class="crumbs" id="crumbs"></div>
+    <div class="tabs">
+      <button data-tab="files" class="active" data-i18n="files">Bestanden</button>
+      <button data-tab="shared" data-i18n="shared">Gedeeld met mij</button>
+      <button data-tab="trash" data-i18n="trash">Prullenbak</button>
     </div>
 
-    <div id="drop">Sleep bestanden hierheen om te uploaden, of
-      <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">
-        kies bestanden<input type="file" id="fileInput" multiple hidden></label>
+    <div id="filesView">
+      <div class="bar"><div class="crumbs" id="crumbs"></div></div>
+      <div id="drop"><span data-i18n="drophint">Sleep bestanden hierheen, of</span>
+        <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">
+          <span data-i18n="choose">kies bestanden</span><input type="file" id="fileInput" multiple hidden></label>
+        &nbsp;/&nbsp;
+        <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">
+          <span data-i18n="choosedir">map</span><input type="file" id="dirInput" webkitdirectory hidden></label>
+        &nbsp;/&nbsp;
+        <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">
+          📷 foto<input type="file" id="camInput" accept="image/*" capture="environment" multiple hidden></label>
+        <div id="progress"><div></div></div>
+        <div style="margin-top:.6rem;font-size:.85rem"><label><input type="checkbox" id="encToggle"> 🔒 Versleutel uploads (end-to-end)</label></div>
+      </div>
+      <div class="bar">
+        <button class="ghost" id="mkdirBtn" data-i18n="newfolder">＋ Nieuwe map</button>
+        <button class="ghost" id="newfileBtn" data-i18n="newfile">＋ Nieuw bestand</button>
+        <button class="ghost" id="dropLinkBtn" title="Deel een link waarmee anderen hier kunnen uploaden">📤 Drop-link</button>
+        <button class="ghost" id="galleryBtn" title="Galerij van afbeeldingen in deze map">🖼️ Galerij</button>
+        <button class="ghost" id="bulkDl" data-i18n="bulkdl">Download selectie</button>
+        <button class="danger" id="bulkDel" data-i18n="bulkdel">Verwijder selectie</button>
+        <button class="ghost" id="refreshBtn">↻</button>
+        <input type="search" id="search" data-i18n-ph="searchph" placeholder="Zoeken…" />
+        <label class="muted" title="Ook in bestandsinhoud zoeken"><input type="checkbox" id="contentSearch"> inhoud</label>
+        <select id="sort"><option value="name">naam</option><option value="size">grootte</option><option value="mtime">datum</option></select>
+        <select id="order"><option value="asc">↑</option><option value="desc">↓</option></select>
+      </div>
+      <table><thead><tr><th style="width:24px"></th><th data-i18n="col_name">Naam</th><th data-i18n="col_size">Grootte</th><th style="text-align:right" data-i18n="col_actions">Acties</th></tr></thead><tbody id="rows"></tbody></table>
     </div>
 
-    <div class="bar">
-      <button class="ghost" id="mkdirBtn">＋ Nieuwe map</button>
-      <button class="ghost" id="refreshBtn">↻ Vernieuwen</button>
-    </div>
-
-    <table>
-      <thead>
-        <tr><th>Naam</th><th>Grootte</th><th style="text-align:right">Acties</th></tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
+    <div id="sharedView" style="display:none"></div>
+    <div id="trashView" style="display:none"></div>
   </main>
 
-  <script>
-    let cwd = '/';
+  <div id="modal"><div class="box"><button class="ghost" id="modalClose" style="float:right">✕</button><div id="modalBody"></div></div></div>
 
-    const fmtSize = (n) => {
-      if (!n) return '';
-      const u = ['B','KB','MB','GB','TB']; let i = 0;
-      while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-      return n.toFixed(i ? 1 : 0) + ' ' + u[i];
-    };
-
-    const joinPath = (base, name) => (base === '/' ? '' : base) + '/' + name;
-
-    async function load() {
-      const res = await fetch('/api/list?path=' + encodeURIComponent(cwd));
-      if (!res.ok) { alert('Kon map niet laden'); return; }
-      const data = await res.json();
-      renderCrumbs();
-      const rows = document.getElementById('rows');
-      rows.innerHTML = '';
-      if (!data.items.length) {
-        rows.innerHTML = '<tr><td colspan="3" class="muted">Deze map is leeg.</td></tr>';
-      }
-      for (const item of data.items) {
-        const tr = document.createElement('tr');
-        const full = joinPath(cwd, item.name);
-        const nameCell = item.isDir
-          ? `<div class="name" data-dir="${encodeURIComponent(full)}">📂 ${item.name}</div>`
-          : `<div class="name file">📄 ${item.name}</div>`;
-        const dl = item.isDir ? '' :
-          `<button data-dl="${encodeURIComponent(full)}">Download</button>`;
-        tr.innerHTML = `<td>${nameCell}</td><td>${fmtSize(item.size)}</td>
-          <td class="actions">${dl}<button class="ghost" data-del="${encodeURIComponent(full)}">Verwijder</button></td>`;
-        rows.appendChild(tr);
-      }
-    }
-
-    function renderCrumbs() {
-      const parts = cwd.split('/').filter(Boolean);
-      let acc = '';
-      const links = ['<a data-go="/">root</a>'];
-      for (const p of parts) {
-        acc += '/' + p;
-        links.push(`<a data-go="${encodeURIComponent(acc)}">${p}</a>`);
-      }
-      document.getElementById('crumbs').innerHTML = links.join(' / ');
-    }
-
-    document.addEventListener('click', async (e) => {
-      const t = e.target;
-      if (t.dataset.dir) { cwd = decodeURIComponent(t.dataset.dir); load(); }
-      else if (t.closest('[data-dir]')) { cwd = decodeURIComponent(t.closest('[data-dir]').dataset.dir); load(); }
-      else if (t.dataset.go) { cwd = decodeURIComponent(t.dataset.go); load(); }
-      else if (t.dataset.dl) { window.location = '/api/download?path=' + t.dataset.dl; }
-      else if (t.dataset.del) {
-        if (!confirm('Verwijderen?')) return;
-        await fetch('/api/delete', { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ path: decodeURIComponent(t.dataset.del) }) });
-        load();
-      }
-    });
-
-    document.getElementById('refreshBtn').onclick = load;
-    document.getElementById('mkdirBtn').onclick = async () => {
-      const name = prompt('Naam van de nieuwe map:');
-      if (!name) return;
-      await fetch('/api/mkdir', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ path: cwd, name }) });
-      load();
-    };
-
-    async function uploadFiles(files) {
-      if (!files.length) return;
-      const fd = new FormData();
-      for (const f of files) fd.append('files', f);
-      const res = await fetch('/api/upload?path=' + encodeURIComponent(cwd), { method:'POST', body: fd });
-      if (!res.ok) alert('Upload mislukt');
-      load();
-    }
-
-    document.getElementById('fileInput').onchange = (e) => uploadFiles([...e.target.files]);
-
-    const drop = document.getElementById('drop');
-    ['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, (e) => {
-      e.preventDefault(); drop.classList.add('over');
-    }));
-    ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, () => drop.classList.remove('over')));
-    drop.addEventListener('drop', (e) => { e.preventDefault(); uploadFiles([...e.dataTransfer.files]); });
-
-    load();
-  </script>
+  <script src="/crypto.js"></script>
+  <script src="/keyring.js"></script>
+  <script src="/rsync.js"></script>
+  <script src="/webauthn.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>

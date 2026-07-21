@@ -1,0 +1,10 @@
+# Voorbeeld Prometheus-scrapeconfiguratie voor de fileserver.
+# Als METRICS_TOKEN is ingesteld, geef die mee als bearer-token.
+scrape_configs:
+  - job_name: sftp-fileserver
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['localhost:8080']
+    # authorization:
+    #   type: Bearer
+    #   credentials: JOUW_METRICS_TOKEN

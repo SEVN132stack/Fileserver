@@ -1,0 +1,27 @@
+# Caddy reverse proxy met automatische, gratis TLS via Let's Encrypt.
+# Vervang de domeinnaam en e-mail. Draai daarna: `caddy run`.
+#
+# Caddy regelt zelf het certificaat en de verlenging — je hoeft TLS_ENABLED
+# in de fileserver NIET aan te zetten (de app draait dan gewoon op HTTP achter
+# de proxy). WebSockets/SSE en WebDAV worden transparant doorgezet.
+
+files.voorbeeld.nl {
+	encode zstd gzip
+
+	# Sta grote uploads toe.
+	request_body {
+		max_size 10GB
+	}
+
+	reverse_proxy localhost:8080 {
+		# Geef het echte client-IP door voor rate limiting/bans.
+		header_up X-Forwarded-For {remote_host}
+		# Lange time-outs voor SSE (realtime updates) en grote overdrachten.
+		flush_interval -1
+	}
+}
+
+# TLS-e-mail voor Let's Encrypt-meldingen (optioneel):
+# {
+# 	email jij@voorbeeld.nl
+# }

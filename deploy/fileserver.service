@@ -1,0 +1,17 @@
+[Unit]
+Description=SFTP Fileserver (SFTP + web UI)
+After=network.target
+
+[Service]
+Type=simple
+# Pas User en WorkingDirectory aan naar jouw installatie.
+User=fileserver
+WorkingDirectory=/opt/fileserver
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=5
+# Geheimen komen uit .env in de WorkingDirectory.
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

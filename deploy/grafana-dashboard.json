@@ -1,0 +1,50 @@
+{
+  "__inputs": [
+    { "name": "DS_PROMETHEUS", "label": "Prometheus", "type": "datasource", "pluginId": "prometheus" }
+  ],
+  "title": "SFTP Fileserver",
+  "uid": "sftp-fileserver",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "stat", "title": "Uploads (totaal)", "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "fileserver_uploads_total", "refId": "A" }]
+    },
+    {
+      "type": "stat", "title": "Downloads (totaal)", "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "fileserver_downloads_total", "refId": "A" }]
+    },
+    {
+      "type": "stat", "title": "Actieve realtime-clients", "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "fileserver_active_sse_clients", "refId": "A" }]
+    },
+    {
+      "type": "stat", "title": "Mislukte logins", "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "fileserver_login_failures_total", "refId": "A" }]
+    },
+    {
+      "type": "timeseries", "title": "Upload-/downloadsnelheid (bytes/s)", "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "rate(fileserver_bytes_uploaded_total[5m])", "legendFormat": "upload", "refId": "A" },
+        { "expr": "rate(fileserver_bytes_downloaded_total[5m])", "legendFormat": "download", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Logins/s vs. mislukt/s", "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "rate(fileserver_logins_total[5m])", "legendFormat": "logins", "refId": "A" },
+        { "expr": "rate(fileserver_login_failures_total[5m])", "legendFormat": "mislukt", "refId": "B" }
+      ]
+    }
+  ]
+}

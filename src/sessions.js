@@ -1,0 +1,57 @@
+import { randomBytes } from 'node:crypto';
+
+// Sessie-opslag met metadata, zodat een gebruiker actieve sessies kan bekijken
+// en op afstand kan intrekken.
+const sessions = new Map(); // token -> { id, username, expires, created, ip, ua }
+const TTL_MS = 12 * 60 * 60 * 1000;
+
+export function createSession(username, meta = {}) {
+  const token = randomBytes(24).toString('base64url');
+  const id = randomBytes(6).toString('hex');
+  sessions.set(token, {
+    id, username, expires: Date.now() + TTL_MS, created: Date.now(),
+    ip: meta.ip || '', ua: (meta.ua || '').slice(0, 200),
+  });
+  return token;
+}
+
+export function getSession(token) {
+  const s = sessions.get(token);
+  if (!s) return null;
+  if (s.expires < Date.now()) { sessions.delete(token); return null; }
+  return s;
+}
+
+export function destroySession(token) {
+  sessions.delete(token);
+}
+
+// Alle actieve sessies van een gebruiker (zonder de token zelf prijs te geven).
+export function listSessions(username, currentToken) {
+  const out = [];
+  for (const [token, s] of sessions) {
+    if (s.username === username && s.expires > Date.now()) {
+      out.push({ id: s.id, created: s.created, ip: s.ip, ua: s.ua, current: token === currentToken });
+    }
+  }
+  return out.sort((a, b) => b.created - a.created);
+}
+
+// Trek een sessie in op id (alleen eigen sessies).
+export function revokeSession(username, id) {
+  for (const [token, s] of sessions) {
+    if (s.username === username && s.id === id) { sessions.delete(token); return true; }
+  }
+  return false;
+}
+
+export function tokenFromReq(req) {
+  const cookie = req.headers.cookie || '';
+  const m = cookie.match(/(?:^|;\s*)sid=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [t, s] of sessions) if (s.expires < now) sessions.delete(t);
+}, 60000).unref();

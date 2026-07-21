@@ -1,0 +1,25 @@
+# Prometheus alert-regels voor de SFTP Fileserver.
+# Verwijs hiernaar in prometheus.yml met rule_files: ['prometheus-alerts.yml'].
+groups:
+  - name: fileserver
+    rules:
+      - alert: FileserverDown
+        expr: up{job="sftp-fileserver"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Fileserver is onbereikbaar"
+
+      - alert: VeelMisluktLogins
+        expr: increase(fileserver_login_failures_total[5m]) > 20
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "Veel mislukte logins (mogelijk brute-force)"
+
+      - alert: GeenActiviteit
+        expr: increase(fileserver_uploads_total[1h]) == 0 and increase(fileserver_downloads_total[1h]) == 0
+        for: 6h
+        labels: { severity: info }
+        annotations:
+          summary: "Geen upload-/downloadactiviteit in 6 uur"

@@ -1,0 +1,29 @@
+services:
+  fileserver:
+    build: .
+    ports:
+      - "8080:8080"   # web UI
+      - "2222:2222"   # SFTP
+    environment:
+      # Optioneel: zet je eigen waarden of laat .env in het volume genereren.
+      # AUTH_USER: admin
+      # AUTH_PASS: verander-dit
+      TLS_ENABLED: "false"
+    volumes:
+      - fileserver-data:/data
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # Automatische container-updates: Watchtower checkt periodiek op een nieuwer
+  # image en herstart de fileserver. Verwijder deze service als je handmatig
+  # wilt updaten.
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --cleanup --interval 86400
+    restart: unless-stopped
+
+volumes:
+  fileserver-data:

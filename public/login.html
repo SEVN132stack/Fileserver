@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inloggen — SFTP Fileserver</title>
+  <link rel="manifest" href="/manifest.json" />
+  <style>
+    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+      font-family:system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
+    .card { background:#1e293b; padding:2rem; border-radius:12px; width:320px; }
+    h1 { font-size:1.2rem; margin:0 0 1.2rem; }
+    label { display:block; font-size:.85rem; color:#94a3b8; margin:.7rem 0 .2rem; }
+    input { width:100%; padding:.6rem; border-radius:6px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; }
+    button { width:100%; margin-top:1.2rem; padding:.65rem; border:0; border-radius:6px; background:#38bdf8; color:#04283a; font-weight:700; cursor:pointer; }
+    .err { color:#f87171; font-size:.85rem; margin-top:.8rem; min-height:1rem; }
+    #totp { display:none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>📁 SFTP Fileserver</h1>
+    <form id="form">
+      <label>Gebruikersnaam</label>
+      <input id="username" autocomplete="username" autofocus />
+      <label>Wachtwoord</label>
+      <input id="password" type="password" autocomplete="current-password" />
+      <div id="totp"><label>2FA-code</label><input id="token" inputmode="numeric" autocomplete="one-time-code" /></div>
+      <button type="submit">Inloggen</button>
+      <a id="sso" href="/api/oidc/login" style="display:none;margin-top:.8rem;text-align:center;color:#38bdf8">Inloggen met SSO</a>
+      <button type="button" id="passkeyLogin" style="width:100%;margin-top:.6rem;background:#334155;color:#e2e8f0;display:none">🔑 Inloggen met passkey</button>
+      <a href="/reset.html" style="display:block;margin-top:.8rem;text-align:center;color:#94a3b8;font-size:.85rem">Wachtwoord vergeten?</a>
+      <div class="err" id="err"></div>
+    </form>
+  </div>
+  <script src="/webauthn.js"></script>
+  <script>
+    fetch('/api/oidc/enabled').then(r=>r.json()).then(d=>{ if(d.enabled){ const s=document.getElementById('sso'); s.style.display='block'; } }).catch(()=>{});
+    fetch('/api/webauthn/enabled').then(r=>r.json()).then(d=>{ if(d.enabled) document.getElementById('passkeyLogin').style.display='block'; }).catch(()=>{});
+    document.getElementById('passkeyLogin').onclick = async () => {
+      const username = document.getElementById('username').value;
+      if (!username) { document.getElementById('err').textContent='Vul eerst je gebruikersnaam in.'; return; }
+      try {
+        const opts = await (await fetch('/api/webauthn/login/options',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username})})).json();
+        const assertion = await window.fseWebAuthnGet(opts);
+        const r = await fetch('/api/webauthn/login/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,response:assertion})});
+        if (r.ok) window.location='/'; else document.getElementById('err').textContent='Passkey-login mislukt';
+      } catch(e){ document.getElementById('err').textContent='Passkey-login mislukt: '+e.message; }
+    };
+    const form = document.getElementById('form');
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const body = {
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+        token: document.getElementById('token').value,
+      };
+      const res = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (data.need2fa) {
+        document.getElementById('totp').style.display = 'block';
+        document.getElementById('err').textContent = 'Voer je 2FA-code in.';
+        document.getElementById('token').focus();
+        return;
+      }
+      if (res.ok && data.ok) { window.location = '/'; return; }
+      document.getElementById('err').textContent = data.error || 'Inloggen mislukt';
+    };
+  </script>
+</body>
+</html>
