@@ -1,13 +1,20 @@
 services:
   fileserver:
+    # Gebruik het kant-en-klare image (aanbevolen); vervang door `build: .` om
+    # lokaal te bouwen.
+    image: ghcr.io/sevn132stack/fileserver:latest
     build: .
     ports:
       - "8080:8080"   # web UI
       - "2222:2222"   # SFTP
+    # Leest automatisch je .env in (kopieer .env.example -> .env en vul in).
+    # required:false zodat compose ook start zonder .env (de app genereert er
+    # dan zelf één met een willekeurig wachtwoord in het /data-volume).
+    env_file:
+      - path: .env
+        required: false
     environment:
-      # Optioneel: zet je eigen waarden of laat .env in het volume genereren.
-      # AUTH_USER: admin
-      # AUTH_PASS: verander-dit
+      # Overschrijft .env indien gezet; laat TLS aan de reverse proxy over.
       TLS_ENABLED: "false"
     volumes:
       - fileserver-data:/data
