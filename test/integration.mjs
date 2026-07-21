@@ -545,6 +545,39 @@ try {
     c.connect({ host: '127.0.0.1', port: 2239, username: 'bob', password: 'bobpass' });
   });
 
+  // 15. Ransomware-detectie: veel mutaties in korte tijd alarmeert.
+  const { recordMutation } = await import('../src/ransomware.js');
+  const origThr = config.ransomware.threshold;
+  config.ransomware.threshold = 5;
+  let ransomAlert = false;
+  for (let i = 0; i < 6; i++) ransomAlert = recordMutation('bob', 'delete') || ransomAlert;
+  config.ransomware.threshold = origThr;
+  ok('ransomware-detectie alarmeert boven drempel', ransomAlert === true);
+
+  // 16. Honeypot: mutatie op lokbestand alarmeert.
+  const { checkHoneypot } = await import('../src/honeypot.js');
+  const origHp = config.honeypots;
+  config.honeypots = ['/PASSWORDS.txt'];
+  const hpHit = checkHoneypot('bob', '/PASSWORDS.txt', 'write');
+  config.honeypots = origHp;
+  ok('honeypot alarmeert bij toegang tot lokbestand', hpHit === true);
+
+  // 17. Accountvervaldatum: verlopen account kan niet inloggen.
+  updateUser('bob', { expires: Date.now() - 1000 });
+  const expiredLogin = await login('bob', 'bobpass');
+  updateUser('bob', { expires: undefined });
+  cookie = ''; // herstel admin-sessie
+  const readmin = await login('admin', 'testpass123');
+  ok('verlopen account kan niet inloggen', expiredLogin.status === 403 && readmin.status === 200);
+
+  // 18. Backup-encryptie: versleutelde backup is leesbaar terug te ontsleutelen.
+  const { encryptBackup, decryptBackup } = await import('../src/backup.js');
+  const plain = path.join(tmp, 'plain.zip');
+  fs.writeFileSync(plain, 'backup-inhoud');
+  const enc = encryptBackup(plain, 'geheim123');
+  const dec = decryptBackup(enc, 'geheim123');
+  ok('backup-encryptie rondrit', enc.endsWith('.enc') && !fs.existsSync(plain) && dec.toString() === 'backup-inhoud');
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

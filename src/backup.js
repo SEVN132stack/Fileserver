@@ -1,8 +1,38 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { scryptSync, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
 import archiver from 'archiver';
 import { config } from './config.js';
 import { audit } from './audit.js';
+
+// Versleutel een back-up-bestand met AES-256-GCM (formaat: salt|iv|tag|ct).
+export function encryptBackup(file, password) {
+  const data = fs.readFileSync(file);
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const key = scryptSync(password, salt, 32);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const ct = Buffer.concat([cipher.update(data), cipher.final()]);
+  const out = Buffer.concat([salt, iv, cipher.getAuthTag(), ct]);
+  const dest = file + '.enc';
+  fs.writeFileSync(dest, out, { mode: 0o600 });
+  fs.rmSync(file);
+  return dest;
+}
+
+// Ontsleutel een met encryptBackup versleuteld bestand (voor herstel/verificatie).
+export function decryptBackup(file, password) {
+  const buf = fs.readFileSync(file);
+  const salt = buf.subarray(0, 16);
+  const iv = buf.subarray(16, 28);
+  const tag = buf.subarray(28, 44);
+  const ct = buf.subarray(44);
+  const key = scryptSync(password, salt, 32);
+  const decipher = createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ct), decipher.final()]);
+}
 
 // Ingebouwde back-upplanner: maakt periodiek een ZIP van de volledige opslag en
 // bewaart de laatste N back-ups (retentie).
@@ -15,9 +45,19 @@ export function makeBackup() {
     const out = fs.createWriteStream(dest);
     const archive = archiver('zip', { zlib: { level: 9 } });
     out.on('close', () => {
+      let finalPath = dest;
+      // Optioneel versleutelen.
+      if (config.backupPassword) {
+        try { finalPath = encryptBackup(dest, config.backupPassword); } catch (e) { console.error('[backup] versleutelen mislukt:', e.message); }
+      }
       pruneOld();
-      audit('system', null, 'backup', { file: path.basename(dest), bytes: archive.pointer() });
-      resolve(dest);
+      // Optioneel off-site kopiëren (bijv. rclone/aws s3 cp).
+      if (config.backupUploadCmd) {
+        const [cmd, ...args] = config.backupUploadCmd.split(' ');
+        execFile(cmd, [...args, finalPath], (err) => { if (err) console.error('[backup] off-site upload mislukt:', err.message); });
+      }
+      audit('system', null, 'backup', { file: path.basename(finalPath), bytes: archive.pointer(), encrypted: !!config.backupPassword });
+      resolve(finalPath);
     });
     archive.on('error', reject);
     archive.pipe(out);
@@ -30,7 +70,7 @@ function pruneOld() {
   const keep = config.backup.keep;
   if (keep <= 0) return;
   const files = fs.readdirSync(config.backup.dir)
-    .filter((f) => f.startsWith('backup-') && f.endsWith('.zip'))
+    .filter((f) => f.startsWith('backup-') && (f.endsWith('.zip') || f.endsWith('.zip.enc')))
     .sort()
     .reverse();
   for (const f of files.slice(keep)) {
@@ -42,17 +82,20 @@ function pruneOld() {
 // de ZIP-magic (PK). Zo weet je dat de back-up geldig/leesbaar is.
 export function verifyLatestBackup() {
   if (!fs.existsSync(config.backup.dir)) return { ok: false, reason: 'geen back-ups' };
-  const files = fs.readdirSync(config.backup.dir).filter((f) => f.startsWith('backup-') && f.endsWith('.zip')).sort();
+  const files = fs.readdirSync(config.backup.dir).filter((f) => f.startsWith('backup-') && (f.endsWith('.zip') || f.endsWith('.zip.enc'))).sort();
   if (!files.length) return { ok: false, reason: 'geen back-ups' };
-  const latest = path.join(config.backup.dir, files[files.length - 1]);
+  const name = files[files.length - 1];
+  const latest = path.join(config.backup.dir, name);
   const st = fs.statSync(latest);
-  if (st.size < 22) return { ok: false, reason: 'te klein', file: files[files.length - 1] };
+  if (st.size < 22) return { ok: false, reason: 'te klein', file: name };
+  // Versleutelde back-up: alleen aanwezigheid/grootte te controleren.
+  if (name.endsWith('.enc')) return { ok: true, file: name, size: st.size, encrypted: true };
   const fd = fs.openSync(latest, 'r');
   const buf = Buffer.alloc(2);
   fs.readSync(fd, buf, 0, 2, 0);
   fs.closeSync(fd);
   const ok = buf.toString('latin1') === 'PK';
-  return { ok, file: files[files.length - 1], size: st.size, reason: ok ? undefined : 'geen geldige ZIP' };
+  return { ok, file: name, size: st.size, reason: ok ? undefined : 'geen geldige ZIP' };
 }
 
 export function startBackupScheduler() {

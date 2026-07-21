@@ -3,10 +3,12 @@ import path from 'node:path';
 import ssh2 from 'ssh2';
 import { config } from './config.js';
 import { resolveWithin, toClientPath as toClient, dirSize } from './paths.js';
-import { homeDir, verifyPassword, verifyPublicKey, userExists, isReadonly, quota } from './users.js';
+import { homeDir, verifyPassword, verifyPublicKey, userExists, isReadonly, quota, isExpired } from './users.js';
 import { checkAllowed, recordFailure, recordSuccess } from './ratelimit.js';
 import { isBanned, ban } from './bans.js';
 import { audit } from './audit.js';
+import { recordMutation } from './ransomware.js';
+import { checkHoneypot } from './honeypot.js';
 
 const { Server, utils } = ssh2;
 const { STATUS_CODE: SFTP_STATUS_CODE, OPEN_MODE: SFTP_OPEN_MODE } = utils.sftp;
@@ -38,8 +40,13 @@ export function startSftpServer() {
         fail('onbekende gebruiker', { reason: 'onbekende gebruiker' });
         return ctx.reject();
       }
+      if (isExpired(user)) {
+        audit('sftp', user, 'login_failed', { ip, reason: 'account verlopen' });
+        return ctx.reject();
+      }
 
       if (ctx.method === 'password') {
+        if (!config.sftpPasswordAuth) { audit('sftp', user, 'login_failed', { ip, reason: 'wachtwoord-auth uit' }); return ctx.reject(['publickey']); }
         if (verifyPassword(user, ctx.password || '')) {
           recordSuccess(key);
           username = user;
@@ -109,7 +116,7 @@ export function startSftpServer() {
             } catch {
               return sftp.status(reqid, SFTP_STATUS_CODE.NO_SUCH_FILE);
             }
-            if (!reading) audit('sftp', username, 'upload', { path: toClientPath(abs) });
+            if (!reading) { audit('sftp', username, 'upload', { path: toClientPath(abs) }); recordMutation(username, 'write'); checkHoneypot(username, toClientPath(abs), 'write'); }
             sftp.handle(reqid, newHandle({ fd, path: abs }));
           });
 
@@ -203,7 +210,7 @@ export function startSftpServer() {
           };
           sftp.on('REMOVE', (reqid, p) => {
             if (denyIfReadonly(reqid)) return;
-            try { fs.unlinkSync(resolve(p)); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
+            try { fs.unlinkSync(resolve(p)); recordMutation(username, 'delete'); checkHoneypot(username, p, 'delete'); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('MKDIR', (reqid, p) => {
@@ -213,12 +220,12 @@ export function startSftpServer() {
           });
           sftp.on('RMDIR', (reqid, p) => {
             if (denyIfReadonly(reqid)) return;
-            try { fs.rmSync(resolve(p), { recursive: true, force: true }); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
+            try { fs.rmSync(resolve(p), { recursive: true, force: true }); recordMutation(username, 'delete'); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('RENAME', (reqid, oldPath, newPath) => {
             if (denyIfReadonly(reqid)) return;
-            try { fs.renameSync(resolve(oldPath), resolve(newPath)); audit('sftp', username, 'rename', { from: oldPath, to: newPath }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
+            try { fs.renameSync(resolve(oldPath), resolve(newPath)); recordMutation(username, 'rename'); checkHoneypot(username, oldPath, 'rename'); audit('sftp', username, 'rename', { from: oldPath, to: newPath }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('REALPATH', (reqid, p) => {

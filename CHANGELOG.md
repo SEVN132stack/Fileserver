@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.14.0] - 2026-07-21
+
+### Toegevoegd — extra beveiliging & hardening
+
+- **Back-up-encryptie** (AES-256-GCM) met `BACKUP_PASSWORD`; `encryptBackup`/`decryptBackup` voor herstel.
+- **Off-site back-up** via `BACKUP_UPLOAD_CMD` (bijv. `rclone copy`, `aws s3 cp`) na elke geplande back-up.
+- **Ransomware-/massa-wijziging-detectie**: alarm bij te veel destructieve acties per gebruiker binnen een tijdvenster (`RANSOMWARE_THRESHOLD`/`RANSOMWARE_WINDOW_MS`), zowel via web als SFTP.
+- **Honeypot-/lokbestanden** (`HONEYPOTS`): toegang of wijziging triggert direct een alarm.
+- **Tweefactor afdwingen** (`REQUIRE_2FA=off|admin|all`): gebruikers zonder 2FA worden bij het inloggen naar de inschrijving geleid (`mustEnroll2fa`).
+- **Accountvervaldatum**: verlopen accounts kunnen niet meer inloggen (web + SFTP); instelbaar per gebruiker in het admin-dashboard.
+- **fail2ban-hook** (`BAN_CMD`): shell-commando bij ban/unban.
+- **Geo-blokkering** (`GEO_ALLOW`/`GEO_HEADER`): toegang beperken tot bepaalde landen.
+- **SFTP alleen-sleutel-modus** (`SFTP_PASSWORD_AUTH=false`): wachtwoord-auth uitschakelen.
+- **Periodieke integriteitscontrole** (`INTEGRITY_INTERVAL_HOURS`) naast de handmatige scan.
+- **SIEM-forwarding** (`SIEM_URL`): audit-events als JSON doorsturen naar een extern SIEM.
+- **HaveIBeenPwned-controle** (`PASSWORD_HIBP`): gelekte wachtwoorden weigeren via k-anonimiteit.
+- **Documentatie** voor at-rest-encryptie (LUKS/eCryptfs) en off-site back-up (rclone) in `deploy/`.
+
 ## [3.13.0] - 2026-07-20
 
 ### Toegevoegd — onderhoud & ops

@@ -1,5 +1,14 @@
 import fs from 'node:fs';
+import { execFile } from 'node:child_process';
 import { config } from './config.js';
+
+// Optionele fail2ban-koppeling: draai een OS-commando bij ban/unban zodat de
+// blokkade ook op firewall-niveau geldt.
+function runBanCmd(action, ip) {
+  if (!config.banCmd) return;
+  const [cmd, ...args] = config.banCmd.split(' ');
+  execFile(cmd, [...args, action, ip], (err) => { if (err) console.error('[ban-cmd]', err.message); });
+}
 
 // Persistente IP-bans, bewaard op schijf zodat ze een herstart overleven.
 let bans = {};
@@ -32,11 +41,13 @@ export function isBanned(ip) {
 export function ban(ip, until = 0) {
   bans[ip] = until;
   save();
+  runBanCmd('ban', ip);
 }
 
 export function unban(ip) {
   delete bans[ip];
   save();
+  runBanCmd('unban', ip);
 }
 
 export function listBans() {

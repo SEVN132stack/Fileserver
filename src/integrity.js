@@ -46,6 +46,16 @@ export function buildBaseline() {
   return { files: Object.keys(m).length };
 }
 
+// Periodieke integriteitscontrole (indien ingeschakeld). Bouwt eerst een
+// baseline als die er nog niet is.
+export function startIntegrityScheduler() {
+  if (!config.integrityIntervalHours || config.integrityIntervalHours <= 0) return;
+  if (!fs.existsSync(config.integrityFile)) buildBaseline();
+  setInterval(() => {
+    try { verify(); } catch (err) { console.error('[integrity]', err.message); }
+  }, config.integrityIntervalHours * 3600000).unref();
+}
+
 // Controleer de huidige bestanden tegen het manifest.
 export function verify() {
   const m = readManifest();

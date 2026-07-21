@@ -192,6 +192,22 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Extra beveiliging & hardening (v3.14)
+
+- **Back-up-encryptie** (AES-256-GCM) via `BACKUP_PASSWORD` + **off-site kopie**
+  via `BACKUP_UPLOAD_CMD` (rclone/S3). Zie `deploy/offsite-backup.md`.
+- **Ransomware-/massa-wijziging-detectie**: alarm bij te veel verwijder-/hernoem-/
+  overschrijf-acties per gebruiker in korte tijd (`RANSOMWARE_THRESHOLD`), web én SFTP.
+- **Honeypot-/lokbestanden** (`HONEYPOTS`): toegang triggert direct een alarm.
+- **Tweefactor afdwingen** (`REQUIRE_2FA=off|admin|all`): gebruikers zonder 2FA
+  worden bij het inloggen naar de inschrijving geleid.
+- **Accountvervaldatum** per gebruiker (in het admin-dashboard) — verlopen accounts
+  kunnen niet meer inloggen (web + SFTP).
+- **SFTP alleen-sleutel-modus** (`SFTP_PASSWORD_AUTH=false`), **fail2ban-hook**
+  (`BAN_CMD`) en **geo-blokkering** (`GEO_ALLOW`).
+- **SIEM-forwarding** (`SIEM_URL`) en **HaveIBeenPwned-controle** (`PASSWORD_HIBP`).
+- **At-rest-encryptie** op FS-niveau (LUKS/eCryptfs): zie `deploy/at-rest-encryption.md`.
+
 ## Onderhoud & up-to-date houden (v3.13)
 
 - **Automatische dependency-updates** via Dependabot; CI faalt bij kwetsbaarheden (`npm audit`).

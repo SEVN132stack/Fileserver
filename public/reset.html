@@ -24,6 +24,8 @@
     </div>
     <div id="confirmForm" style="display:none">
       <label>Nieuw wachtwoord</label><input id="password" type="password">
+      <div style="height:5px;border-radius:3px;background:#334155;margin-top:.4rem;overflow:hidden"><div id="pwbar" style="height:100%;width:0;transition:.2s"></div></div>
+      <div id="pwlabel" style="font-size:.75rem;color:#94a3b8;margin-top:.2rem"></div>
       <button id="confBtn">Wachtwoord instellen</button>
     </div>
     <div class="msg" id="msg"></div>
@@ -37,6 +39,26 @@
       msg.style.color = '#4ade80';
       msg.textContent = 'Als het account bestaat, is er een resetlink verstuurd (of gelogd op de server).';
     };
+    // Wachtwoordsterkte-meter (indicatief).
+    function pwScore(pw) {
+      let s = 0;
+      if (pw.length >= 8) s++;
+      if (pw.length >= 12) s++;
+      if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) s++;
+      if (/[0-9]/.test(pw)) s++;
+      if (/[^A-Za-z0-9]/.test(pw)) s++;
+      return Math.min(s, 4);
+    }
+    const pwInput = document.getElementById('password');
+    if (pwInput) pwInput.addEventListener('input', () => {
+      const labels = ['zeer zwak','zwak','redelijk','sterk','zeer sterk'];
+      const colors = ['#f87171','#fb923c','#facc15','#4ade80','#22c55e'];
+      const sc = pwScore(pwInput.value);
+      const bar = document.getElementById('pwbar');
+      bar.style.width = pwInput.value ? ((sc+1)/5*100)+'%' : '0';
+      bar.style.background = colors[sc];
+      document.getElementById('pwlabel').textContent = pwInput.value ? labels[sc] : '';
+    });
     document.getElementById('confBtn').onclick = async () => {
       const r = await fetch('/api/reset/confirm', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ token, password: document.getElementById('password').value }) });
       const d = await r.json().catch(()=>({}));

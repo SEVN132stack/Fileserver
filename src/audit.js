@@ -40,4 +40,9 @@ export function audit(channel, user, action, detail = {}) {
   } catch (err) {
     console.error('[audit] kon niet schrijven:', err.message);
   }
+  // Optioneel doorsturen naar een SIEM/extern log-endpoint (fire-and-forget).
+  if (config.siemUrl) {
+    fetch(config.siemUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) })
+      .catch(() => {});
+  }
 }

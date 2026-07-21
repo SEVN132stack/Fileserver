@@ -152,15 +152,29 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Galerij-weergave voor afbeeldingen
 - ✅ Gedeelde bestandscommentaren
 
+## Extra beveiliging & hardening (v3.14)
+
+- ✅ Back-up-encryptie (AES-256-GCM) + herstel (`decryptBackup`)
+- ✅ Off-site back-up via `BACKUP_UPLOAD_CMD` (rclone/S3)
+- ✅ Ransomware-/massa-wijziging-detectie (web + SFTP)
+- ✅ Honeypot-/lokbestanden met alarm
+- ✅ Tweefactor afdwingen (off/admin/all)
+- ✅ Accountvervaldatum (web + SFTP)
+- ✅ fail2ban-hook bij ban/unban
+- ✅ Geo-blokkering (landcodes)
+- ✅ SFTP alleen-sleutel-modus (wachtwoord-auth uit)
+- ✅ Periodieke integriteitscontrole
+- ✅ SIEM-forwarding van audit-events
+- ✅ HaveIBeenPwned-controle op wachtwoorden
+- ✅ Documentatie at-rest-encryptie (LUKS/eCryptfs) + off-site back-up (rclone)
+
 ## Toekomstige ideeën
 
-- 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — aanbevolen boven app-niveau)
+- 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)
 - 💡 Volledige S3/object-storage als primaire backend (storage-abstractielaag)
 - 💡 JWKS-handtekeningverificatie voor OIDC id_tokens
 - 💡 Meer talen (ES/IT/PL/...) en RTL-ondersteuning
 - 💡 Mobiele native app (via de bestaande API)
-- 💡 Back-up naar externe bestemming (S3/rsync) i.p.v. lokaal
-- 💡 Volledige audit-export (SIEM) en alerting-regels bij de metrics
 
 
 

@@ -63,6 +63,7 @@
         document.getElementById('token').focus();
         return;
       }
+      if (res.ok && data.mustEnroll2fa) { window.location = '/?enroll2fa=1'; return; }
       if (res.ok && data.ok) { window.location = '/'; return; }
       document.getElementById('err').textContent = data.error || 'Inloggen mislukt';
     };
