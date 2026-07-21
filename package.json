@@ -18,12 +18,12 @@
   },
   "dependencies": {
     "@simplewebauthn/server": "^13.3.2",
-    "archiver": "^8.0.0",
-    "express": "^5.2.1",
+    "archiver": "^7.0.1",
+    "express": "^4.21.2",
     "multer": "^2.0.0",
     "nodemailer": "^9.0.3",
     "qrcode": "^1.5.4",
-    "selfsigned": "^5.5.0",
+    "selfsigned": "^2.4.1",
     "sharp": "^0.35.3",
     "ssh2": "^1.15.0"
   },
