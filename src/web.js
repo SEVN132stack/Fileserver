@@ -65,6 +65,17 @@ import { signature, applyDelta, DEFAULT_BLOCK } from './rsync.js';
 import * as keyring from './keyring.js';
 import * as searchIndex from './searchindex.js';
 import * as tags from './tags.js';
+import * as accessLog from './access-log.js';
+import { watermarkImage, canWatermark } from './watermark.js';
+import * as locks from './locks.js';
+import * as scheduledExport from './scheduled-export.js';
+import { organize as organizePhotos } from './photo-organize.js';
+import { officePreview, canPreviewOffice } from './office.js';
+import { videoPoster, audioWaveform, canPoster, canWaveform, hasFfmpeg } from './media.js';
+import { runAcme } from './acme.js';
+import * as configDrift from './config-drift.js';
+import { revokeAllForUser } from './sessions.js';
+import { isPasswordExpired, isPasswordReused } from './users.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -306,7 +317,7 @@ export function createWebServer() {
     metrics.inc('fileserver_logins_total');
     emitAdmin('activity', { kind: 'login', user: username });
     audit('web', username, 'login', { ip });
-    res.json({ ok: true, role: role(username) });
+    res.json({ ok: true, role: role(username), mustChangePassword: isPasswordExpired(username) });
   });
 
   app.post('/api/logout', (req, res) => {
@@ -347,8 +358,22 @@ export function createWebServer() {
     const perr = validatePassword(password);
     if (perr) return res.status(400).json({ error: perr });
     if (await passwordPwnedCount(password) > 0) return res.status(400).json({ error: 'Dit wachtwoord komt voor in een datalek — kies een ander.' });
+    if (isPasswordReused(user, password)) return res.status(400).json({ error: 'Je hebt dit wachtwoord recent al gebruikt — kies een ander.' });
     updateUser(user, { password });
     audit('web', user, 'reset_done');
+    res.json({ ok: true });
+  });
+
+  // Eigen wachtwoord wijzigen (ingelogd) — met hergebruik-controle.
+  app.post('/api/change-password', authenticate, express.json(), async (req, res) => {
+    const { current, password } = req.body || {};
+    if (!verifyPassword(req.user, current || '')) return res.status(401).json({ error: 'Huidig wachtwoord onjuist' });
+    const perr = validatePassword(password || '');
+    if (perr) return res.status(400).json({ error: perr });
+    if (await passwordPwnedCount(password) > 0) return res.status(400).json({ error: 'Dit wachtwoord komt voor in een datalek — kies een ander.' });
+    if (isPasswordReused(req.user, password)) return res.status(400).json({ error: 'Je hebt dit wachtwoord recent al gebruikt — kies een ander.' });
+    updateUser(req.user, { password });
+    audit('web', req.user, 'password_changed');
     res.json({ ok: true });
   });
 
@@ -390,6 +415,8 @@ export function createWebServer() {
 
   // --- Passkey-login (geen auth) ---
   app.get('/api/webauthn/enabled', (req, res) => res.json({ enabled: config.webauthn.enabled }));
+  // Publieke branding (voor de login-/reset-pagina's).
+  app.get('/api/branding', (req, res) => res.json({ appName: getSetting('appName'), logoUrl: getSetting('logoUrl'), accent: getSetting('accent') }));
   app.post('/api/webauthn/login/options', express.json(), async (req, res) => {
     if (!config.webauthn.enabled || !userExists(req.body.username)) return res.status(400).json({ error: 'Niet beschikbaar' });
     res.json(await webauthn.authenticationOptions(req.body.username));
@@ -422,12 +449,21 @@ export function createWebServer() {
     const name = path.basename(abs);
     checkHoneypot(entry.user, entry.path, 'permalink');
     audit('web', entry.user, 'permalink_access', { path: entry.path, uuid: req.params.uuid, ip: clientIp(req) });
+    accessLog.recordAccess({ owner: entry.user, kind: 'permalink', ref: req.params.uuid, path: entry.path, ip: clientIp(req) });
     if (fs.statSync(abs).isDirectory()) {
       res.attachment(name + '.zip');
       const archive = archiver('zip', { zlib: { level: 9 } });
       archive.pipe(res);
       archive.directory(abs, false);
       return archive.finalize();
+    }
+    // Watermerk op afbeeldingen (indien ingeschakeld).
+    if (config.watermarkShares && canWatermark(name)) {
+      return watermarkImage(abs, `${entry.user} · ${new Date().toISOString().slice(0, 10)}`).then((buf) => {
+        if (!buf) return res.download(abs, name);
+        res.setHeader('Content-Disposition', `${req.query.inline === '1' ? 'inline' : 'attachment'}; filename="${name.replace(/[\r\n"]/g, '')}"`);
+        res.end(buf);
+      });
     }
     // Inline tonen kan met ?inline=1 (afbeeldingen/tekst/pdf); anders downloaden.
     if (req.query.inline === '1') {
@@ -455,8 +491,9 @@ export function createWebServer() {
       return res.send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <div style="font-family:system-ui,sans-serif;max-width:420px;margin:3rem auto;padding:1.5rem;border:1px solid #ccc;border-radius:10px">
         <h2>📤 Bestanden aanleveren</h2>
-        <p style="color:#666">Kies bestanden om te uploaden naar deze gedeelde map.</p>
+        <p style="color:#666">Vul je naam in en kies bestanden. Ze komen in een map met jouw naam.</p>
         <form method="post" action="/s/${req.params.token}/upload${pw}" enctype="multipart/form-data">
+          <input name="uploader" placeholder="Je naam (optioneel)" style="width:100%;padding:.5rem;margin-bottom:.6rem;box-sizing:border-box">
           <input type="file" name="files" multiple required>
           <button style="margin-top:1rem;padding:.6rem 1.2rem">Uploaden</button>
         </form></div>`);
@@ -466,6 +503,7 @@ export function createWebServer() {
     const name = path.basename(abs);
     audit('web', share.user, 'share_access', { path: share.path, token: req.params.token });
     notifyShare('share_access', share.user, { path: share.path, ip: clientIp(req) });
+    accessLog.recordAccess({ owner: share.user, kind: 'share', ref: req.params.token, path: share.path, ip: clientIp(req) });
     countDownload(req.params.token);
     if (fs.statSync(abs).isDirectory()) {
       res.attachment(name + '.zip');
@@ -473,6 +511,13 @@ export function createWebServer() {
       archive.pipe(res);
       archive.directory(abs, false);
       return archive.finalize();
+    }
+    if (config.watermarkShares && canWatermark(name)) {
+      return watermarkImage(abs, `${req.params.token.slice(0, 8)} · ${new Date().toISOString().slice(0, 10)}`).then((buf) => {
+        if (!buf) return res.download(abs, name);
+        res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[\r\n"]/g, '')}"`);
+        res.end(buf);
+      });
     }
     res.download(abs, name);
   });
@@ -484,7 +529,10 @@ export function createWebServer() {
         const share = getShare(req.params.token);
         if (!share || share.type !== 'upload' || !checkSharePassword(share, req.query.pw)) return cb(new Error('Ongeldige link'));
         try {
-          const dir = resolveWithin(homeDir(share.user), share.path);
+          // Optioneel: leg de aangeleverde bestanden in een submap per inzender.
+          const uploader = (req.body && req.body.uploader || '').toString().replace(/[^a-zA-Z0-9 _.-]/g, '').trim().slice(0, 40);
+          const rel = uploader ? path.posix.join(share.path, uploader) : share.path;
+          const dir = resolveWithin(homeDir(share.user), rel);
           fs.mkdirSync(dir, { recursive: true });
           cb(null, dir);
         } catch (err) { cb(err); }
@@ -563,6 +611,8 @@ export function createWebServer() {
       shared: sharedWith(req.user),
       require2fa: config.requireTwoFactor === 'all' || (config.requireTwoFactor === 'admin' && req.userRole === 'admin'),
       has2fa: !!getUser(req.user)?.totp || getCredentials(req.user).length > 0,
+      mustChangePassword: isPasswordExpired(req.user),
+      branding: { appName: getSetting('appName'), logoUrl: getSetting('logoUrl'), accent: getSetting('accent') },
     });
   });
 
@@ -917,12 +967,15 @@ export function createWebServer() {
 
   app.post('/api/rename', requireWrite, express.json(), async (req, res) => {
     try {
+      const lockHolder = locks.lockOwner(req.home, req.body.from || '');
+      if (lockHolder) return res.status(423).json({ error: `Vergrendeld door ${lockHolder} — eerst ontgrendelen` });
       const from = resolveWithin(req.home, req.body.from || '');
       const to = resolveWithin(req.home, req.body.to || '');
       await fsp.mkdir(path.dirname(to), { recursive: true });
       await fsp.rename(from, to);
       permalinks.updatePath(req.user, req.body.from, req.body.to);
       tags.movePath(req.user, req.body.from, req.body.to);
+      locks.movePath(req.home, req.body.from, req.body.to);
       recordMutation(req.user, 'rename'); checkHoneypot(req.user, req.body.from, 'rename');
       audit('web', req.user, 'rename', { from: req.body.from, to: req.body.to });
       emitToUser(req.user, 'change', { action: 'rename' });
@@ -939,6 +992,7 @@ export function createWebServer() {
       const trash = path.join(req.home, config.trashName);
       await fsp.mkdir(trash, { recursive: true });
       for (const p of targets) {
+        if (locks.lockOwner(req.home, p)) continue; // vergrendelde items overslaan
         const abs = resolveWithin(req.home, p);
         if (path.resolve(abs) === path.resolve(req.home)) continue;
         const dest = path.join(trash, Date.now() + '_' + path.basename(abs));
@@ -947,6 +1001,7 @@ export function createWebServer() {
         });
         permalinks.removeForPath(req.user, p);
         tags.removePath(req.user, p);
+        locks.removePath(req.home, p);
         recordMutation(req.user, 'delete'); checkHoneypot(req.user, p, 'delete');
         audit('web', req.user, 'delete', { path: p });
         notify('delete', { user: req.user, path: p });
@@ -967,6 +1022,7 @@ export function createWebServer() {
       await fsp.mkdir(targetDir, { recursive: true });
       let moved = 0;
       for (const p of req.body.paths || []) {
+        if (locks.lockOwner(req.home, p)) continue;
         const abs = resolveWithin(req.home, p);
         if (path.resolve(abs) === path.resolve(req.home)) continue;
         const dest = path.join(targetDir, path.basename(abs));
@@ -974,6 +1030,7 @@ export function createWebServer() {
         const destRel = '/' + path.relative(req.home, dest).split(path.sep).join('/');
         permalinks.updatePath(req.user, p, destRel);
         tags.movePath(req.user, p, destRel);
+        locks.movePath(req.home, p, destRel);
         moved++;
       }
       recordMutation(req.user, 'rename');
@@ -995,6 +1052,78 @@ export function createWebServer() {
     const set = tags.setTags(req.user, req.body.path || '', req.body.tags || []);
     audit('web', req.user, 'set_tags', { path: req.body.path, tags: set });
     res.json({ ok: true, tags: set });
+  });
+
+  // PWA share-target: bestanden vanuit een andere app "delen naar" de fileserver.
+  const shareTargetUpload = multer({
+    storage: multer.diskStorage({
+      destination(req, file, cb) { fs.mkdirSync(req.home, { recursive: true }); cb(null, req.home); },
+      filename(req, file, cb) { cb(null, path.basename(file.originalname)); },
+    }),
+  });
+  app.post('/share-target', shareTargetUpload.array('files'), (req, res) => {
+    audit('web', req.user, 'share_target_upload', { files: (req.files || []).map((f) => f.originalname) });
+    emitToUser(req.user, 'change', { action: 'share_target' });
+    res.redirect('/');
+  });
+
+  // Toegangslog voor gedeelde bestanden: wie downloadde wat en wanneer.
+  app.get('/api/share-access', (req, res) => {
+    res.json({ access: accessLog.accessForOwner(req.user, req.query.path) });
+  });
+
+  // "Overal uitloggen": trek alle sessies van deze gebruiker in.
+  app.post('/api/logout-all', (req, res) => {
+    const n = revokeAllForUser(req.user);
+    audit('web', req.user, 'logout_all', { sessions: n });
+    res.set('Set-Cookie', 'sid=; HttpOnly; Path=/; Max-Age=0');
+    res.json({ ok: true, revoked: n });
+  });
+
+  // Bestandsvergrendeling.
+  app.get('/api/locks', (req, res) => res.json({ locks: locks.listLocks(req.home) }));
+  app.post('/api/lock', requireWrite, express.json(), (req, res) => {
+    const r = locks.lock(req.home, req.body.path || '', req.user);
+    if (!r.ok) return res.status(423).json({ error: `Vergrendeld door ${r.by}` });
+    audit('web', req.user, 'lock', { path: req.body.path });
+    res.json({ ok: true });
+  });
+  app.post('/api/unlock', requireWrite, express.json(), (req, res) => {
+    const r = locks.unlock(req.home, req.body.path || '', req.user, isAdmin(req.user));
+    if (!r.ok) return res.status(403).json({ error: `Alleen ${r.by} of een admin kan ontgrendelen` });
+    audit('web', req.user, 'unlock', { path: req.body.path });
+    res.json({ ok: true });
+  });
+
+  // Automatische foto-ordening (EXIF-datum -> jaar/maand + dubbele-detectie).
+  app.post('/api/organize-photos', requireWrite, express.json(), async (req, res) => {
+    try {
+      const r = await organizePhotos(req.home, req.body.src || '/', req.body.dest || req.body.src || '/');
+      audit('web', req.user, 'organize_photos', { src: req.body.src, moved: r.moved, duplicates: r.duplicates });
+      emitToUser(req.user, 'change', { action: 'organize_photos' });
+      res.json(r);
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Office-preview (docx/xlsx/pptx -> platte tekst).
+  app.get('/api/office-preview', (req, res) => {
+    try {
+      const file = resolveWithin(req.home, req.query.path || '');
+      if (!canPreviewOffice(file)) return res.status(400).json({ error: 'Geen Office-bestand' });
+      const r = officePreview(file);
+      res.json(r || { error: 'Kon niet lezen' });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Video-posterframe / audio-golfvorm (vereist FFMPEG_CMD).
+  app.get('/api/poster', async (req, res) => {
+    try {
+      const file = resolveWithin(req.home, req.query.path || '');
+      if (!hasFfmpeg()) return res.status(501).json({ error: 'ffmpeg niet geconfigureerd' });
+      const out = canWaveform(file) ? await audioWaveform(file) : (canPoster(file) ? await videoPoster(file) : null);
+      if (!out) return res.status(404).json({ error: 'Geen preview' });
+      res.sendFile(out);
+    } catch (err) { res.status(400).json({ error: err.message }); }
   });
 
   // Prullenbak bekijken / herstellen / legen.
@@ -1352,6 +1481,19 @@ export function createWebServer() {
   app.post('/api/admin/av/scan-all', requireAdmin, async (req, res) => res.json(await scanAll()));
   // Zoekindex (her)bouwen.
   app.post('/api/admin/search/reindex', requireAdmin, (req, res) => res.json(searchIndex.buildIndex()));
+  // Config-drift-controle (databestanden buiten de app om gewijzigd?).
+  app.get('/api/admin/config-drift', requireAdmin, (req, res) => res.json(configDrift.check()));
+  // TLS-certificaat verlengen via het ACME-commando.
+  app.post('/api/admin/acme/renew', requireAdmin, async (req, res) => res.json(await runAcme()));
+  // Geplande exports (rsync/rclone) beheren.
+  app.get('/api/admin/exports', requireAdmin, (req, res) => res.json({ exports: scheduledExport.listExports() }));
+  app.post('/api/admin/exports', requireAdmin, express.json(), (req, res) => {
+    const id = scheduledExport.addExport(req.body || {});
+    audit('web', req.user, 'export_add', { id });
+    res.json({ ok: true, id });
+  });
+  app.delete('/api/admin/exports/:id', requireAdmin, (req, res) => { scheduledExport.deleteExport(req.params.id); res.json({ ok: true }); });
+  app.post('/api/admin/exports/:id/run', requireAdmin, async (req, res) => res.json(await scheduledExport.runExport(req.params.id)));
   app.post('/api/admin/integrity/baseline', requireAdmin, (req, res) => res.json(integrity.buildBaseline()));
   app.post('/api/admin/integrity/verify', requireAdmin, (req, res) => res.json(integrity.verify()));
 

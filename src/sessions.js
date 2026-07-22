@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { config } from './config.js';
 
 // Sessie-opslag met metadata, zodat een gebruiker actieve sessies kan bekijken
 // en op afstand kan intrekken.
@@ -9,7 +10,7 @@ export function createSession(username, meta = {}) {
   const token = randomBytes(24).toString('base64url');
   const id = randomBytes(6).toString('hex');
   sessions.set(token, {
-    id, username, expires: Date.now() + TTL_MS, created: Date.now(),
+    id, username, expires: Date.now() + TTL_MS, created: Date.now(), lastSeen: Date.now(),
     ip: meta.ip || '', ua: (meta.ua || '').slice(0, 200),
   });
   return token;
@@ -19,7 +20,22 @@ export function getSession(token) {
   const s = sessions.get(token);
   if (!s) return null;
   if (s.expires < Date.now()) { sessions.delete(token); return null; }
+  // Inactiviteits-timeout: sessie verloopt als er te lang niets gebeurt.
+  if (config.idleTimeoutMs > 0 && Date.now() - s.lastSeen > config.idleTimeoutMs) {
+    sessions.delete(token);
+    return null;
+  }
+  s.lastSeen = Date.now();
   return s;
+}
+
+// Trek alle sessies van een gebruiker in ("overal uitloggen").
+export function revokeAllForUser(username) {
+  let n = 0;
+  for (const [token, s] of sessions) {
+    if (s.username === username) { sessions.delete(token); n++; }
+  }
+  return n;
 }
 
 // Markeer dat de gebruiker zich zojuist opnieuw met wachtwoord heeft

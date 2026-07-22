@@ -11,6 +11,9 @@ import { startDiskMonitor } from './diskmonitor.js';
 import { startIntegrityScheduler } from './integrity.js';
 import { startAvScheduler } from './av-schedule.js';
 import { startSearchIndexScheduler } from './searchindex.js';
+import { startScheduledExports } from './scheduled-export.js';
+import { startAcmeScheduler } from './acme.js';
+import { startConfigDriftMonitor } from './config-drift.js';
 
 // Startpunt: bereidt opslag, host key en gebruikers voor en start beide servers.
 ensureStorage();
@@ -26,6 +29,9 @@ startDiskMonitor();
 startIntegrityScheduler();
 startAvScheduler();
 startSearchIndexScheduler();
+startScheduledExports();
+startAcmeScheduler();
+startConfigDriftMonitor();
 
 startWebServer();
 startSftpServer();

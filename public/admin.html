@@ -101,6 +101,8 @@
         <button id="btnScanAll">Volledige virusscan</button>
         <button id="btnStatus">Statusoverzicht</button>
         <button id="btnUserTraffic">Verkeer per gebruiker</button>
+        <button id="btnConfigDrift">Config-drift controleren</button>
+        <button id="btnAcme">TLS-cert verlengen</button>
       </div>
       <div id="maintOut" class="l" style="margin-top:.8rem;white-space:pre-wrap"></div>
     </div>
@@ -280,13 +282,14 @@
     async function loadUsers() {
       const {users} = await (await j('/api/admin/users')).json();
       document.getElementById('userTable').innerHTML =
-        '<tr><th>Gebruiker</th><th>Rol</th><th>Quota (bytes)</th><th>Bandbreedte (B/s)</th><th>E-mail</th><th>Verloopt</th><th>2FA</th><th></th></tr>' +
+        '<tr><th>Gebruiker</th><th>Rol</th><th>Quota (bytes)</th><th>Bandbreedte (B/s)</th><th>E-mail</th><th>Verloopt</th><th>Afdeling</th><th>2FA</th><th></th></tr>' +
         users.map(u=>`<tr><td>${esc(u.username)}${u.external?' 🔗':''}</td>
           <td><select data-role="${u.username}"><option ${u.role==='user'?'selected':''}>user</option><option ${u.role==='admin'?'selected':''}>admin</option><option ${u.role==='readonly'?'selected':''}>readonly</option></select></td>
           <td><input data-quota="${u.username}" value="${u.quota||0}" style="width:120px"></td>
           <td><input data-bw="${u.username}" value="${u.bw||0}" style="width:110px"></td>
           <td><input data-email="${u.username}" value="${esc(u.email||'')}" placeholder="e-mail" style="width:150px"></td>
           <td><input type="date" data-expires="${u.username}" value="${u.expires?new Date(u.expires).toISOString().slice(0,10):''}"></td>
+          <td><input data-tenant="${u.username}" value="${esc(u.tenant||'')}" placeholder="afdeling" style="width:90px"></td>
           <td>${u.totp?'aan':'uit'}</td>
           <td><button class="danger" data-del="${u.username}">verwijder</button></td></tr>`).join('');
     }
@@ -315,6 +318,7 @@
       if (d.bw) await j('/api/admin/users/'+d.bw,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({bw:parseInt(e.target.value||'0',10)})});
       if (d.email) await j('/api/admin/users/'+d.email,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e.target.value})});
       if (d.expires) await j('/api/admin/users/'+d.expires,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({expires:e.target.value?new Date(e.target.value).getTime():0})});
+      if (d.tenant) await j('/api/admin/users/'+d.tenant,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenant:e.target.value})});
     });
     async function loadBackups() {
       const {backups} = await (await j('/api/admin/backups')).json();
@@ -393,6 +397,8 @@
     document.getElementById('btnScanAll').onclick = async () => { mo('Volledige virusscan (kan even duren)…'); const r=await (await j('/api/admin/av/scan-all',{method:'POST'})).json(); mo(r.skipped?'Geen antivirus geconfigureerd.':`Scan klaar: ${r.scanned} gescand, ${r.infected} in quarantaine.`); };
     document.getElementById('btnStatus').onclick = async () => { const s=await (await j('/api/admin/status')).json(); mo(`Versie: v${s.version}\nUptime: ${Math.floor(s.uptime/3600)}u ${Math.floor(s.uptime%3600/60)}m\nGeheugen: ${s.memoryMB} MB\nSchijf vrij: ${s.disk.freePct?s.disk.freePct.toFixed(1)+'%':'?'}\nGebruikers: ${s.users}\nBack-up: ${s.backup.ok?'geldig ('+s.backup.file+')':'ONGELDIG'}\nAudit-keten: ${s.auditChain.ok?'intact ('+s.auditChain.checked+')':'GEWIJZIGD @'+s.auditChain.brokenAt}`); };
     document.getElementById('btnUserTraffic').onclick = async () => { const {users}=await (await j('/api/admin/metrics/users')).json(); mo(users.length?users.map(u=>`${u.user}: ↑${fmtB(u.up)} ↓${fmtB(u.down)}`).join('\n'):'Nog geen verkeer geregistreerd.'); };
+    document.getElementById('btnConfigDrift').onclick = async () => { const r=await (await j('/api/admin/config-drift')).json(); mo(r.drifted.length?('⚠ Buiten de app gewijzigd:\n'+r.drifted.join('\n')):'Geen config-drift: alle databestanden ongewijzigd sinds de app ze schreef.'); };
+    document.getElementById('btnAcme').onclick = async () => { mo('TLS-certificaat verlengen…'); const r=await (await j('/api/admin/acme/renew',{method:'POST'})).json(); mo(r.skipped?'ACME niet geconfigureerd (ACME_CMD).':r.ok?'Certificaat verlengd/gecontroleerd.':'Mislukt: '+r.error); };
 
     loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk();
 

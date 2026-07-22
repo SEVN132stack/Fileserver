@@ -24,3 +24,6 @@ integrity.json
 search-index.json
 tags.json
 audit.log.chain
+share-access.json
+locks.json
+scheduled-exports.json

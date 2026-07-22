@@ -192,6 +192,20 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Privacy, samenwerking, media & multi-tenant (v3.16)
+
+- **Toegangslog** voor gedeelde bestanden (wie downloadde je link, wanneer) en
+  optioneel **watermerk** op gedeelde afbeeldingen (`WATERMARK_SHARES`).
+- **Inactiviteit-timeout** (`IDLE_TIMEOUT_MS`) + **"overal uitloggen"**;
+  **wachtwoordverval** (`PASSWORD_MAX_AGE_DAYS`) en **-historie** (geen hergebruik).
+- **Config-drift-detectie**: alarm als databestanden buiten de app om wijzigen.
+- **Bestandsvergrendeling** tegen (per ongeluk) overschrijven; **upload-portalen**
+  met per-inzender-mappen; **afdelingen/tenants** per gebruiker.
+- **Office-preview** (docx/xlsx/pptx → tekst), **foto-ordening** (EXIF → jaar/maand +
+  dedupe), **video-poster/audio-golfvorm** (via `FFMPEG_CMD`), **PWA share-target**.
+- **Geplande exports** (rsync/rclone), **automatische TLS** via `ACME_CMD`, en
+  **branding** (naam/logo/accentkleur).
+
 ## Beveiliging, onderhoud & organisatie (v3.15)
 
 - **Onvervalsbaar audit-log** (hash-keten): het dashboard verifieert of er regels

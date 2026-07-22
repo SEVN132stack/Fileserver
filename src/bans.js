@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import { config } from './config.js';
+import { markWritten } from './config-drift.js';
 
 // Optionele fail2ban-koppeling: draai een OS-commando bij ban/unban zodat de
 // blokkade ook op firewall-niveau geldt.
@@ -23,6 +24,7 @@ function load() {
 }
 function save() {
   fs.writeFileSync(config.bansFile, JSON.stringify(bans, null, 2), { mode: 0o600 });
+  markWritten(config.bansFile);
 }
 load();
 

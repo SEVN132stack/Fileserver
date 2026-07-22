@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
+import { markWritten } from './config-drift.js';
 
 // Publieke deel-links: token -> { user, path, expires, password (hash|null) }.
 
@@ -14,6 +15,7 @@ function read() {
 }
 function write(data) {
   fs.writeFileSync(config.sharesFile, JSON.stringify(data, null, 2), { mode: 0o600 });
+  markWritten(config.sharesFile);
 }
 
 function hash(pw) {

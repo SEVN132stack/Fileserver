@@ -66,6 +66,13 @@ async function loadMe() {
   const r = await api('/api/whoami');
   me = await r.json();
   document.getElementById('who').textContent = (lang==='nl'?'Ingelogd als ':'Signed in as ') + me.user + ' (' + me.role + ')';
+  // Huisstijl toepassen (naam/accentkleur).
+  if (me.branding) {
+    if (me.branding.appName) document.title = me.branding.appName;
+    if (me.branding.accent) document.documentElement.style.setProperty('--accent', me.branding.accent);
+  }
+  // Verplichte wachtwoordwijziging (verlopen wachtwoord).
+  if (me.mustChangePassword) changePassword(true);
   // Tweefactor afgedwongen maar nog niet ingeschakeld → forceer inschrijving.
   if (me.require2fa && !me.has2fa) {
     alert(lang==='nl'
@@ -117,6 +124,7 @@ async function load() {
     if (!it.isDir && /\.enc$/i.test(it.name)) a += `<button class="ghost" data-dec="${enc(it.path)}">🔓</button>`;
     if (!it.isDir) a += `<button class="ghost" data-sync="${enc(it.path)}" title="Efficiënt bijwerken (delta-sync)">⟳</button>`;
     if (!it.isDir) a += `<button class="ghost" data-ver="${enc(it.path)}">🕘</button>`;
+    if (!it.isDir) a += `<button class="ghost" data-lock="${enc(it.path)}" title="Vergrendelen/ontgrendelen">🔒</button>`;
     a += `<button class="ghost" data-meta="${enc(it.path)}">🏷</button>`;
     a += `<button class="ghost" data-perma="${enc(it.path)}" title="Vaste link (permalink)">∞</button>`;
     a += `<button class="ghost" data-share="${enc(it.path)}">🔗</button>`;
@@ -161,6 +169,7 @@ async function openFile(p) {
   else if (/\.pdf$/i.test(name)) openModal(`<h3>${esc(name)}</h3><iframe src="${url}" style="width:82vw;height:74vh"></iframe>`);
   else if (isMd(name)) { const txt = await (await api(url)).text(); openModal(`<h3>${esc(name)}</h3><div style="max-width:80vw;max-height:74vh;overflow:auto;line-height:1.5">${renderMarkdown(txt)}</div>`); }
   else if (isText(name)) { const txt = await (await api(url)).text(); openModal(`<h3>${esc(name)}</h3><pre>${txt.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`); }
+  else if (/\.(docx|xlsx|pptx)$/i.test(name)) { const r = await (await api('/api/office-preview?path='+enc(p))).json(); openModal(`<h3>${esc(name)}</h3><p class="muted">Tekst-preview (${r.type||'office'})</p><pre style="max-width:80vw;max-height:70vh;overflow:auto;white-space:pre-wrap">${(r.text||'(geen tekst)').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre><button data-dl="${enc(p)}">Download origineel</button>`); }
   else openModal(`<h3>${esc(name)}</h3><p class="muted">Geen preview.</p><button data-dl="${enc(p)}">Download</button>`);
   // Gedeelde reacties onder de preview.
   try { document.getElementById('modalBody').insertAdjacentHTML('beforeend', await commentsHtml(p)); } catch {}
@@ -241,7 +250,22 @@ async function showSessions() {
   const { sessions } = await (await api('/api/sessions')).json();
   const rows = sessions.map(s => `<li>${new Date(s.created).toLocaleString()} · ${esc(s.ip||'?')} · ${esc((s.ua||'').slice(0,40))}
     ${s.current?'<strong>(deze sessie)</strong>':`<button class="danger" data-revoke="${s.id}">uitloggen</button>`}</li>`).join('');
-  openModal(`<h3>🖥️ Actieve sessies</h3><ul>${rows||'<li class="muted">Geen</li>'}</ul>`);
+  openModal(`<h3>🖥️ Actieve sessies</h3><ul>${rows||'<li class="muted">Geen</li>'}</ul>
+    <button class="danger" id="logoutAll">Overal uitloggen</button>`);
+  document.getElementById('logoutAll').onclick = async () => {
+    if (!confirm('Alle sessies (ook deze) uitloggen?')) return;
+    await api('/api/logout-all',{method:'POST'}); window.location='/login.html';
+  };
+}
+
+// Eigen wachtwoord wijzigen (met hergebruik-/lek-controle op de server).
+async function changePassword(forced) {
+  const cur = prompt(forced ? 'Je wachtwoord is verlopen. Huidig wachtwoord:' : 'Huidig wachtwoord:');
+  if (cur === null) return;
+  const nw = prompt('Nieuw wachtwoord:'); if (!nw) return;
+  const r = await api('/api/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current:cur,password:nw})});
+  const d = await r.json().catch(()=>({}));
+  alert(r.ok ? 'Wachtwoord gewijzigd.' : (d.error||'Mislukt'));
 }
 
 // Passkey (WebAuthn) registreren.
@@ -452,6 +476,14 @@ document.addEventListener('click', async (e) => {
   if (t2.dataset.dec) { return decryptDownload(decodeURIComponent(t2.dataset.dec)); }
   if (t2.dataset.sync) { return deltaSync(decodeURIComponent(t2.dataset.sync)); }
   if (t2.dataset.ver) { return showVersions(decodeURIComponent(t2.dataset.ver)); }
+  if (t2.dataset.lock) {
+    const p = decodeURIComponent(t2.dataset.lock);
+    const locks = (await (await api('/api/locks')).json()).locks || [];
+    const isLocked = locks.some(l => l.path === p);
+    const r = await api(isLocked ? '/api/unlock' : '/api/lock', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})});
+    if (!r.ok) { const e = await r.json().catch(()=>({})); alert(e.error || 'Mislukt'); }
+    else alert(isLocked ? '🔓 Ontgrendeld' : '🔒 Vergrendeld'); return;
+  }
   if (t2.dataset.verrestore) {
     const [p, v] = t2.dataset.verrestore.split('|').map(decodeURIComponent);
     await api('/api/version/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,version:v})});
@@ -485,6 +517,7 @@ document.getElementById('logoutBtn').onclick = async () => { await fetch('/api/l
 document.getElementById('2faBtn').onclick = setup2fa;
 document.getElementById('passkeyBtn').onclick = addPasskey;
 document.getElementById('sessionsBtn').onclick = showSessions;
+const pwBtn = document.getElementById('pwBtn'); if (pwBtn) pwBtn.onclick = () => changePassword(false);
 document.getElementById('camInput').onchange = (e) => uploadFiles([...e.target.files]);
 document.getElementById('contentSearch').onchange = load;
 const dropBtn = document.getElementById('dropLinkBtn'); if (dropBtn) dropBtn.onclick = makeDropLink;
