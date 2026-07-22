@@ -22,6 +22,17 @@ export function getSession(token) {
   return s;
 }
 
+// Markeer dat de gebruiker zich zojuist opnieuw met wachtwoord heeft
+// geauthenticeerd (step-up), voor gevoelige beheeracties.
+export function markReauth(token) {
+  const s = sessions.get(token);
+  if (s) s.reauthAt = Date.now();
+}
+export function reauthedWithin(token, windowMs) {
+  const s = sessions.get(token);
+  return !!(s && s.reauthAt && Date.now() - s.reauthAt <= windowMs);
+}
+
 export function destroySession(token) {
   sessions.delete(token);
 }

@@ -23,6 +23,8 @@ process.env.KEYRING_FILE = path.join(tmp, 'keyring.json');
 process.env.PERMALINKS_FILE = path.join(tmp, 'permalinks.json');
 process.env.COMMENTS_FILE = path.join(tmp, 'comments.json');
 process.env.INTEGRITY_FILE = path.join(tmp, 'integrity.json');
+process.env.SEARCH_INDEX_FILE = path.join(tmp, 'search-index.json');
+process.env.TAGS_FILE = path.join(tmp, 'tags.json');
 process.env.UPDATE_CHECK = 'false';
 process.env.SETTINGS_FILE = path.join(tmp, 'settings.json');
 process.env.ENV_FILE = path.join(tmp, '.env');
@@ -577,6 +579,48 @@ try {
   const enc = encryptBackup(plain, 'geheim123');
   const dec = decryptBackup(enc, 'geheim123');
   ok('backup-encryptie rondrit', enc.endsWith('.enc') && !fs.existsSync(plain) && dec.toString() === 'backup-inhoud');
+
+  // 19. Onvervalsbaar audit-log: hash-keten verifieert.
+  const chain = await (await fetch(H + '/api/admin/audit/verify', { headers: jar() })).json();
+  ok('audit-log hash-keten intact', chain.ok === true && chain.checked > 0);
+
+  // 20. Step-up reauth: met window aan is export geblokkeerd tot herbevestiging.
+  config.reauthWindowMs = 300000;
+  const noReauth = await fetch(H + '/api/admin/export', { headers: jar() });
+  const ra = await fetch(H + '/api/reauth', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ password: 'testpass123' }) });
+  const afterReauth = await fetch(H + '/api/admin/export', { headers: jar() });
+  config.reauthWindowMs = 0;
+  ok('step-up reauth beschermt gevoelige actie', noReauth.status === 403 && ra.status === 200 && afterReauth.status === 200);
+
+  // 21. Readiness-probe.
+  const ready = await (await fetch(H + '/ready')).json();
+  ok('readiness-probe', ready.ready === true && ready.checks.storageWritable && ready.checks.usersLoaded);
+
+  // 22. Per-gebruiker metrics in de Prometheus-output.
+  const promText = await (await fetch(H + '/metrics')).text();
+  ok('per-gebruiker metrics + schijf-gauge', promText.includes('fileserver_user_bytes_uploaded_total') && promText.includes('fileserver_disk_free_percent'));
+
+  // 23. Zoekindex: (her)bouwen en gebruiken voor snelle zoekopdracht.
+  await fetch(H + '/api/save?path=/indexed.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'uniekwoordxyz erin' });
+  const reindex = await (await fetch(H + '/api/admin/search/reindex', { method: 'POST', headers: jar() })).json();
+  const found = await (await fetch(H + '/api/list?path=/&q=uniekwoordxyz&content=1', { headers: jar() })).json();
+  ok('zoekindex bouwt en vindt via inhoud', reindex.files >= 1 && found.items.some((i) => i.path === '/indexed.txt'));
+
+  // 24. Tags + bulk-verplaatsen.
+  await fetch(H + '/api/save?path=/taggable.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'x' });
+  await fetch(H + '/api/tags', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/taggable.txt', tags: ['Belangrijk', 'werk'] }) });
+  const byTag = await (await fetch(H + '/api/tags?tag=belangrijk', { headers: jar() })).json();
+  await fetch(H + '/api/mkdir', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/map1' }) });
+  const bm = await (await fetch(H + '/api/bulk/move', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ paths: ['/taggable.txt'], dest: '/map1' }) })).json();
+  const movedTags = await (await fetch(H + '/api/tags?path=/map1/taggable.txt', { headers: jar() })).json();
+  ok('tags + bulk-verplaatsen (tags verhuizen mee)',
+    byTag.paths.includes('/taggable.txt') && bm.moved === 1 && movedTags.tags.includes('belangrijk'));
+
+  // 25. Back-up herstel-test valideert de ZIP-structuur.
+  const { makeBackup } = await import('../src/backup.js');
+  await makeBackup();
+  const rt = await (await fetch(H + '/api/admin/backup-restore-test', { method: 'POST', headers: jar() })).json();
+  ok('back-up herstel-test valideert ZIP-structuur', rt.ok === true && rt.entries >= 0);
 
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();

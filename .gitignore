@@ -21,3 +21,6 @@ settings.json
 permalinks.json
 comments.json
 integrity.json
+search-index.json
+tags.json
+audit.log.chain

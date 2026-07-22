@@ -23,3 +23,24 @@ groups:
         labels: { severity: info }
         annotations:
           summary: "Geen upload-/downloadactiviteit in 6 uur"
+
+      - alert: GebruikerVeelDownload
+        expr: increase(fileserver_user_bytes_downloaded_total[10m]) > 5e9
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Gebruiker {{ $labels.user }} downloadt uitzonderlijk veel (>5GB/10m)"
+
+      - alert: GebruikerVeelUpload
+        expr: increase(fileserver_user_bytes_uploaded_total[10m]) > 5e9
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Gebruiker {{ $labels.user }} uploadt uitzonderlijk veel (>5GB/10m)"
+
+      - alert: SchijfBijnaVol
+        expr: fileserver_disk_free_percent < 10
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "Schijfruimte onder 10% vrij"

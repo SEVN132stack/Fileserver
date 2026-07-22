@@ -271,7 +271,30 @@ export const config = {
     get enabled() { return !!(this.rpID && this.origin); },
   },
 
-  version: '3.14.0',
+  // --- v3.15 ---
+  // Sessie-binding: koppel een sessie aan het IP en/of de User-Agent waarmee is
+  // ingelogd. 'off' | 'ip' | 'ua' | 'both'. Voorkomt cookie-diefstal-hergebruik.
+  sessionBindMode: (process.env.SESSION_BIND || 'off').toLowerCase(),
+  // Step-up: gevoelige beheeracties vereisen een recente wachtwoord-herbevestiging
+  // (in ms). 0 = uit.
+  reauthWindowMs: parseInt(process.env.REAUTH_WINDOW_MS || '0', 10), // 0 = uit; bijv. 300000 (5 min)
+
+  // Zoekindex: omgekeerde index voor snelle bestandsnaam-/inhoudzoekacties.
+  searchIndexFile: abs(process.env.SEARCH_INDEX_FILE || 'search-index.json'),
+  searchIndexIntervalMinutes: parseInt(process.env.SEARCH_INDEX_INTERVAL || '0', 10), // 0 = alleen op verzoek
+
+  // Tags/labels per bestand (voor bulk-organisatie en filteren).
+  tagsFile: abs(process.env.TAGS_FILE || 'tags.json'),
+
+  // ClamAV-onderhoud: definitie-updates (freshclam) en geplande volledige scan.
+  freshclamCmd: process.env.FRESHCLAM_CMD || '',
+  avScanIntervalHours: parseInt(process.env.AV_SCAN_INTERVAL_HOURS || '0', 10), // 0 = uit
+  freshclamIntervalHours: parseInt(process.env.FRESHCLAM_INTERVAL_HOURS || '0', 10), // 0 = uit
+
+  // Back-up herstel-test: ontsleutel + valideer de ZIP-structuur na elke back-up.
+  backupRestoreTest: bool(process.env.BACKUP_RESTORE_TEST, false),
+
+  version: '3.15.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

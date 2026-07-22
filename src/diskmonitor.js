@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { config } from './config.js';
 import { alert } from './alerts.js';
+import { setGauge } from './metrics.js';
 
 // Bewaak de vrije schijfruimte van de opslagmap en waarschuw onder een drempel.
 export function checkDisk() {
@@ -9,6 +10,7 @@ export function checkDisk() {
     const total = st.blocks * st.bsize;
     const free = st.bfree * st.bsize;
     const freePct = total > 0 ? (free / total) * 100 : 100;
+    setGauge('fileserver_disk_free_percent', Math.round(freePct * 10) / 10);
     if (freePct < config.diskWarnPercent) {
       alert('disk-low', 'Schijf bijna vol',
         `Nog ${freePct.toFixed(1)}% vrij (${(free / 1e9).toFixed(1)} GB van ${(total / 1e9).toFixed(1)} GB).`);
