@@ -46,6 +46,10 @@ import { checkDisk } from './diskmonitor.js';
 import { verifyLatestBackup } from './backup.js';
 import * as integrity from './integrity.js';
 import * as comments from './comments.js';
+import { recordMutation } from './ransomware.js';
+import { checkHoneypot } from './honeypot.js';
+import { passwordPwnedCount, isExpired } from './users.js';
+import { alert as sysAlert } from './alerts.js';
 import { listSessions, revokeSession } from './sessions.js';
 import {
   validatePassword, isLocked, recordLoginFailure, recordLoginSuccess,
@@ -93,7 +97,7 @@ function authenticate(req, res, next) {
   const token = tokenFromReq(req);
   if (token) {
     const s = getSession(token);
-    if (s && userExists(s.username)) {
+    if (s && userExists(s.username) && !isExpired(s.username)) {
       req.user = s.username;
       req.home = homeDir(s.username);
       req.userRole = role(s.username);
@@ -199,6 +203,14 @@ export function createWebServer() {
     next();
   });
 
+  // Geo-blokkering: alleen toegestane landcodes (via proxy-header).
+  app.use((req, res, next) => {
+    if (!config.geoAllow.length || req.path === '/health') return next();
+    const cc = (req.headers[config.geoHeader] || '').toString().toUpperCase();
+    if (cc && !config.geoAllow.includes(cc)) return res.status(403).send('Toegang geweigerd (land niet toegestaan).');
+    next();
+  });
+
   // Security-headers op alle antwoorden (de preview-route zet een striktere CSP).
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -217,6 +229,7 @@ export function createWebServer() {
     if (!checkAllowed('web:' + ip).allowed) return res.status(429).json({ error: 'Te veel pogingen' });
     const { username, password, token } = req.body || {};
     if (username && isLocked(username)) return res.status(423).json({ error: 'Account tijdelijk vergrendeld na te veel pogingen' });
+    if (username && isExpired(username)) return res.status(403).json({ error: 'Account is verlopen' });
     if (!userExists(username) || !verifyPassword(username, password)) {
       onLoginFailure(ip, username);
       if (username) recordLoginFailure(username);
@@ -230,6 +243,15 @@ export function createWebServer() {
         recordLoginFailure(username);
         return res.status(401).json({ error: 'Onjuiste 2FA-code' });
       }
+    }
+    // 2FA/passkey afdwingen: geen 2FA en geen passkey terwijl beleid dit vereist.
+    const need2fa = config.requireTwoFactor === 'all' || (config.requireTwoFactor === 'admin' && role(username) === 'admin');
+    if (need2fa && !u.totp && getCredentials(username).length === 0) {
+      recordSuccess('web:' + ip);
+      recordLoginSuccess(username);
+      const sid = createSession(username, { ip, ua: req.headers['user-agent'] });
+      res.set('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Strict; Path=/${config.tls.enabled ? '; Secure' : ''}`);
+      return res.json({ ok: true, role: role(username), mustEnroll2fa: true });
     }
     recordSuccess('web:' + ip);
     recordLoginSuccess(username);
@@ -268,12 +290,13 @@ export function createWebServer() {
     }
     res.json({ ok: true });
   });
-  app.post('/api/reset/confirm', express.json(), (req, res) => {
+  app.post('/api/reset/confirm', express.json(), async (req, res) => {
     const { token, password } = req.body || {};
     const user = consumeResetToken(token);
     if (!user || !password) return res.status(400).json({ error: 'Ongeldige of verlopen token' });
     const perr = validatePassword(password);
     if (perr) return res.status(400).json({ error: perr });
+    if (await passwordPwnedCount(password) > 0) return res.status(400).json({ error: 'Dit wachtwoord komt voor in een datalek — kies een ander.' });
     updateUser(user, { password });
     audit('web', user, 'reset_done');
     res.json({ ok: true });
@@ -347,6 +370,7 @@ export function createWebServer() {
     try { abs = resolveWithin(homeDir(entry.user), entry.path); } catch { return res.status(404).send('Niet gevonden.'); }
     if (!fs.existsSync(abs)) return res.status(404).send('Bestand bestaat niet meer.');
     const name = path.basename(abs);
+    checkHoneypot(entry.user, entry.path, 'permalink');
     audit('web', entry.user, 'permalink_access', { path: entry.path, uuid: req.params.uuid, ip: clientIp(req) });
     if (fs.statSync(abs).isDirectory()) {
       res.attachment(name + '.zip');
@@ -487,6 +511,8 @@ export function createWebServer() {
       trashUsed: fs.existsSync(trash) ? dirSize(trash) : 0,
       bandwidth: bandwidth(req.user),
       shared: sharedWith(req.user),
+      require2fa: config.requireTwoFactor === 'all' || (config.requireTwoFactor === 'admin' && req.userRole === 'admin'),
+      has2fa: !!getUser(req.user)?.totp || getCredentials(req.user).length > 0,
     });
   });
 
@@ -516,6 +542,7 @@ export function createWebServer() {
       const file = resolveWithin(req.home, req.query.path || '');
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).json({ error: 'Niet gevonden' });
       audit('web', req.user, 'download', { path: req.query.path });
+      checkHoneypot(req.user, req.query.path || '', 'download');
       metrics.inc('fileserver_downloads_total');
       metrics.inc('fileserver_bytes_downloaded_total', fs.statSync(file).size);
       emitAdmin('activity', { kind: 'download', user: req.user });
@@ -733,6 +760,7 @@ export function createWebServer() {
         infected.push(f.originalname);
         audit('web', req.user, 'quarantined', { file: f.originalname, detail: scan.detail });
         notify('quarantine', { user: req.user, file: f.originalname });
+        sysAlert('quarantine', 'Bestand in quarantaine', `Upload '${f.originalname}' van '${req.user}' is besmet: ${scan.detail||''}`);
         emitAdmin('activity', { kind: 'quarantine', user: req.user });
         continue;
       }
@@ -797,6 +825,7 @@ export function createWebServer() {
       await fsp.mkdir(path.dirname(file), { recursive: true });
       snapshot(req.home, file);
       await fsp.writeFile(file, req.body ?? '');
+      recordMutation(req.user, 'edit'); checkHoneypot(req.user, req.query.path || '', 'edit');
       audit('web', req.user, 'edit', { path: req.query.path });
       emitToUser(req.user, 'change', { action: 'edit' });
       res.json({ ok: true });
@@ -824,6 +853,7 @@ export function createWebServer() {
       await fsp.mkdir(path.dirname(to), { recursive: true });
       await fsp.rename(from, to);
       permalinks.updatePath(req.user, req.body.from, req.body.to);
+      recordMutation(req.user, 'rename'); checkHoneypot(req.user, req.body.from, 'rename');
       audit('web', req.user, 'rename', { from: req.body.from, to: req.body.to });
       emitToUser(req.user, 'change', { action: 'rename' });
       res.json({ ok: true });
@@ -846,6 +876,7 @@ export function createWebServer() {
           await fsp.rm(abs, { recursive: true, force: true });
         });
         permalinks.removeForPath(req.user, p);
+        recordMutation(req.user, 'delete'); checkHoneypot(req.user, p, 'delete');
         audit('web', req.user, 'delete', { path: p });
         notify('delete', { user: req.user, path: p });
         metrics.inc('fileserver_deletes_total');
@@ -1063,10 +1094,11 @@ export function createWebServer() {
 
   // --- Admin ---
   app.get('/api/admin/users', requireAdmin, (req, res) => res.json({ users: listUsers() }));
-  app.post('/api/admin/users', requireAdmin, express.json(), (req, res) => {
+  app.post('/api/admin/users', requireAdmin, express.json(), async (req, res) => {
     try {
       const perr = validatePassword(req.body.password);
       if (perr) return res.status(400).json({ error: perr });
+      if (await passwordPwnedCount(req.body.password) > 0) return res.status(400).json({ error: 'Wachtwoord komt voor in een datalek.' });
       addUser(req.body);
       audit('web', req.user, 'admin_add_user', { target: req.body.username });
       res.json({ ok: true });

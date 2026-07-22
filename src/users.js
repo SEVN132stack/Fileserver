@@ -162,6 +162,7 @@ export function listUsers() {
     email: u.email || '',
     totp: !!u.totp,
     external: !!u.external,
+    expires: u.expires || 0,
     shares: u.shares || [],
   }));
 }
@@ -192,6 +193,7 @@ export function updateUser(username, patch) {
   if (patch.email !== undefined) u.email = patch.email;
   if (patch.quota !== undefined) u.quota = patch.quota;
   if (patch.bw !== undefined) u.bw = patch.bw;
+  if (patch.expires !== undefined) u.expires = patch.expires;
   if (patch.totp !== undefined) u.totp = patch.totp;
   if (patch.shares !== undefined) u.shares = patch.shares;
   saveUsers();
@@ -212,6 +214,33 @@ export function validatePassword(pw) {
   if (!pw || pw.length < p.minLength) return `Wachtwoord moet minstens ${p.minLength} tekens zijn`;
   if (p.requireMixed && !(/[a-zA-Z]/.test(pw) && /[0-9]/.test(pw))) return 'Wachtwoord moet letters én cijfers bevatten';
   return null;
+}
+
+// Controleer via HaveIBeenPwned (k-anonymity) of een wachtwoord in een lek
+// voorkomt. Geeft het aantal keer terug (0 = niet gevonden). Faalt open bij
+// netwerkproblemen.
+export async function passwordPwnedCount(pw) {
+  if (!config.hibpCheck) return 0;
+  try {
+    const sha1 = (await import('node:crypto')).createHash('sha1').update(pw).digest('hex').toUpperCase();
+    const res = await fetch('https://api.pwnedpasswords.com/range/' + sha1.slice(0, 5), { headers: { 'User-Agent': 'sftp-fileserver' } });
+    if (!res.ok) return 0;
+    const text = await res.text();
+    const suffix = sha1.slice(5);
+    for (const line of text.split('\n')) {
+      const [suf, cnt] = line.trim().split(':');
+      if (suf === suffix) return parseInt(cnt, 10) || 0;
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
+// --- Accountvervaldatum ---
+export function isExpired(username) {
+  const u = users.get(username);
+  return !!(u && u.expires && u.expires < Date.now());
 }
 
 // --- Accountvergrendeling (per gebruiker, in-memory) ---

@@ -66,6 +66,13 @@ async function loadMe() {
   const r = await api('/api/whoami');
   me = await r.json();
   document.getElementById('who').textContent = (lang==='nl'?'Ingelogd als ':'Signed in as ') + me.user + ' (' + me.role + ')';
+  // Tweefactor afgedwongen maar nog niet ingeschakeld → forceer inschrijving.
+  if (me.require2fa && !me.has2fa) {
+    alert(lang==='nl'
+      ? 'Tweefactor-authenticatie is verplicht voor je account. Stel het nu in.'
+      : 'Two-factor authentication is required for your account. Please set it up now.');
+    setup2fa();
+  }
   if (me.role === 'admin') document.getElementById('adminBtn').style.display = '';
   const q = document.getElementById('quota');
   const trash = me.trashUsed ? ` · 🗑 ${fmtSize(me.trashUsed)}` : '';

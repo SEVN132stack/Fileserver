@@ -200,6 +200,45 @@ export const config = {
   // Update-checker: GitHub-repo (owner/repo) om op nieuwe releases te controleren.
   updateRepo: process.env.UPDATE_REPO || 'SEVN132stack/Fileserver',
   updateCheck: bool(process.env.UPDATE_CHECK, true),
+
+  // Back-up-versleuteling: wachtwoord om de ZIP met AES-256-GCM te versleutelen
+  // (leeg = onversleuteld). En optioneel commando voor off-site kopie.
+  backupPassword: process.env.BACKUP_PASSWORD || '',
+  backupUploadCmd: process.env.BACKUP_UPLOAD_CMD || '',
+
+  // Ransomware-detectie: alarm als één gebruiker meer dan N wijzigingen/
+  // verwijderingen doet binnen het venster (ms).
+  ransomware: {
+    threshold: parseInt(process.env.RANSOMWARE_THRESHOLD || '50', 10),
+    windowMs: parseInt(process.env.RANSOMWARE_WINDOW_MS || '60000', 10),
+  },
+
+  // 2FA/passkey afdwingen: 'off' | 'admin' | 'all'.
+  requireTwoFactor: (process.env.REQUIRE_2FA || 'off').toLowerCase(),
+
+  // Fail2ban: commando dat draait bij ban/unban (ontvangt: <ban|unban> <ip>).
+  banCmd: process.env.BAN_CMD || '',
+
+  // Geo-blokkering: toegestane landcodes (komma-gescheiden, leeg = alle). Vereist
+  // dat de reverse proxy de landcode in een header zet (bijv. CF-IPCountry).
+  geoAllow: (process.env.GEO_ALLOW || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean),
+  geoHeader: (process.env.GEO_HEADER || 'cf-ipcountry').toLowerCase(),
+
+  // SFTP: wachtwoord-authenticatie toestaan (false = alleen SSH-sleutels).
+  sftpPasswordAuth: bool(process.env.SFTP_PASSWORD_AUTH, true),
+
+  // Periodieke integriteitscontrole (uren, 0 = uit).
+  integrityIntervalHours: parseInt(process.env.INTEGRITY_INTERVAL_HOURS || '0', 10),
+
+  // Honeypot-/canary-paden (komma-gescheiden, relatief in een home). Toegang of
+  // wijziging triggert direct een alarm.
+  honeypots: (process.env.HONEYPOTS || '').split(',').map((s) => s.trim()).filter(Boolean),
+
+  // SIEM: audit-regels doorsturen naar een extern log-endpoint (HTTP POST).
+  siemUrl: process.env.SIEM_URL || '',
+
+  // Wachtwoord gecompromitteerd-check via HaveIBeenPwned (k-anonymity).
+  hibpCheck: bool(process.env.PASSWORD_HIBP, false),
   // Groepen-bestand (voor delen/rechten per groep).
   groupsFile: abs(process.env.GROUPS_FILE || 'groups.json'),
   // Runtime-instellingen die via de admin-UI aanpasbaar zijn (overlay op .env).
@@ -232,7 +271,7 @@ export const config = {
     get enabled() { return !!(this.rpID && this.origin); },
   },
 
-  version: '3.13.0',
+  version: '3.14.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
