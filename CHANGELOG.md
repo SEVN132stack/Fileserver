@@ -1,5 +1,34 @@
 # Changelog
 
+## [3.15.0] - 2026-07-22
+
+### Toegevoegd — beveiliging
+
+- **Onvervalsbaar audit-log** (hash-keten): elke regel is met de vorige gekoppeld;
+  `/api/admin/audit/verify` (knop in het dashboard) detecteert gewijzigde/verwijderde regels.
+- **Sessie-binding** (`SESSION_BIND=off|ip|ua|both`): een gestolen sessie-cookie werkt
+  niet vanaf een ander IP/User-Agent.
+- **Step-up-herauthenticatie** (`REAUTH_WINDOW_MS`): gevoelige beheeracties (gebruiker
+  verwijderen, config exporteren) vereisen een recente wachtwoord-herbevestiging (`/api/reauth`).
+- **Bestand-gebaseerde geheimen**: `<SECRET>_FILE` en systemd `$CREDENTIALS_DIRECTORY`
+  worden geladen — geheimen kunnen uit Docker/Podman secrets, Kubernetes of Vault komen.
+
+### Toegevoegd — onderhoud & betrouwbaarheid
+
+- **Back-up herstel-test** (`BACKUP_RESTORE_TEST`): ontsleutelt de nieuwste back-up en
+  valideert de echte ZIP-structuur (End-Of-Central-Directory + entries), niet alleen de magic-bytes.
+- **Readiness-probe** `/ready` (opslag beschrijfbaar + gebruikers geladen) + admin-statusoverzicht (`/api/admin/status`).
+- **Per-gebruiker metrics** (bytes up/down als gelabelde Prometheus-metrics) + `fileserver_disk_free_percent`-gauge en nieuwe alertregels.
+- **ClamAV-onderhoud**: definitie-updates (`FRESHCLAM_CMD`/`FRESHCLAM_INTERVAL_HOURS`) en
+  geplande volledige scan (`AV_SCAN_INTERVAL_HOURS`) die vondsten in quarantaine plaatst.
+
+### Toegevoegd — organisatie
+
+- **Zoekindex** (omgekeerde index) voor snelle bestandsnaam-/inhoudzoekacties; herbouwbaar
+  via het dashboard (`SEARCH_INDEX_INTERVAL` voor automatisch).
+- **Bulk-verplaatsen** van een selectie naar een doelmap; **tags/labels** per bestand met
+  filteren en verhuizen-bij-hernoemen.
+
 ## [3.14.0] - 2026-07-21
 
 ### Toegevoegd — extra beveiliging & hardening

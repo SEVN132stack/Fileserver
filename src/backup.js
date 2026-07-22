@@ -98,6 +98,38 @@ export function verifyLatestBackup() {
   return { ok, file: name, size: st.size, reason: ok ? undefined : 'geen geldige ZIP' };
 }
 
+// Diepere herstel-test: ontsleutel (indien nodig) de nieuwste back-up naar een
+// tijdelijk bestand en valideer de ZIP-structuur echt — het End Of Central
+// Directory-record en het aantal entries — i.p.v. alleen de magic-bytes. Zo weet
+// je dat de back-up niet half of corrupt is en met het wachtwoord te openen valt.
+export function restoreTest() {
+  if (!fs.existsSync(config.backup.dir)) return { ok: false, reason: 'geen back-ups' };
+  const files = fs.readdirSync(config.backup.dir).filter((f) => f.startsWith('backup-') && (f.endsWith('.zip') || f.endsWith('.zip.enc'))).sort();
+  if (!files.length) return { ok: false, reason: 'geen back-ups' };
+  const name = files[files.length - 1];
+  const latest = path.join(config.backup.dir, name);
+  let buf;
+  try {
+    if (name.endsWith('.enc')) {
+      if (!config.backupPassword) return { ok: false, file: name, reason: 'versleuteld maar geen wachtwoord ingesteld' };
+      buf = decryptBackup(latest, config.backupPassword);
+    } else {
+      buf = fs.readFileSync(latest);
+    }
+  } catch (err) {
+    return { ok: false, file: name, reason: 'ontsleutelen mislukt: ' + err.message };
+  }
+  // Zoek het End Of Central Directory-record (signature 0x06054b50) achteraan.
+  const EOCD = 0x06054b50;
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= 0 && i >= buf.length - 22 - 65536; i--) {
+    if (buf.readUInt32LE(i) === EOCD) { eocd = i; break; }
+  }
+  if (eocd < 0) return { ok: false, file: name, reason: 'geen ZIP End-Of-Central-Directory gevonden (corrupt?)' };
+  const entries = buf.readUInt16LE(eocd + 10);
+  return { ok: true, file: name, entries, bytes: buf.length, encrypted: name.endsWith('.enc') };
+}
+
 export function startBackupScheduler() {
   if (config.backup.intervalMinutes <= 0) return;
   const ms = config.backup.intervalMinutes * 60000;
@@ -105,7 +137,7 @@ export function startBackupScheduler() {
   setInterval(async () => {
     try {
       await makeBackup();
-      const v = verifyLatestBackup();
+      const v = config.backupRestoreTest ? restoreTest() : verifyLatestBackup();
       if (!v.ok) {
         const { alert } = await import('./alerts.js');
         alert('backup-invalid', 'Back-up ongeldig', `De laatste back-up is niet geldig: ${v.reason}`);

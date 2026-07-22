@@ -168,6 +168,19 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ HaveIBeenPwned-controle op wachtwoorden
 - ✅ Documentatie at-rest-encryptie (LUKS/eCryptfs) + off-site back-up (rclone)
 
+## Beveiliging, onderhoud & organisatie (v3.15)
+
+- ✅ Onvervalsbaar audit-log (hash-keten + verificatie)
+- ✅ Sessie-binding aan IP/User-Agent
+- ✅ Step-up-herauthenticatie voor gevoelige beheeracties
+- ✅ Bestand-gebaseerde geheimen (Docker/Podman/Kubernetes/systemd/Vault)
+- ✅ Back-up herstel-test (ZIP-structuurvalidatie + ontsleutelen)
+- ✅ Readiness-probe `/ready` + admin-statusoverzicht
+- ✅ Per-gebruiker metrics + extra Prometheus-alertregels
+- ✅ ClamAV-onderhoud: freshclam-cron + geplande volledige scan
+- ✅ Zoekindex (omgekeerde index) voor snelle zoekacties
+- ✅ Bulk-verplaatsen + tags/labels per bestand
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

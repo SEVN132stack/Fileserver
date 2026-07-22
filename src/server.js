@@ -9,6 +9,8 @@ import { startMetricsHistory } from './metrics-history.js';
 import { startCleanupScheduler } from './cleanup.js';
 import { startDiskMonitor } from './diskmonitor.js';
 import { startIntegrityScheduler } from './integrity.js';
+import { startAvScheduler } from './av-schedule.js';
+import { startSearchIndexScheduler } from './searchindex.js';
 
 // Startpunt: bereidt opslag, host key en gebruikers voor en start beide servers.
 ensureStorage();
@@ -22,6 +24,8 @@ startMetricsHistory();
 startCleanupScheduler();
 startDiskMonitor();
 startIntegrityScheduler();
+startAvScheduler();
+startSearchIndexScheduler();
 
 startWebServer();
 startSftpServer();

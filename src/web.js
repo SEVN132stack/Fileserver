@@ -11,20 +11,21 @@ import { config } from './config.js';
 import { resolveWithin, dirSize } from './paths.js';
 import {
   homeDir, verifyPassword, userExists, getUser, role, isAdmin, isReadonly,
-  quota, sharedWith, listUsers, addUser, updateUser, deleteUser,
+  quota, sharedWith, listUsers, addUser, updateUser, deleteUser, listUsernames,
 } from './users.js';
 import { checkAllowed, recordFailure, recordSuccess } from './ratelimit.js';
 import { isBanned, ban, unban, listBans } from './bans.js';
-import { createSession, getSession, destroySession, tokenFromReq } from './sessions.js';
+import { createSession, getSession, destroySession, tokenFromReq, markReauth, reauthedWithin } from './sessions.js';
 import { generateSecret, verifyTotp, otpauthUrl } from './totp.js';
 import { createShare, getShare, checkSharePassword, listShares, deleteShare, countDownload, listAllShares, adminDeleteShare, adminUpdateShare } from './shares.js';
 import { execFile } from 'node:child_process';
-import { audit } from './audit.js';
+import { audit, verifyChain } from './audit.js';
 import { notify } from './notify.js';
 import { ensureTls } from './tls.js';
 import { handleWebdav, WEBDAV_MOUNT } from './webdav.js';
 import { throttleStream } from './throttle.js';
 import { scanFile } from './scan.js';
+import { runFreshclam, scanAll } from './av-schedule.js';
 import { addClient, emitToUser, addAdminClient, emitAdmin } from './events.js';
 import { bandwidth, ensureExternalUser, getEmail, reload as reloadUsers } from './users.js';
 import { getAuthUrl, validState, exchange } from './oidc.js';
@@ -43,7 +44,7 @@ import { qrSvg } from './qr.js';
 import * as permalinks from './permalinks.js';
 import { checkForUpdate } from './updatecheck.js';
 import { checkDisk } from './diskmonitor.js';
-import { verifyLatestBackup } from './backup.js';
+import { verifyLatestBackup, restoreTest } from './backup.js';
 import * as integrity from './integrity.js';
 import * as comments from './comments.js';
 import { recordMutation } from './ransomware.js';
@@ -62,6 +63,8 @@ import { quarantine, listQuarantine, release as qRelease, remove as qRemove } fr
 import { snapshot, listVersions, versionPath } from './versions.js';
 import { signature, applyDelta, DEFAULT_BLOCK } from './rsync.js';
 import * as keyring from './keyring.js';
+import * as searchIndex from './searchindex.js';
+import * as tags from './tags.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -97,10 +100,11 @@ function authenticate(req, res, next) {
   const token = tokenFromReq(req);
   if (token) {
     const s = getSession(token);
-    if (s && userExists(s.username) && !isExpired(s.username)) {
+    if (s && userExists(s.username) && !isExpired(s.username) && sessionBindOk(s, req, ip)) {
       req.user = s.username;
       req.home = homeDir(s.username);
       req.userRole = role(s.username);
+      req.sid = token;
       return next();
     }
   }
@@ -136,6 +140,26 @@ function onLoginFailure(ip, user) {
     ban(ip, Date.now() + config.rateLimit.blockMs);
     audit('web', user, 'ip_banned', { ip, minutes: Math.round(config.rateLimit.blockMs / 60000) });
   }
+}
+
+// Sessie-binding: weiger een sessie-cookie die vanaf een ander IP/User-Agent
+// komt dan waarmee is ingelogd (afhankelijk van SESSION_BIND).
+function sessionBindOk(s, req, ip) {
+  const mode = config.sessionBindMode;
+  if (mode === 'off') return true;
+  const ua = (req.headers['user-agent'] || '').slice(0, 200);
+  const ipOk = mode === 'ua' || !s.ip || s.ip === ip;
+  const uaOk = mode === 'ip' || !s.ua || s.ua === ua;
+  return ipOk && uaOk;
+}
+
+// Step-up: gevoelige acties vereisen een recente wachtwoord-herbevestiging.
+function requireReauth(req, res, next) {
+  if (!config.reauthWindowMs) return next();
+  if (req.sid && reauthedWithin(req.sid, config.reauthWindowMs)) return next();
+  // Basic-Auth-clients (geen sessie) leveren elke keer credentials → sta toe.
+  if (!req.sid) return next();
+  return res.status(403).json({ error: 'Herbevestig je wachtwoord', code: 'reauth' });
 }
 
 function requireWrite(req, res, next) {
@@ -195,6 +219,21 @@ export function createWebServer() {
 
   // Health-endpoint voor uptime-monitoring (geen auth, geen geheimen).
   app.get('/health', (req, res) => res.json({ status: 'ok', version: config.version, uptime: Math.round(process.uptime()) }));
+
+  // Readiness-probe: is de opslag beschrijfbaar en zijn er gebruikers geladen?
+  // Geeft 503 terug als iets niet klopt, zodat een load-balancer/systemd kan
+  // ingrijpen. Geen auth, geen geheimen.
+  app.get('/ready', (req, res) => {
+    const checks = { storageWritable: false, usersLoaded: false };
+    try {
+      const probe = path.join(config.storageDir, '.ready-probe');
+      fs.writeFileSync(probe, '1'); fs.rmSync(probe);
+      checks.storageWritable = true;
+    } catch { /* niet beschrijfbaar */ }
+    checks.usersLoaded = listUsernames().length > 0;
+    const ready = checks.storageWritable && checks.usersLoaded;
+    res.status(ready ? 200 : 503).json({ ready, checks, version: config.version, uptime: Math.round(process.uptime()) });
+  });
 
   // IP-allowlist: buiten de toegestane IP's meteen weigeren.
   app.use((req, res, next) => {
@@ -274,6 +313,17 @@ export function createWebServer() {
     const token = tokenFromReq(req);
     if (token) destroySession(token);
     res.set('Set-Cookie', 'sid=; HttpOnly; Path=/; Max-Age=0');
+    res.json({ ok: true });
+  });
+
+  // Step-up: wachtwoord herbevestigen om een korte periode gevoelige acties te
+  // mogen doen (zie requireReauth).
+  app.post('/api/reauth', authenticate, express.json(), (req, res) => {
+    if (!verifyPassword(req.user, (req.body && req.body.password) || '')) {
+      return res.status(401).json({ error: 'Onjuist wachtwoord' });
+    }
+    if (req.sid) markReauth(req.sid);
+    audit('web', req.user, 'reauth', { ip: clientIp(req) });
     res.json({ ok: true });
   });
 
@@ -529,7 +579,25 @@ export function createWebServer() {
       const dir = resolveWithin(req.home, req.query.path || '/');
       const query = (req.query.q || '').toString().toLowerCase();
       const inContent = req.query.content === '1';
-      let items = query ? await searchRecursive(req.home, dir, query, 6, inContent) : await listDir(req.home, dir);
+      let items;
+      if (query) {
+        // Snelle omgekeerde index gebruiken als die bestaat en we vanaf de
+        // home-root zoeken; anders live door de mappenboom lopen.
+        const homeName = path.basename(req.home);
+        const idxPaths = (dir === req.home && searchIndex.isReady()) ? searchIndex.query(homeName, query) : null;
+        if (idxPaths) {
+          items = (await Promise.all(idxPaths.map(async (p) => {
+            const full = resolveWithin(req.home, p);
+            const st = await fsp.stat(full).catch(() => null);
+            if (!st) return null;
+            return { name: path.basename(p), path: p, isDir: st.isDirectory(), size: st.size, mtime: st.mtimeMs };
+          }))).filter(Boolean);
+        } else {
+          items = await searchRecursive(req.home, dir, query, 6, inContent);
+        }
+      } else {
+        items = await listDir(req.home, dir);
+      }
       items = sortItems(items, (req.query.sort || 'name').toString(), (req.query.order || 'asc').toString());
       res.json({ path: req.query.path || '/', items });
     } catch (err) {
@@ -545,6 +613,7 @@ export function createWebServer() {
       checkHoneypot(req.user, req.query.path || '', 'download');
       metrics.inc('fileserver_downloads_total');
       metrics.inc('fileserver_bytes_downloaded_total', fs.statSync(file).size);
+      metrics.incUser(req.user, 'down', fs.statSync(file).size);
       emitAdmin('activity', { kind: 'download', user: req.user });
       const bw = bandwidth(req.user);
       if (bw > 0) {
@@ -771,7 +840,7 @@ export function createWebServer() {
     notify('upload', { user: req.user, files: names });
     emitToUser(req.user, 'change', { action: 'upload' });
     metrics.inc('fileserver_uploads_total', names.length);
-    for (const f of req.files || []) metrics.inc('fileserver_bytes_uploaded_total', f.size || 0);
+    for (const f of req.files || []) { metrics.inc('fileserver_bytes_uploaded_total', f.size || 0); metrics.incUser(req.user, 'up', f.size || 0); }
     emitAdmin('activity', { kind: 'upload', user: req.user });
     if (infected.length) return res.status(422).json({ uploaded: names, infected });
     res.json({ uploaded: names });
@@ -853,6 +922,7 @@ export function createWebServer() {
       await fsp.mkdir(path.dirname(to), { recursive: true });
       await fsp.rename(from, to);
       permalinks.updatePath(req.user, req.body.from, req.body.to);
+      tags.movePath(req.user, req.body.from, req.body.to);
       recordMutation(req.user, 'rename'); checkHoneypot(req.user, req.body.from, 'rename');
       audit('web', req.user, 'rename', { from: req.body.from, to: req.body.to });
       emitToUser(req.user, 'change', { action: 'rename' });
@@ -876,6 +946,7 @@ export function createWebServer() {
           await fsp.rm(abs, { recursive: true, force: true });
         });
         permalinks.removeForPath(req.user, p);
+        tags.removePath(req.user, p);
         recordMutation(req.user, 'delete'); checkHoneypot(req.user, p, 'delete');
         audit('web', req.user, 'delete', { path: p });
         notify('delete', { user: req.user, path: p });
@@ -887,6 +958,43 @@ export function createWebServer() {
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
+  });
+
+  // Bulk-verplaatsen: meerdere bestanden/mappen naar één doelmap.
+  app.post('/api/bulk/move', requireWrite, express.json(), async (req, res) => {
+    try {
+      const targetDir = resolveWithin(req.home, req.body.dest || '/');
+      await fsp.mkdir(targetDir, { recursive: true });
+      let moved = 0;
+      for (const p of req.body.paths || []) {
+        const abs = resolveWithin(req.home, p);
+        if (path.resolve(abs) === path.resolve(req.home)) continue;
+        const dest = path.join(targetDir, path.basename(abs));
+        await fsp.rename(abs, dest);
+        const destRel = '/' + path.relative(req.home, dest).split(path.sep).join('/');
+        permalinks.updatePath(req.user, p, destRel);
+        tags.movePath(req.user, p, destRel);
+        moved++;
+      }
+      recordMutation(req.user, 'rename');
+      audit('web', req.user, 'bulk_move', { count: moved, dest: req.body.dest });
+      emitToUser(req.user, 'change', { action: 'bulk_move' });
+      res.json({ ok: true, moved });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Tags/labels per bestand.
+  app.get('/api/tags', (req, res) => {
+    if (req.query.tag) return res.json({ paths: tags.findByTag(req.user, req.query.tag) });
+    if (req.query.path !== undefined) return res.json({ tags: tags.getTags(req.user, req.query.path) });
+    res.json({ tags: tags.listTags(req.user) });
+  });
+  app.post('/api/tags', requireWrite, express.json(), (req, res) => {
+    const set = tags.setTags(req.user, req.body.path || '', req.body.tags || []);
+    audit('web', req.user, 'set_tags', { path: req.body.path, tags: set });
+    res.json({ ok: true, tags: set });
   });
 
   // Prullenbak bekijken / herstellen / legen.
@@ -1114,7 +1222,7 @@ export function createWebServer() {
       res.status(400).json({ error: err.message });
     }
   });
-  app.delete('/api/admin/users/:name', requireAdmin, (req, res) => {
+  app.delete('/api/admin/users/:name', requireAdmin, requireReauth, (req, res) => {
     try {
       deleteUser(req.params.name);
       res.json({ ok: true });
@@ -1126,6 +1234,10 @@ export function createWebServer() {
     if (!fs.existsSync(config.auditLog)) return res.json({ lines: [] });
     const lines = fs.readFileSync(config.auditLog, 'utf8').trim().split('\n').slice(-200).filter(Boolean).map((l) => JSON.parse(l));
     res.json({ lines });
+  });
+  // Verifieer de onvervalsbaarheid van het audit-log (hash-keten).
+  app.get('/api/admin/audit/verify', requireAdmin, (req, res) => {
+    res.json(verifyChain());
   });
   // Back-ups (alleen admin).
   app.get('/api/admin/backups', requireAdmin, (req, res) => {
@@ -1197,6 +1309,23 @@ export function createWebServer() {
     const minutes = Math.max(0, parseInt(req.query.minutes || '0', 10) || 0);
     res.json({ samples: getHistory(minutes) });
   });
+  // Verkeer per gebruiker (bytes up/down) voor het admin-overzicht.
+  app.get('/api/admin/metrics/users', requireAdmin, (req, res) => {
+    res.json({ users: metrics.userTraffic() });
+  });
+  // Statusoverzicht: één samenvatting van de gezondheid van het systeem.
+  app.get('/api/admin/status', requireAdmin, (req, res) => {
+    res.json({
+      version: config.version,
+      uptime: Math.round(process.uptime()),
+      memoryMB: Math.round(process.memoryUsage().rss / 1e6),
+      disk: checkDisk(),
+      metrics: metrics.snapshot(),
+      backup: verifyLatestBackup(),
+      auditChain: verifyChain(),
+      users: listUsernames().length,
+    });
+  });
 
   // Groepen beheren (alleen admin).
   app.get('/api/admin/groups', requireAdmin, (req, res) => res.json({ groups: listGroups() }));
@@ -1217,11 +1346,17 @@ export function createWebServer() {
   app.get('/api/admin/update-check', requireAdmin, async (req, res) => res.json(await checkForUpdate()));
   app.get('/api/admin/disk', requireAdmin, (req, res) => res.json(checkDisk()));
   app.get('/api/admin/backup-verify', requireAdmin, (req, res) => res.json(verifyLatestBackup()));
+  app.post('/api/admin/backup-restore-test', requireAdmin, (req, res) => res.json(restoreTest()));
+  // Virusscan-onderhoud: definities bijwerken en de volledige opslag scannen.
+  app.post('/api/admin/av/freshclam', requireAdmin, async (req, res) => res.json(await runFreshclam()));
+  app.post('/api/admin/av/scan-all', requireAdmin, async (req, res) => res.json(await scanAll()));
+  // Zoekindex (her)bouwen.
+  app.post('/api/admin/search/reindex', requireAdmin, (req, res) => res.json(searchIndex.buildIndex()));
   app.post('/api/admin/integrity/baseline', requireAdmin, (req, res) => res.json(integrity.buildBaseline()));
   app.post('/api/admin/integrity/verify', requireAdmin, (req, res) => res.json(integrity.verify()));
 
   // Configuratie/gebruikers exporteren en importeren (migratie/herstel).
-  app.get('/api/admin/export', requireAdmin, (req, res) => {
+  app.get('/api/admin/export', requireAdmin, requireReauth, (req, res) => {
     const bundle = {};
     for (const [name, file] of [
       ['users', config.usersFile], ['groups', config.groupsFile], ['settings', config.settingsFile],

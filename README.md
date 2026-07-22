@@ -192,6 +192,19 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Beveiliging, onderhoud & organisatie (v3.15)
+
+- **Onvervalsbaar audit-log** (hash-keten): het dashboard verifieert of er regels
+  gewijzigd/verwijderd zijn. **Sessie-binding** (`SESSION_BIND`) en **step-up**
+  (`REAUTH_WINDOW_MS`) voor gevoelige beheeracties.
+- **Geheimen uit een secret-store** (Docker/Podman/Kubernetes/systemd/Vault) via
+  `<SECRET>_FILE` of systemd-credentials — zie `deploy/secrets.md`.
+- **Back-up herstel-test** (`BACKUP_RESTORE_TEST`) valideert de ZIP echt; **readiness-probe**
+  `/ready` en een **statusoverzicht** in het dashboard.
+- **Per-gebruiker metrics** + alertregels; **ClamAV-onderhoud** (freshclam-cron +
+  geplande volledige scan die vondsten in quarantaine plaatst).
+- **Zoekindex** voor snelle zoekacties; **bulk-verplaatsen** en **tags/labels** per bestand.
+
 ## Extra beveiliging & hardening (v3.14)
 
 - **Back-up-encryptie** (AES-256-GCM) via `BACKUP_PASSWORD` + **off-site kopie**
