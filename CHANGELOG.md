@@ -1,5 +1,40 @@
 # Changelog
 
+## [3.16.0] - 2026-07-22
+
+### Toegevoegd — privacy & beveiliging
+
+- **Toegangslog voor gedeelde bestanden**: de eigenaar ziet wie zijn deel-link/permalink
+  downloadde en wanneer (`/api/share-access`).
+- **Watermerk op gedeelde afbeeldingen** (`WATERMARK_SHARES`): recipient + datum in de
+  afbeelding, zodat een lek herleidbaar is (alleen rasterafbeeldingen, via sharp).
+- **Sessie-timeout bij inactiviteit** (`IDLE_TIMEOUT_MS`) + **"overal uitloggen"**.
+- **Wachtwoordverval** (`PASSWORD_MAX_AGE_DAYS`) + **wachtwoordhistorie** (geen hergebruik);
+  eigen wachtwoord wijzigen via `/api/change-password`.
+- **Config-drift-detectie** (`CONFIG_DRIFT_INTERVAL`): alarm als users/settings/shares/bans
+  buiten de app om wijzigen (sluit aan op het onvervalsbare audit-log).
+
+### Toegevoegd — samenwerking & organisatie
+
+- **Bestandsvergrendeling**: vergrendel een bestand tegen (per ongeluk) overschrijven of
+  gelijktijdige bewerking; ontgrendelen door de vergrendelaar of een admin.
+- **Upload-portalen**: drop-links vragen nu een naam en leggen bestanden per inzender in
+  een submap.
+- **Multi-tenant/afdelingen**: gebruikers krijgen een `tenant`-veld (beheer in het dashboard).
+
+### Toegevoegd — media & preview
+
+- **Office-preview** (docx/xlsx/pptx → platte tekst) zonder externe bibliotheek.
+- **Automatische foto-ordening** (EXIF-datum → jaar/maand + dubbele-detectie).
+- **Video-posterframes & audio-golfvormen** via `FFMPEG_CMD`.
+- **PWA share-target**: bestanden vanuit een andere app "delen naar" de fileserver.
+
+### Toegevoegd — ops
+
+- **Geplande exports** (rsync/rclone) van een map naar een externe bestemming, beheerbaar in het dashboard.
+- **Automatische TLS** via een extern ACME-commando (`ACME_CMD`, certbot/acme.sh) met verleng-scheduler.
+- **Branding**: aanpasbare app-naam, logo en accentkleur.
+
 ## [3.15.0] - 2026-07-22
 
 ### Toegevoegd — beveiliging

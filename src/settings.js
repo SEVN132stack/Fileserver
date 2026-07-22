@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { config } from './config.js';
+import { markWritten } from './config-drift.js';
 
 // Runtime-instellingen die via de admin-UI aanpasbaar zijn, als overlay op de
 // .env-defaults. Geheimen blijven in .env; hier alleen bedienbare schakelaars.
@@ -7,6 +8,10 @@ const DEFAULTS = {
   maintenance: false, // onderhoudsmodus: niet-admins krijgen 503
   cleanupTrashDays: config.cleanupTrashDays,
   registrationOpen: false, // (gereserveerd) zelfregistratie
+  // Branding (huisstijl), zichtbaar in de UI.
+  appName: config.branding.appName,
+  logoUrl: config.branding.logoUrl,
+  accent: config.branding.accent,
 };
 
 let current = { ...DEFAULTS };
@@ -31,5 +36,6 @@ export function updateSettings(patch) {
     if (k in DEFAULTS) current[k] = patch[k];
   }
   fs.writeFileSync(config.settingsFile, JSON.stringify(current, null, 2), { mode: 0o600 });
+  markWritten(config.settingsFile);
   return getSettings();
 }

@@ -25,6 +25,9 @@ process.env.COMMENTS_FILE = path.join(tmp, 'comments.json');
 process.env.INTEGRITY_FILE = path.join(tmp, 'integrity.json');
 process.env.SEARCH_INDEX_FILE = path.join(tmp, 'search-index.json');
 process.env.TAGS_FILE = path.join(tmp, 'tags.json');
+process.env.SHARE_ACCESS_FILE = path.join(tmp, 'share-access.json');
+process.env.LOCKS_FILE = path.join(tmp, 'locks.json');
+process.env.SCHEDULED_EXPORTS_FILE = path.join(tmp, 'scheduled-exports.json');
 // Sessie-binding/step-up uit voor de brede suite; de dedicated tests zetten ze
 // tijdens de run zelf aan via config.
 process.env.SESSION_BIND = 'off';
@@ -306,8 +309,8 @@ try {
   ok('E2E-keyring: pubkey + wrapped map-sleutel', pk.pubkey && pk.pubkey.n === 'test' && ring.ring['/geheim']);
 
   // 13q. Webhook-notificatie bij delen + deel-download.
-  const sh = await (await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/ver.txt' }) })).json();
-  await fetch(H + sh.url);
+  const shr = await (await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/ver.txt' }) })).json();
+  await fetch(H + shr.url);
   await new Promise((r) => setTimeout(r, 400));
   ok('webhook bij share_create + share_access', captured.some((c) => c.event === 'share_create') && captured.some((c) => c.event === 'share_access'));
 
@@ -632,6 +635,57 @@ try {
   await makeBackup();
   const rt = await (await fetch(H + '/api/admin/backup-restore-test', { method: 'POST', headers: jar() })).json();
   ok('back-up herstel-test valideert ZIP-structuur', rt.ok === true && rt.entries >= 0);
+
+  // 26. Bestandsvergrendeling: vergrendeld bestand kan niet hernoemd worden.
+  await fetch(H + '/api/save?path=/lockme.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'x' });
+  const lk = await fetch(H + '/api/lock', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/lockme.txt' }) });
+  const renLocked = await fetch(H + '/api/rename', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ from: '/lockme.txt', to: '/renamed.txt' }) });
+  await fetch(H + '/api/unlock', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/lockme.txt' }) });
+  const renOk = await fetch(H + '/api/rename', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ from: '/lockme.txt', to: '/renamed.txt' }) });
+  ok('bestandsvergrendeling blokkeert hernoemen tot ontgrendeld', lk.status === 200 && renLocked.status === 423 && renOk.status === 200);
+
+  // 27. Wachtwoord-hergebruik wordt geweigerd bij zelf wijzigen.
+  const reuse = await fetch(H + '/api/change-password', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ current: 'testpass123', password: 'testpass123' }) });
+  const changed = await fetch(H + '/api/change-password', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ current: 'testpass123', password: 'nieuwPass456' }) });
+  // herstel het wachtwoord voor eventuele latere tests
+  await fetch(H + '/api/change-password', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ current: 'nieuwPass456', password: 'testpass123b' }) });
+  ok('wachtwoord-hergebruik geweigerd, nieuw toegestaan', reuse.status === 400 && changed.status === 200);
+
+  // 28. Toegangslog voor gedeelde bestanden registreert downloads.
+  await fetch(H + '/api/save?path=/shared.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'geheim' });
+  const shrA = await (await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/shared.txt' }) })).json();
+  await fetch(H + shrA.url); // anonieme download
+  const acc = await (await fetch(H + '/api/share-access?path=/shared.txt', { headers: jar() })).json();
+  ok('toegangslog registreert download van gedeeld bestand', acc.access.length >= 1 && acc.access[0].path === '/shared.txt');
+
+  // 29. Office-preview: docx-tekst wordt geëxtraheerd (minimale ZIP met deflate).
+  const zlib = await import('node:zlib');
+  const docXml = Buffer.from('<w:document><w:body><w:p><w:r><w:t>Hallo officewereld</w:t></w:r></w:p></w:body></w:document>');
+  const comp = zlib.deflateRawSync(docXml);
+  const fnameB = Buffer.from('word/document.xml');
+  const crc = 0; // niet gevalideerd door onze lezer
+  const lfh = Buffer.alloc(30);
+  lfh.writeUInt32LE(0x04034b50, 0); lfh.writeUInt16LE(8, 8); lfh.writeUInt32LE(crc, 14);
+  lfh.writeUInt32LE(comp.length, 18); lfh.writeUInt32LE(docXml.length, 22); lfh.writeUInt16LE(fnameB.length, 26);
+  const localRec = Buffer.concat([lfh, fnameB, comp]);
+  const cdh = Buffer.alloc(46);
+  cdh.writeUInt32LE(0x02014b50, 0); cdh.writeUInt16LE(8, 10); cdh.writeUInt32LE(crc, 16);
+  cdh.writeUInt32LE(comp.length, 20); cdh.writeUInt32LE(docXml.length, 24); cdh.writeUInt16LE(fnameB.length, 28); cdh.writeUInt32LE(0, 42);
+  const cdRec = Buffer.concat([cdh, fnameB]);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(1, 8); eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(cdRec.length, 12); eocd.writeUInt32LE(localRec.length, 16);
+  const docx = Buffer.concat([localRec, cdRec, eocd]);
+  fs.writeFileSync(path.join(config.storageDir, 'admin', 'doc.docx'), docx);
+  const op = await (await fetch(H + '/api/office-preview?path=/doc.docx', { headers: jar() })).json();
+  ok('office-preview extraheert docx-tekst', op.type === 'docx' && op.text.includes('Hallo officewereld'));
+
+  // 30. Overal uitloggen trekt sessies in (huidige cookie werkt daarna niet meer).
+  const cookieBefore = cookie;
+  const lo = await fetch(H + '/api/logout-all', { method: 'POST', headers: { Cookie: cookieBefore } });
+  const afterLogoutAll = await fetch(H + '/api/whoami', { headers: { Cookie: cookieBefore } });
+  cookie = ''; await login('admin', 'testpass123b');
+  ok('overal uitloggen trekt sessies in', lo.status === 200 && afterLogoutAll.status === 401);
 
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();

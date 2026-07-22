@@ -181,6 +181,24 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Zoekindex (omgekeerde index) voor snelle zoekacties
 - ✅ Bulk-verplaatsen + tags/labels per bestand
 
+## Privacy, samenwerking, media & multi-tenant (v3.16)
+
+- ✅ Toegangslog voor gedeelde bestanden (eigenaar ziet downloads)
+- ✅ Watermerk op gedeelde afbeeldingen
+- ✅ Sessie-timeout bij inactiviteit + "overal uitloggen"
+- ✅ Wachtwoordverval + wachtwoordhistorie (geen hergebruik)
+- ✅ Config-drift-detectie
+- ✅ Bestandsvergrendeling (locks)
+- ✅ Upload-portalen (per-inzender submappen)
+- ✅ Multi-tenant/afdelingen (tenant-veld per gebruiker)
+- ✅ Office-preview (docx/xlsx/pptx → tekst)
+- ✅ Automatische foto-ordening (EXIF → jaar/maand + dedupe)
+- ✅ Video-poster & audio-golfvorm (via ffmpeg)
+- ✅ PWA share-target
+- ✅ Geplande exports (rsync/rclone)
+- ✅ Automatische TLS via ACME-commando
+- ✅ Branding (naam/logo/accentkleur)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

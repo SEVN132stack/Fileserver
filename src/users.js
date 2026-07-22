@@ -4,6 +4,7 @@ import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import ssh2 from 'ssh2';
 import { config } from './config.js';
 import { targetMatches } from './groups.js';
+import { markWritten } from './config-drift.js';
 
 const { parseKey } = ssh2.utils;
 
@@ -32,6 +33,7 @@ function load() {
 export function saveUsers() {
   const data = { users: [...users.values()] };
   fs.writeFileSync(config.usersFile, JSON.stringify(data, null, 2), { mode: 0o600 });
+  markWritten(config.usersFile);
 }
 
 // Maak users.json bij de eerste start op basis van de standaardgebruiker uit .env.
@@ -163,6 +165,7 @@ export function listUsers() {
     totp: !!u.totp,
     external: !!u.external,
     expires: u.expires || 0,
+    tenant: u.tenant || '',
     shares: u.shares || [],
   }));
 }
@@ -188,12 +191,20 @@ export function addUser({ username, password, home, role = 'user', quota = 0, em
 export function updateUser(username, patch) {
   const u = users.get(username);
   if (!u) throw new Error('Gebruiker niet gevonden');
-  if (patch.password) u.password = hashPassword(patch.password);
+  if (patch.password) {
+    // Bewaar de oude hash in de geschiedenis (geen hergebruik) en de wijzigdatum.
+    u.pwHistory = (u.pwHistory || []);
+    if (u.password) u.pwHistory.push(u.password);
+    if (u.pwHistory.length > config.passwordHistory) u.pwHistory = u.pwHistory.slice(-config.passwordHistory);
+    u.password = hashPassword(patch.password);
+    u.pwChangedAt = Date.now();
+  }
   if (patch.role) u.role = patch.role;
   if (patch.email !== undefined) u.email = patch.email;
   if (patch.quota !== undefined) u.quota = patch.quota;
   if (patch.bw !== undefined) u.bw = patch.bw;
   if (patch.expires !== undefined) u.expires = patch.expires;
+  if (patch.tenant !== undefined) u.tenant = patch.tenant;
   if (patch.totp !== undefined) u.totp = patch.totp;
   if (patch.shares !== undefined) u.shares = patch.shares;
   saveUsers();
@@ -235,6 +246,24 @@ export async function passwordPwnedCount(pw) {
   } catch {
     return 0;
   }
+}
+
+// --- Wachtwoordverval & -hergebruik ---
+// Moet de gebruiker het wachtwoord wijzigen (te oud)?
+export function isPasswordExpired(username) {
+  if (!config.passwordMaxAgeDays) return false;
+  const u = users.get(username);
+  if (!u) return false;
+  const changed = u.pwChangedAt || 0;
+  if (!changed) return false; // onbekend: niet forceren tot de eerste wijziging
+  return Date.now() - changed > config.passwordMaxAgeDays * 86400000;
+}
+// Is het nieuwe wachtwoord gelijk aan het huidige of een recent gebruikt wachtwoord?
+export function isPasswordReused(username, newPassword) {
+  const u = users.get(username);
+  if (!u) return false;
+  const candidates = [u.password, ...(u.pwHistory || [])];
+  return candidates.some((h) => h && verifyHash(newPassword, h));
 }
 
 // --- Accountvervaldatum ---

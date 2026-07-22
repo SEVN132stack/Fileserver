@@ -294,7 +294,36 @@ export const config = {
   // Back-up herstel-test: ontsleutel + valideer de ZIP-structuur na elke back-up.
   backupRestoreTest: bool(process.env.BACKUP_RESTORE_TEST, false),
 
-  version: '3.15.0',
+  // --- v3.16 ---
+  // Sessie-timeout bij inactiviteit (ms, 0 = uit; naast de vaste 12u TTL).
+  idleTimeoutMs: parseInt(process.env.IDLE_TIMEOUT_MS || '0', 10),
+  // Wachtwoordverval (dagen, 0 = uit) en hoeveel oude hashes onthouden (geen hergebruik).
+  passwordMaxAgeDays: parseInt(process.env.PASSWORD_MAX_AGE_DAYS || '0', 10),
+  passwordHistory: parseInt(process.env.PASSWORD_HISTORY || '5', 10),
+  // Toegangslog voor gedeelde bestanden (wie downloadde wat, wanneer).
+  shareAccessFile: abs(process.env.SHARE_ACCESS_FILE || 'share-access.json'),
+  // Watermerk op gedeelde afbeeldingen (alleen afbeeldingen; via sharp).
+  watermarkShares: bool(process.env.WATERMARK_SHARES, false),
+  // Bestandsvergrendeling (locks).
+  locksFile: abs(process.env.LOCKS_FILE || 'locks.json'),
+  // Geplande exports (rsync/rclone naar externe bestemming).
+  scheduledExportsFile: abs(process.env.SCHEDULED_EXPORTS_FILE || 'scheduled-exports.json'),
+  scheduledExportIntervalMinutes: parseInt(process.env.SCHEDULED_EXPORT_INTERVAL || '60', 10),
+  // ffmpeg voor video-poster/audio-golfvorm (leeg = uit).
+  ffmpegCmd: process.env.FFMPEG_CMD || '',
+  // ACME: extern commando (certbot/acme.sh) voor TLS-certificaten + verlengen.
+  acmeCmd: process.env.ACME_CMD || '',
+  acmeRenewIntervalHours: parseInt(process.env.ACME_RENEW_INTERVAL_HOURS || '0', 10),
+  // Config-drift: waarschuw als deze bestanden buiten de app om wijzigen.
+  configDriftIntervalMinutes: parseInt(process.env.CONFIG_DRIFT_INTERVAL || '0', 10),
+  // Branding (ook via admin-instellingen aanpasbaar): naam/logo/accentkleur.
+  branding: {
+    appName: process.env.APP_NAME || 'SFTP Fileserver',
+    logoUrl: process.env.LOGO_URL || '',
+    accent: process.env.ACCENT_COLOR || '',
+  },
+
+  version: '3.16.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
