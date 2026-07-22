@@ -129,7 +129,22 @@
     <pre id="audit"></pre>
   </main>
   <script>
-    async function j(u,o){ const r=await fetch(u,o); if(r.status===401)location='/login.html'; if(r.status===403){document.body.innerHTML='<p style="padding:2rem">Geen beheerrechten.</p>';throw 0;} return r; }
+    async function j(u,o,_retry){
+      const r=await fetch(u,o);
+      if(r.status===401)location='/login.html';
+      if(r.status===403){
+        // Step-up: gevoelige actie vereist wachtwoord-herbevestiging.
+        const body=await r.clone().json().catch(()=>({}));
+        if(body.code==='reauth' && !_retry){
+          const pw=prompt('Bevestig je wachtwoord om door te gaan:');
+          if(pw){ const rr=await fetch('/api/reauth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+            if(rr.ok) return j(u,o,true); }
+          throw 0;
+        }
+        document.body.innerHTML='<p style="padding:2rem">Geen beheerrechten.</p>';throw 0;
+      }
+      return r;
+    }
     const fmtSize = (n) => { if(!n) return '0 B'; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; };
     const esc = (s) => String(s==null?'':s).replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 

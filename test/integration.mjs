@@ -25,6 +25,10 @@ process.env.COMMENTS_FILE = path.join(tmp, 'comments.json');
 process.env.INTEGRITY_FILE = path.join(tmp, 'integrity.json');
 process.env.SEARCH_INDEX_FILE = path.join(tmp, 'search-index.json');
 process.env.TAGS_FILE = path.join(tmp, 'tags.json');
+// Sessie-binding/step-up uit voor de brede suite; de dedicated tests zetten ze
+// tijdens de run zelf aan via config.
+process.env.SESSION_BIND = 'off';
+process.env.REAUTH_WINDOW_MS = '0';
 process.env.UPDATE_CHECK = 'false';
 process.env.SETTINGS_FILE = path.join(tmp, 'settings.json');
 process.env.ENV_FILE = path.join(tmp, '.env');
@@ -591,6 +595,13 @@ try {
   const afterReauth = await fetch(H + '/api/admin/export', { headers: jar() });
   config.reauthWindowMs = 0;
   ok('step-up reauth beschermt gevoelige actie', noReauth.status === 403 && ra.status === 200 && afterReauth.status === 200);
+
+  // 20b. Sessie-binding: dezelfde cookie vanaf een andere User-Agent wordt geweigerd.
+  config.sessionBindMode = 'ua';
+  const sameUa = await fetch(H + '/api/whoami', { headers: jar() });
+  const otherUa = await fetch(H + '/api/whoami', { headers: jar({ 'User-Agent': 'heel-andere-browser/9' }) });
+  config.sessionBindMode = 'off';
+  ok('sessie-binding weigert cookie vanaf ander apparaat', sameUa.status === 200 && otherUa.status === 401);
 
   // 21. Readiness-probe.
   const ready = await (await fetch(H + '/ready')).json();
