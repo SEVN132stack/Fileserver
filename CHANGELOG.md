@@ -6,10 +6,11 @@
 
 - **Onvervalsbaar audit-log** (hash-keten): elke regel is met de vorige gekoppeld;
   `/api/admin/audit/verify` (knop in het dashboard) detecteert gewijzigde/verwijderde regels.
-- **Sessie-binding** (`SESSION_BIND=off|ip|ua|both`): een gestolen sessie-cookie werkt
-  niet vanaf een ander IP/User-Agent.
-- **Step-up-herauthenticatie** (`REAUTH_WINDOW_MS`): gevoelige beheeracties (gebruiker
-  verwijderen, config exporteren) vereisen een recente wachtwoord-herbevestiging (`/api/reauth`).
+- **Sessie-binding** (`SESSION_BIND=off|ip|ua|both`, **standaard `both`**): een gestolen
+  sessie-cookie werkt niet vanaf een ander IP/User-Agent. Bij wisselend mobiel IP: kies `ua`.
+- **Step-up-herauthenticatie** (`REAUTH_WINDOW_MS`, **standaard 5 min aan**): gevoelige
+  beheeracties (gebruiker verwijderen, config exporteren) vereisen een recente
+  wachtwoord-herbevestiging (`/api/reauth`); het admin-dashboard vraagt dit automatisch.
 - **Bestand-gebaseerde geheimen**: `<SECRET>_FILE` en systemd `$CREDENTIALS_DIRECTORY`
   worden geladen — geheimen kunnen uit Docker/Podman secrets, Kubernetes of Vault komen.
 

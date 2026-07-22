@@ -274,10 +274,10 @@ export const config = {
   // --- v3.15 ---
   // Sessie-binding: koppel een sessie aan het IP en/of de User-Agent waarmee is
   // ingelogd. 'off' | 'ip' | 'ua' | 'both'. Voorkomt cookie-diefstal-hergebruik.
-  sessionBindMode: (process.env.SESSION_BIND || 'off').toLowerCase(),
+  sessionBindMode: (process.env.SESSION_BIND || 'both').toLowerCase(),
   // Step-up: gevoelige beheeracties vereisen een recente wachtwoord-herbevestiging
   // (in ms). 0 = uit.
-  reauthWindowMs: parseInt(process.env.REAUTH_WINDOW_MS || '0', 10), // 0 = uit; bijv. 300000 (5 min)
+  reauthWindowMs: parseInt(process.env.REAUTH_WINDOW_MS || '300000', 10), // 0 = uit; standaard 5 min
 
   // Zoekindex: omgekeerde index voor snelle bestandsnaam-/inhoudzoekacties.
   searchIndexFile: abs(process.env.SEARCH_INDEX_FILE || 'search-index.json'),
