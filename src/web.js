@@ -231,6 +231,13 @@ export function createWebServer() {
   app.set('trust proxy', tp === 'true' ? true : tp === 'false' ? false : (/^\d+$/.test(tp) ? parseInt(tp, 10) : tp));
   app.disable('x-powered-by');
 
+  // Maximale uploadgrootte per bestand (0 = onbeperkt) voor alle multer-uploads.
+  const mlimits = config.maxUploadBytes > 0 ? { fileSize: config.maxUploadBytes } : undefined;
+  // Sla een cookie-attribuutstring op basis van de Secure-instelling.
+  const cookieSecure = config.cookieSecure === 'true' || config.cookieSecure === 'on'
+    || (config.cookieSecure === 'auto' && config.tls.enabled);
+  const cookieAttrs = (sameSite = 'Strict') => `HttpOnly; SameSite=${sameSite}; Path=/${cookieSecure ? '; Secure' : ''}`;
+
   // Health-endpoint voor uptime-monitoring (geen auth, geen geheimen).
   app.get('/health', (req, res) => res.json({ status: 'ok', version: config.version, uptime: Math.round(process.uptime()) }));
 
@@ -303,7 +310,7 @@ export function createWebServer() {
       recordSuccess('web:' + ip);
       recordLoginSuccess(username);
       const sid = createSession(username, { ip, ua: req.headers['user-agent'] });
-      res.set('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Strict; Path=/${config.tls.enabled ? '; Secure' : ''}`);
+      res.set('Set-Cookie', `sid=${sid}; ${cookieAttrs('Strict')}`);
       return res.json({ ok: true, role: role(username), mustEnroll2fa: true });
     }
     recordSuccess('web:' + ip);
@@ -316,7 +323,7 @@ export function createWebServer() {
       if (to) sendMail({ to, subject: 'Nieuwe login op je account', text: `Er is ingelogd op je account vanaf een nieuw apparaat.\nIP: ${ip}\nBrowser: ${req.headers['user-agent'] || 'onbekend'}\nTijd: ${new Date().toISOString()}\n\nWas jij dit niet? Wijzig direct je wachtwoord.` }).catch((e) => console.error('[login-mail]', e.message));
     }
     const sid = createSession(username, { ip, ua: req.headers['user-agent'] });
-    res.set('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Strict; Path=/${config.tls.enabled ? '; Secure' : ''}`);
+    res.set('Set-Cookie', `sid=${sid}; ${cookieAttrs('Strict')}`);
     metrics.inc('fileserver_logins_total');
     emitAdmin('activity', { kind: 'login', user: username });
     audit('web', username, 'login', { ip });
@@ -410,7 +417,7 @@ export function createWebServer() {
       const { username, email } = await exchange(req.query.code);
       ensureExternalUser(username, email);
       const sid = createSession(username);
-      res.set('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Lax; Path=/${config.tls.enabled ? '; Secure' : ''}`);
+      res.set('Set-Cookie', `sid=${sid}; ${cookieAttrs('Lax')}`);
       audit('web', username, 'login', { method: 'oidc' });
       res.redirect('/');
     } catch (err) {
@@ -432,7 +439,7 @@ export function createWebServer() {
       const { username, response } = req.body || {};
       await webauthn.verifyAuthentication(username, response);
       const sid = createSession(username, { ip, ua: req.headers['user-agent'] });
-      res.set('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Strict; Path=/${config.tls.enabled ? '; Secure' : ''}`);
+      res.set('Set-Cookie', `sid=${sid}; ${cookieAttrs('Strict')}`);
       metrics.inc('fileserver_logins_total');
       audit('web', username, 'login', { method: 'passkey', ip });
       res.json({ ok: true, role: role(username) });
@@ -529,6 +536,7 @@ export function createWebServer() {
 
   // Ontvang uploads op een drop-link (geen account nodig).
   const dropUpload = multer({
+    limits: mlimits,
     storage: multer.diskStorage({
       destination(req, file, cb) {
         const share = getShare(req.params.token);
@@ -548,6 +556,14 @@ export function createWebServer() {
   app.post('/s/:token/upload', dropUpload.array('files'), async (req, res) => {
     const share = getShare(req.params.token);
     if (!share || share.type !== 'upload') return res.status(404).send('Link niet gevonden.');
+    // Quotabewaking: anonieme drop-uploads mogen het quotum van de eigenaar niet
+    // overschrijden (voorkomt schijf-vol-misbruik via een deel-link).
+    const ownerHome = homeDir(share.user);
+    const q = quota(share.user);
+    if (q > 0 && dirSize(ownerHome) > q) {
+      for (const f of req.files || []) { try { fs.unlinkSync(f.path); } catch { /* al weg */ } }
+      return res.status(413).send('Opslaglimiet bereikt; upload geweigerd.');
+    }
     // Scan aangeleverde bestanden; besmette naar quarantaine.
     for (const f of req.files || []) {
       const scan = await scanFile(f.path);
@@ -593,6 +609,7 @@ export function createWebServer() {
   app.use(TUS_MOUNT, authenticate, (req, res) => handleTus(req, res));
 
   const upload = multer({
+    limits: mlimits,
     storage: multer.diskStorage({
       destination(req, file, cb) {
         try {
@@ -921,7 +938,7 @@ export function createWebServer() {
   });
 
   // Hervatbare (chunked) upload voor grote bestanden.
-  const chunkUpload = multer({ storage: multer.memoryStorage() });
+  const chunkUpload = multer({ storage: multer.memoryStorage(), limits: mlimits });
   app.get('/api/upload/status', (req, res) => {
     const dir = path.join(config.chunkDir, sanitizeId(req.query.uploadId));
     if (!fs.existsSync(dir)) return res.json({ received: [] });
@@ -1082,6 +1099,7 @@ export function createWebServer() {
 
   // PWA share-target: bestanden vanuit een andere app "delen naar" de fileserver.
   const shareTargetUpload = multer({
+    limits: mlimits,
     storage: multer.diskStorage({
       destination(req, file, cb) { fs.mkdirSync(req.home, { recursive: true }); cb(null, req.home); },
       filename(req, file, cb) { cb(null, path.basename(file.originalname)); },
@@ -1289,6 +1307,7 @@ export function createWebServer() {
   });
   // Schrijven in een met mij gedeelde 'rw'-map.
   const sharedUpload = multer({
+    limits: mlimits,
     storage: multer.diskStorage({
       destination(req, file, cb) {
         try { const { abs } = resolveShared(req, req.query.path || '/', true); fs.mkdirSync(abs, { recursive: true }); cb(null, abs); }
@@ -1572,6 +1591,18 @@ export function createWebServer() {
 
   // Statische bestanden (loginpagina toegankelijk zonder auth).
   app.use(express.static(path.join(__dirname, '..', 'public')));
+
+  // Centrale foutafhandeling: een te groot bestand (multer-limiet) geeft 413
+  // i.p.v. een generieke 500. Overige onverwachte fouten worden netjes 500.
+  app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    if (err && (err.code === 'LIMIT_FILE_SIZE' || err instanceof multer.MulterError)) {
+      const mb = config.maxUploadBytes ? Math.round(config.maxUploadBytes / 1e6) : 0;
+      return res.status(413).json({ error: mb ? `Bestand te groot (max ${mb} MB)` : 'Bestand te groot' });
+    }
+    console.error('[web] onverwachte fout:', err && err.message);
+    res.status(500).json({ error: 'Interne fout' });
+  });
 
   return app;
 }

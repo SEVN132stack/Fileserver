@@ -301,6 +301,12 @@ export const config = {
   // bans/rate-limiting/geo/IP-allowlist te omzeilen. Zet op 'true' als je meerdere
   // proxies hebt, of 'false' als de app direct (zonder proxy) benaderbaar is.
   trustProxy: process.env.TRUST_PROXY || '1',
+  // Maximale uploadgrootte per bestand (bytes, 0 = onbeperkt). Beschermt tegen
+  // schijf-vol-DoS, ook via anonieme drop-links.
+  maxUploadBytes: parseInt(process.env.MAX_UPLOAD_BYTES || '0', 10),
+  // Cookie 'Secure'-vlag forceren, ook als TLS_ENABLED=false (bijv. achter een
+  // TLS-terminerende reverse proxy zoals Caddy). 'auto' = alleen bij eigen TLS.
+  cookieSecure: (process.env.COOKIE_SECURE || 'auto').toLowerCase(),
   // Sessie-timeout bij inactiviteit (ms, 0 = uit; naast de vaste 12u TTL).
   idleTimeoutMs: parseInt(process.env.IDLE_TIMEOUT_MS || '0', 10),
   // Wachtwoordverval (dagen, 0 = uit) en hoeveel oude hashes onthouden (geen hergebruik).
@@ -329,7 +335,7 @@ export const config = {
     accent: process.env.ACCENT_COLOR || '',
   },
 
-  version: '3.16.2',
+  version: '3.16.3',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

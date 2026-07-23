@@ -29,6 +29,7 @@ process.env.SHARE_ACCESS_FILE = path.join(tmp, 'share-access.json');
 process.env.LOCKS_FILE = path.join(tmp, 'locks.json');
 process.env.SCHEDULED_EXPORTS_FILE = path.join(tmp, 'scheduled-exports.json');
 process.env.METRICS_TOKEN = 'test-metrics-token';
+process.env.MAX_UPLOAD_BYTES = '1048576'; // 1MB uploadlimiet voor de test
 // Sessie-binding/step-up uit voor de brede suite; de dedicated tests zetten ze
 // tijdens de run zelf aan via config.
 process.env.SESSION_BIND = 'off';
@@ -706,6 +707,14 @@ try {
   const stFd = new FormData(); stFd.append('files', new Blob(['x']), 'st.txt');
   const stAnon = await fetch(H + '/share-target', { method: 'POST', body: stFd });
   ok('share-target weigert zonder auth', stAnon.status === 401);
+
+  // 33. Uploadgrootte-limiet: een bestand > MAX_UPLOAD_BYTES wordt geweigerd (413).
+  cookie = ''; await login('admin', 'testpass123b');
+  const bigFd = new FormData(); bigFd.append('files', new Blob([new Uint8Array(1_200_000)]), 'groot.bin');
+  const bigUp = await fetch(H + '/api/upload?path=/', { method: 'POST', headers: jar(), body: bigFd });
+  const smallFd = new FormData(); smallFd.append('files', new Blob([new Uint8Array(1000)]), 'klein.bin');
+  const smallUp = await fetch(H + '/api/upload?path=/', { method: 'POST', headers: jar(), body: smallFd });
+  ok('uploadgrootte-limiet weigert te grote upload (413)', bigUp.status === 413 && smallUp.status === 200);
 
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
