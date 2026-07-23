@@ -78,6 +78,17 @@ import { revokeAllForUser, startImpersonation, stopImpersonation } from './sessi
 import { isPasswordExpired, isPasswordReused, isBreakglass, recordLogin, lastLogin } from './users.js';
 import { scanFileForDlp } from './dlp.js';
 import { rateLimiter } from './ratelimit.js';
+import * as retention from './retention.js';
+import * as expiry from './expiry.js';
+import * as e2eFolders from './e2e-folders.js';
+import * as apikeys from './apikeys.js';
+import * as notifications from './notifications.js';
+import * as presence from './presence.js';
+import { findDuplicates, cleanupSuggestions } from './analysis.js';
+import { canConvert, convertImage, convertDocToPdf, transcodeAv } from './convert.js';
+import { recordRecent, listRecent } from './recent.js';
+import * as gdpr from './gdpr.js';
+import { requestLogger } from './log.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -133,7 +144,22 @@ function authenticate(req, res, next) {
     }
   }
 
-  // 2. HTTP Basic Auth (voor API-clients, SFTP-parity en WebDAV).
+  // 2. API-sleutel (Authorization: Bearer fsk_... of X-API-Key). Scope 'read'
+  //    geeft alleen-lezen toegang.
+  const apiKeyHeader = req.headers['x-api-key'] || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (apiKeyHeader && apiKeyHeader.startsWith('fsk_')) {
+    const resolved = apikeys.resolveKey(apiKeyHeader);
+    if (resolved && userExists(resolved.user) && !isExpired(resolved.user)) {
+      req.user = resolved.user;
+      req.home = homeDir(resolved.user);
+      req.userRole = role(resolved.user);
+      req.apiScope = resolved.scope;
+      if (resolved.scope !== 'write') req.apiReadonly = true;
+      return next();
+    }
+  }
+
+  // 3. HTTP Basic Auth (voor API-clients, SFTP-parity en WebDAV).
   const gate = checkAllowed('web:' + ip);
   if (!gate.allowed) {
     res.set('Retry-After', Math.ceil(gate.retryAfterMs / 1000));
@@ -187,6 +213,7 @@ function requireReauth(req, res, next) {
 }
 
 function requireWrite(req, res, next) {
+  if (req.apiReadonly) return res.status(403).json({ error: 'API-sleutel is alleen-lezen' });
   if (isReadonly(req.user)) return res.status(403).json({ error: 'Alleen-lezen account' });
   next();
 }
@@ -250,6 +277,9 @@ export function createWebServer() {
   const cookieSecure = config.cookieSecure === 'true' || config.cookieSecure === 'on'
     || (config.cookieSecure === 'auto' && config.tls.enabled);
   const cookieAttrs = (sameSite = 'Strict') => `HttpOnly; SameSite=${sameSite}; Path=/${cookieSecure ? '; Secure' : ''}`;
+
+  // Gestructureerde request-logging + correlation-id (actief bij LOG_JSON=true).
+  app.use(requestLogger());
 
   // Rate-limiters (per IP): algemeen voor de API en strenger voor downloads.
   const apiLimiter = rateLimiter('api', () => config.apiRateLimit);
@@ -604,6 +634,7 @@ export function createWebServer() {
     countUpload(req.params.token);
     audit('web', share.user, 'drop_upload', { path: share.path, files: (req.files || []).map((f) => f.originalname), ip: clientIp(req) });
     notifyShare('drop_upload', share.user, { path: share.path, ip: clientIp(req) });
+    notifications.notifyUser(share.user, 'Nieuwe upload via drop-link', `Er zijn bestanden aangeleverd in ${share.path}.`);
     emitToUser(share.user, 'change', { action: 'drop_upload' });
     // Token is een gevalideerde random string, maar escape defensief tegen reflectie.
     const safeToken = encodeURIComponent(req.params.token);
@@ -658,10 +689,15 @@ export function createWebServer() {
         }
       },
       filename(req, file, cb) {
-        // Weiger overschrijven van een vergrendeld bestand.
+        // Weiger overschrijven van een vergrendeld of onder-bewaarplicht bestand.
         const relPath = path.posix.join(req.query.path || '/', file.originalname);
         const holder = locks.lockOwner(req.home, relPath);
         if (holder) return cb(new Error(`Vergrendeld door ${holder}`));
+        if (retention.retainedUntil(req.home, relPath)) return cb(new Error('Onder bewaarplicht'));
+        // E2E-verplichte map: alleen versleutelde (.enc) bestanden toestaan.
+        if (e2eFolders.isE2ERequired(req.home, relPath) && !/\.enc$/i.test(file.originalname)) {
+          return cb(new Error('Deze map vereist end-to-end-versleuteling (.enc)'));
+        }
         try {
           // Bewaar de vorige versie vóór overschrijven.
           const rel = path.posix.join(req.query.path || '/', path.dirname(file.originalname));
@@ -754,6 +790,7 @@ export function createWebServer() {
       const file = resolveWithin(req.home, req.query.path || '');
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).json({ error: 'Niet gevonden' });
       audit('web', req.user, 'download', { path: req.query.path, country: countryOf(req) });
+      recordRecent(req.user, req.query.path || '');
       checkHoneypot(req.user, req.query.path || '', 'download');
       metrics.inc('fileserver_downloads_total');
       metrics.inc('fileserver_bytes_downloaded_total', fs.statSync(file).size);
@@ -977,6 +1014,7 @@ export function createWebServer() {
         notify('quarantine', { user: req.user, file: f.originalname });
         sysAlert('quarantine', 'Bestand in quarantaine', `Upload '${f.originalname}' van '${req.user}' is besmet: ${scan.detail||''}`);
         emitAdmin('activity', { kind: 'quarantine', user: req.user });
+        notifications.notifyUser(req.user, 'Bestand in quarantaine', `'${f.originalname}' is als besmet gemarkeerd.`);
         continue;
       }
       // DLP: gevoelige gegevens (BSN/creditcard/IBAN/wachtwoorden) detecteren.
@@ -993,6 +1031,9 @@ export function createWebServer() {
         try { setMeta(req.home, path.posix.join(req.query.path || '/', f.originalname), { dlp: dlp.types }); } catch { /* optioneel */ }
       }
       names.push(f.originalname);
+      // Self-destruct: vervaldatum instellen als de client die meegeeft.
+      const expDays = Number(req.query.expiresInDays) || 0;
+      if (expDays > 0) expiry.setExpiry(req.home, path.posix.join(req.query.path || '/', f.originalname), Date.now() + expDays * 86400000);
       runPostUpload(f.path);
     }
     audit('web', req.user, 'upload', { path: req.query.path || '/', files: names });
@@ -1051,6 +1092,8 @@ export function createWebServer() {
     try {
       const holder = locks.lockOwner(req.home, req.query.path || '');
       if (holder) return res.status(423).json({ error: `Vergrendeld door ${holder} — eerst ontgrendelen` });
+      const rUntil = retention.retainedUntil(req.home, req.query.path || '');
+      if (rUntil) return res.status(423).json({ error: `Bewaarplicht t/m ${new Date(rUntil).toLocaleDateString()} — niet wijzigbaar` });
       const file = resolveWithin(req.home, req.query.path || '');
       await fsp.mkdir(path.dirname(file), { recursive: true });
       snapshot(req.home, file);
@@ -1080,6 +1123,7 @@ export function createWebServer() {
     try {
       const lockHolder = locks.lockOwner(req.home, req.body.from || '');
       if (lockHolder) return res.status(423).json({ error: `Vergrendeld door ${lockHolder} — eerst ontgrendelen` });
+      if (retention.retainedUntil(req.home, req.body.from || '')) return res.status(423).json({ error: 'Onder bewaarplicht — niet te hernoemen/verplaatsen' });
       const from = resolveWithin(req.home, req.body.from || '');
       const to = resolveWithin(req.home, req.body.to || '');
       await fsp.mkdir(path.dirname(to), { recursive: true });
@@ -1087,6 +1131,7 @@ export function createWebServer() {
       permalinks.updatePath(req.user, req.body.from, req.body.to);
       tags.movePath(req.user, req.body.from, req.body.to);
       locks.movePath(req.home, req.body.from, req.body.to);
+      expiry.movePath(req.home, req.body.from, req.body.to);
       recordMutation(req.user, 'rename'); checkHoneypot(req.user, req.body.from, 'rename');
       audit('web', req.user, 'rename', { from: req.body.from, to: req.body.to });
       emitToUser(req.user, 'change', { action: 'rename' });
@@ -1104,6 +1149,7 @@ export function createWebServer() {
       await fsp.mkdir(trash, { recursive: true });
       for (const p of targets) {
         if (locks.lockOwner(req.home, p)) continue; // vergrendelde items overslaan
+        if (retention.retainedUntil(req.home, p)) continue; // bewaarplicht: niet verwijderen
         const abs = resolveWithin(req.home, p);
         if (path.resolve(abs) === path.resolve(req.home)) continue;
         const dest = path.join(trash, Date.now() + '_' + path.basename(abs));
@@ -1113,6 +1159,7 @@ export function createWebServer() {
         permalinks.removeForPath(req.user, p);
         tags.removePath(req.user, p);
         locks.removePath(req.home, p);
+        expiry.removePath(req.home, p);
         recordMutation(req.user, 'delete'); checkHoneypot(req.user, p, 'delete');
         audit('web', req.user, 'delete', { path: p });
         notify('delete', { user: req.user, path: p });
@@ -1142,6 +1189,7 @@ export function createWebServer() {
         permalinks.updatePath(req.user, p, destRel);
         tags.movePath(req.user, p, destRel);
         locks.movePath(req.home, p, destRel);
+        expiry.movePath(req.home, p, destRel);
         moved++;
       }
       recordMutation(req.user, 'rename');
@@ -1215,6 +1263,103 @@ export function createWebServer() {
       emitToUser(req.user, 'change', { action: 'organize_photos' });
       res.json(r);
     } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // WORM/retentie: bewaarplicht instellen (mag niet verkort worden).
+  app.get('/api/retention', (req, res) => res.json({ retention: retention.listRetention(req.home) }));
+  app.post('/api/retention', requireWrite, express.json(), (req, res) => {
+    const days = Number(req.body.days) || 0;
+    if (days <= 0) return res.status(400).json({ error: 'Aantal dagen vereist' });
+    const until = retention.setRetention(req.home, req.body.path || '', Date.now() + days * 86400000);
+    audit('web', req.user, 'retention_set', { path: req.body.path, until });
+    res.json({ ok: true, until });
+  });
+
+  // Self-destruct / vervaldatum per bestand.
+  app.get('/api/expiry', (req, res) => res.json({ expiresAt: expiry.getExpiry(req.home, req.query.path || '') }));
+  app.post('/api/expiry', requireWrite, express.json(), (req, res) => {
+    const days = Number(req.body.days) || 0;
+    expiry.setExpiry(req.home, req.body.path || '', days > 0 ? Date.now() + days * 86400000 : 0);
+    audit('web', req.user, 'expiry_set', { path: req.body.path, days });
+    res.json({ ok: true });
+  });
+
+  // E2E-verplichte mappen.
+  app.get('/api/e2e-folders', (req, res) => res.json({ folders: e2eFolders.listE2E(req.home) }));
+  app.post('/api/e2e-folders', requireWrite, express.json(), (req, res) => {
+    e2eFolders.setE2E(req.home, req.body.folder || '/', !!req.body.on);
+    audit('web', req.user, 'e2e_folder', { folder: req.body.folder, on: !!req.body.on });
+    res.json({ ok: true, folders: e2eFolders.listE2E(req.home) });
+  });
+
+  // Per-gebruiker API-sleutels.
+  app.get('/api/apikeys', (req, res) => res.json({ keys: apikeys.listKeys(req.user) }));
+  app.post('/api/apikeys', requireWrite, express.json(), (req, res) => {
+    const { id, token } = apikeys.createKey(req.user, req.body.name, req.body.scope);
+    audit('web', req.user, 'apikey_create', { id, scope: req.body.scope || 'read' });
+    res.json({ ok: true, id, token }); // token wordt maar één keer getoond
+  });
+  app.delete('/api/apikeys/:id', requireWrite, (req, res) => {
+    const ok = apikeys.revokeKey(req.user, req.params.id);
+    if (ok) audit('web', req.user, 'apikey_revoke', { id: req.params.id });
+    res.json({ ok });
+  });
+
+  // In-app notificatiecentrum.
+  app.get('/api/notifications', (req, res) => res.json({ items: notifications.listNotifications(req.user), unread: notifications.unreadCount(req.user) }));
+  app.post('/api/notifications/read', express.json(), (req, res) => { notifications.markRead(req.user, req.body && req.body.id); res.json({ ok: true }); });
+  app.delete('/api/notifications', (req, res) => { notifications.clearAll(req.user); res.json({ ok: true }); });
+
+  // Aanwezigheid ("wie kijkt nu naar dit bestand").
+  app.post('/api/presence', express.json(), (req, res) => {
+    const p = req.body.path || '';
+    if (req.body.action === 'leave') presence.leave(req.home, p, req.user);
+    else presence.touch(req.home, p, req.user);
+    res.json({ viewers: presence.viewers(req.home, p, req.user) });
+  });
+
+  // Recent geopende bestanden.
+  app.get('/api/recent', (req, res) => res.json({ items: listRecent(req.user) }));
+
+  // Duplicaten & opschoon-suggesties.
+  app.get('/api/duplicates', (req, res) => res.json(findDuplicates(req.home)));
+  app.get('/api/cleanup-suggestions', (req, res) => {
+    // Bepaal welke bestanden ooit gedownload zijn uit het audit-log van deze gebruiker.
+    const downloaded = new Set();
+    try {
+      for (const line of fs.readFileSync(config.auditLog, 'utf8').trim().split('\n')) {
+        const e = JSON.parse(line);
+        if (e.user === req.user && e.action === 'download' && e.path) downloaded.add(e.path);
+      }
+    } catch { /* geen log */ }
+    res.json(cleanupSuggestions(req.home, downloaded));
+  });
+
+  // Server-side conversie (afbeelding/document/av).
+  app.get('/api/convert', async (req, res) => {
+    try {
+      const src = resolveWithin(req.home, req.query.path || '');
+      if (!fs.existsSync(src)) return res.status(404).json({ error: 'Niet gevonden' });
+      const to = String(req.query.to || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const name = path.basename(src).replace(/\.[^.]+$/, '') + '.' + to;
+      if (/\.(jpe?g|png|webp|gif|tiff?|heic|heif|avif|bmp)$/i.test(src) && ['jpg', 'jpeg', 'png', 'webp', 'avif', 'tiff'].includes(to)) {
+        const buf = await convertImage(src, to);
+        res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+        return res.end(buf);
+      }
+      if (to === 'pdf') { const pdf = await convertDocToPdf(src); return res.download(pdf, name); }
+      const out = await transcodeAv(src, to);
+      return res.download(out, name);
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Rclone-/WebDAV-profiel genereren (voor CLI-clients).
+  app.get('/api/rclone-config', (req, res) => {
+    const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+    const conf = `[zepta-nas]\ntype = webdav\nurl = ${base}/webdav\nvendor = other\nuser = ${req.user}\n# pass = <voer je wachtwoord in met: rclone obscure <wachtwoord>>\n`;
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', 'attachment; filename="rclone-zepta-nas.conf"');
+    res.end(conf);
   });
 
   // Office-preview (docx/xlsx/pptx -> platte tekst).
@@ -1662,6 +1807,24 @@ export function createWebServer() {
     res.setHeader('Content-Disposition', 'attachment; filename="fileserver-config.json"');
     res.json({ exportedAt: new Date().toISOString(), version: config.version, ...bundle });
   });
+  // AVG/GDPR: dataportabiliteit (export) en recht op vergetelheid (forget).
+  app.get('/api/admin/gdpr/export/:user', requireAdmin, (req, res) => {
+    try {
+      const data = gdpr.exportUser(req.params.user);
+      audit('web', req.user, 'gdpr_export', { subject: req.params.user });
+      res.setHeader('Content-Disposition', `attachment; filename="gdpr-${req.params.user}.json"`);
+      res.json(data);
+    } catch (err) { res.status(404).json({ error: err.message }); }
+  });
+  app.post('/api/admin/gdpr/forget/:user', requireAdmin, requireReauth, (req, res) => {
+    try {
+      if (req.params.user === req.user) return res.status(400).json({ error: 'Kan jezelf niet vergeten' });
+      const r = gdpr.forgetUser(req.params.user, req.user);
+      sysAlert(`gdpr-forget-${req.params.user}`, 'AVG: gebruiker vergeten', `Alle data van '${req.params.user}' is verwijderd/geanonimiseerd door '${req.user}'.`);
+      res.json(r);
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
   app.post('/api/admin/import', requireAdmin, requireReauth, express.json({ limit: '20mb' }), (req, res) => {
     const map = { users: config.usersFile, groups: config.groupsFile, settings: config.settingsFile, shares: config.sharesFile, permalinks: config.permalinksFile };
     const imported = [];
@@ -1706,6 +1869,10 @@ export function createWebServer() {
     if (err && (err.code === 'LIMIT_FILE_SIZE' || err instanceof multer.MulterError)) {
       const mb = config.maxUploadBytes ? Math.round(config.maxUploadBytes / 1e6) : 0;
       return res.status(413).json({ error: mb ? `Bestand te groot (max ${mb} MB)` : 'Bestand te groot' });
+    }
+    // Upload-beleidsweigeringen (vergrendeld, bewaarplicht, E2E-verplicht): 422.
+    if (err && /Vergrendeld|bewaarplicht|end-to-end/i.test(err.message || '')) {
+      return res.status(422).json({ error: err.message });
     }
     console.error('[web] onverwachte fout:', err && err.message);
     res.status(500).json({ error: 'Interne fout' });

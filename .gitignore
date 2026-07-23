@@ -27,3 +27,8 @@ audit.log.chain
 share-access.json
 locks.json
 scheduled-exports.json
+retention.json
+file-expiry.json
+e2e-folders.json
+api-keys.json
+notifications.json

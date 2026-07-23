@@ -28,6 +28,11 @@ process.env.TAGS_FILE = path.join(tmp, 'tags.json');
 process.env.SHARE_ACCESS_FILE = path.join(tmp, 'share-access.json');
 process.env.LOCKS_FILE = path.join(tmp, 'locks.json');
 process.env.SCHEDULED_EXPORTS_FILE = path.join(tmp, 'scheduled-exports.json');
+process.env.RETENTION_FILE = path.join(tmp, 'retention.json');
+process.env.EXPIRY_FILE = path.join(tmp, 'expiry.json');
+process.env.E2E_FOLDERS_FILE = path.join(tmp, 'e2e-folders.json');
+process.env.API_KEYS_FILE = path.join(tmp, 'api-keys.json');
+process.env.NOTIFICATIONS_FILE = path.join(tmp, 'notifications.json');
 process.env.METRICS_TOKEN = 'test-metrics-token';
 process.env.MAX_UPLOAD_BYTES = '1048576'; // 1MB uploadlimiet voor de test
 // Sessie-binding/step-up uit voor de brede suite; de dedicated tests zetten ze
@@ -764,6 +769,60 @@ try {
   for (let i = 0; i < 6; i++) { const r = await fetch(H + '/api/whoami', { headers: jar() }); if (r.status === 429) got429 = true; }
   config.apiRateLimit.max = 0;
   ok('API-rate-limiting weigert boven de limiet (429)', got429 === true);
+
+  // 40. WORM/retentie: bestand onder bewaarplicht kan niet worden gewijzigd/verwijderd.
+  cookie = ''; await login('admin', 'testpass123b');
+  await fetch(H + '/api/save?path=/worm.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'origineel' });
+  await fetch(H + '/api/retention', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/worm.txt', days: 30 }) });
+  const wormSave = await fetch(H + '/api/save?path=/worm.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'gewijzigd' });
+  const wormDel = await (await fetch(H + '/api/delete', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/worm.txt' }) })).json();
+  const stillThere = await (await fetch(H + '/api/list', { headers: jar() })).json();
+  ok('WORM-retentie blokkeert wijzigen + verwijderen',
+    wormSave.status === 423 && stillThere.items.some((i) => i.name === 'worm.txt'));
+
+  // 41. Self-destruct: vervaldatum in het verleden -> sweep verwijdert het bestand.
+  const { setExpiry, sweepExpired } = await import('../src/expiry.js');
+  await fetch(H + '/api/save?path=/tijdelijk.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'weg' });
+  setExpiry(path.join(config.storageDir, 'admin'), '/tijdelijk.txt', Date.now() - 1000);
+  const sw = sweepExpired();
+  const afterSweep = await (await fetch(H + '/api/list', { headers: jar() })).json();
+  ok('self-destruct verwijdert verlopen bestand', sw.removed >= 1 && !afterSweep.items.some((i) => i.name === 'tijdelijk.txt'));
+
+  // 42. E2E-verplichte map: onversleutelde upload geweigerd, .enc toegestaan.
+  await fetch(H + '/api/mkdir', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/kluis' }) });
+  await fetch(H + '/api/e2e-folders', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ folder: '/kluis', on: true }) });
+  const plainFd = new FormData(); plainFd.append('files', new Blob(['klare tekst']), 'geheim.txt');
+  const plainUp = await fetch(H + '/api/upload?path=/kluis', { method: 'POST', headers: jar(), body: plainFd });
+  const encFd = new FormData(); encFd.append('files', new Blob(['versleuteld']), 'geheim.txt.enc');
+  const encUp = await fetch(H + '/api/upload?path=/kluis', { method: 'POST', headers: jar(), body: encFd });
+  ok('E2E-map weigert klare tekst, staat .enc toe', plainUp.status >= 400 && encUp.status === 200);
+
+  // 43. API-sleutel: read-scope kan lezen maar niet schrijven.
+  const keyRes = await (await fetch(H + '/api/apikeys', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ name: 'test', scope: 'read' }) })).json();
+  const kh = { Authorization: 'Bearer ' + keyRes.token };
+  const keyList = await fetch(H + '/api/list', { headers: kh });
+  const keyWrite = await fetch(H + '/api/mkdir', { method: 'POST', headers: { ...kh, 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '/', name: 'viakey' }) });
+  ok('API-sleutel (read) leest wel, schrijft niet', keyRes.token.startsWith('fsk_') && keyList.status === 200 && keyWrite.status === 403);
+
+  // 44. Notificatiecentrum: melding toevoegen en als gelezen markeren.
+  const { notifyUser } = await import('../src/notifications.js');
+  notifyUser('admin', 'Testmelding', 'hoi');
+  const notifs = await (await fetch(H + '/api/notifications', { headers: jar() })).json();
+  await fetch(H + '/api/notifications/read', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({}) });
+  const notifs2 = await (await fetch(H + '/api/notifications', { headers: jar() })).json();
+  ok('notificatiecentrum: melding + gelezen-markering', notifs.unread >= 1 && notifs2.unread === 0);
+
+  // 45. Duplicaten-vinder herkent identieke bestanden.
+  await fetch(H + '/api/save?path=/dup1.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'zelfde inhoud hier' });
+  await fetch(H + '/api/save?path=/dup2.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'zelfde inhoud hier' });
+  const dups = await (await fetch(H + '/api/duplicates', { headers: jar() })).json();
+  ok('duplicaten-vinder groepeert identieke bestanden',
+    dups.groups.some((g) => g.paths.includes('/dup1.txt') && g.paths.includes('/dup2.txt')));
+
+  // 46. Webhook-formattering voor Slack.
+  const { formatWebhook } = await import('../src/notify.js');
+  const slack = formatWebhook('slack', 'upload', { user: 'admin' });
+  ok('webhook-template (slack) formatteert', typeof slack.body.text === 'string' && slack.body.text.includes('upload'));
 
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();

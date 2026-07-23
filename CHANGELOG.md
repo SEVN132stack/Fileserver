@@ -1,5 +1,42 @@
 # Changelog
 
+## [3.18.0] - 2026-07-23
+
+### Toegevoegd — compliance
+
+- **AVG/GDPR-toolkit**: dataportabiliteit (alle gegevens van een gebruiker exporteren)
+  en recht op vergetelheid (verwijderen + audit-log anonimiseren), beide met audit.
+- **WORM/retentie-vergrendeling**: bestanden onwijzigbaar/onverwijderbaar tot een datum
+  (wettelijke bewaarplicht) — geldt ook voor de eigenaar/admin.
+- **Self-destruct/verlopende bestanden**: upload met `?expiresInDays=N`; een scheduler
+  verwijdert verlopen bestanden automatisch.
+- **E2E-verplichte mappen**: markeer een map als "alleen versleuteld"; onversleutelde
+  uploads (geen `.enc`) worden geweigerd (zero-knowledge).
+
+### Toegevoegd — samenwerking & integraties
+
+- **Aanwezigheid** ("wie kijkt nu naar dit bestand") — voortbouwend op de locks.
+- **Per-gebruiker API-sleutels** met scope (`read`/`write`), intrekbaar; auth via
+  `Authorization: Bearer fsk_...` of `X-API-Key`.
+- **In-app notificatiecentrum** (belletje) naast e-mail/webhook.
+- **Webhook-templates** voor Slack/Discord/Teams/ntfy (`WEBHOOK_TYPE`).
+- **rclone-/WebDAV-profiel** genereren voor CLI-clients.
+
+### Toegevoegd — bestandsbeheer & inzicht
+
+- **Server-side conversie**: afbeeldingen (via sharp), documenten→PDF (LibreOffice,
+  `SOFFICE_CMD`), audio/video-transcode (ffmpeg).
+- **Duplicaten-vinder** (SHA-256) over de hele opslag + **opschoon-suggesties**
+  (grote/oude/nooit-gedownloade bestanden).
+- **Recent geopende bestanden** per gebruiker.
+- **Wekelijks e-mailrapport** (`REPORT_EMAIL_INTERVAL_HOURS`).
+
+### Toegevoegd — techniek
+
+- **Docker healthcheck** (readiness-probe) + kant-en-klare **docker-compose met Caddy**.
+- **Gestructureerde JSON-logging** met correlation-id per request (`LOG_JSON=true`),
+  voor log-aggregatie/OpenTelemetry-collectors.
+
 ## [3.17.0] - 2026-07-23
 
 ### Toegevoegd

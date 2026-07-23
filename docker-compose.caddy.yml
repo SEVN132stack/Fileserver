@@ -1,0 +1,47 @@
+# Kant-en-klare productiestack: de fileserver achter Caddy (automatische TLS via
+# Let's Encrypt). Start met:  docker compose -f docker-compose.caddy.yml up -d
+#
+# Vereist: een .env met minstens AUTH_PASS en SESSION_SECRET, en DNS die
+# transfer.zepta-nas.nl naar deze host wijst.
+services:
+  fileserver:
+    image: ghcr.io/sevn132stack/fileserver:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Caddy termineert TLS; de app draait plain achter de proxy.
+      TLS_ENABLED: "false"
+      COOKIE_SECURE: "true"
+      TRUST_PROXY: "1"
+      WEB_HOST: "0.0.0.0"
+    volumes:
+      - fsdata:/data
+    expose:
+      - "8080"
+    ports:
+      - "2222:2222"   # SFTP (optioneel; verwijder als je geen externe SFTP wilt)
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - fileserver
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile.docker:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+
+volumes:
+  fsdata:
+  caddydata:
+  caddyconfig:

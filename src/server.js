@@ -14,6 +14,8 @@ import { startSearchIndexScheduler } from './searchindex.js';
 import { startScheduledExports } from './scheduled-export.js';
 import { startAcmeScheduler } from './acme.js';
 import { startConfigDriftMonitor } from './config-drift.js';
+import { startExpiryScheduler } from './expiry.js';
+import { startReportScheduler } from './report-email.js';
 
 // Startpunt: bereidt opslag, host key en gebruikers voor en start beide servers.
 ensureStorage();
@@ -32,6 +34,8 @@ startSearchIndexScheduler();
 startScheduledExports();
 startAcmeScheduler();
 startConfigDriftMonitor();
+startExpiryScheduler();
+startReportScheduler();
 
 startWebServer();
 startSftpServer();

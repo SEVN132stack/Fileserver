@@ -1,0 +1,20 @@
+# Caddyfile voor de docker-compose-stack (docker-compose.caddy.yml).
+# Caddy proxyt naar de 'fileserver'-service op het compose-netwerk en regelt
+# automatisch TLS via Let's Encrypt. Vervang de domeinnaam (en e-mail).
+
+transfer.zepta-nas.nl {
+	encode zstd gzip
+
+	request_body {
+		max_size 10GB
+	}
+
+	reverse_proxy fileserver:8080 {
+		header_up X-Forwarded-For {remote_host}
+		flush_interval -1
+	}
+}
+
+# {
+# 	email troy.janssens.it@gmail.com
+# }

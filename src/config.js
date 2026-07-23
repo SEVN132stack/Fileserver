@@ -361,7 +361,29 @@ export const config = {
   // Inactieve accounts: markeer als "inactief" na dit aantal dagen zonder login.
   inactiveDays: parseInt(process.env.INACTIVE_DAYS || '90', 10),
 
-  version: '3.17.0',
+  // --- v3.18 ---
+  // WORM/retentie: bestanden onwijzigbaar/onverwijderbaar tot een datum.
+  retentionFile: abs(process.env.RETENTION_FILE || 'retention.json'),
+  // Self-destruct: bestand-vervaldata (auto-verwijderen). Scheduler-interval (min).
+  expiryFile: abs(process.env.EXPIRY_FILE || 'file-expiry.json'),
+  expiryIntervalMinutes: parseInt(process.env.EXPIRY_INTERVAL || '60', 10),
+  // E2E-verplichte mappen: uploads moeten versleuteld (.enc) zijn.
+  e2eFoldersFile: abs(process.env.E2E_FOLDERS_FILE || 'e2e-folders.json'),
+  // API-keys (per gebruiker, hashed).
+  apiKeysFile: abs(process.env.API_KEYS_FILE || 'api-keys.json'),
+  // In-app notificaties.
+  notificationsFile: abs(process.env.NOTIFICATIONS_FILE || 'notifications.json'),
+  // Favorieten/recent worden in metadata resp. in-memory bijgehouden.
+  // Document→PDF conversie via LibreOffice (leeg = uit). Bijv. 'soffice'.
+  sofficeCmd: process.env.SOFFICE_CMD || '',
+  // Wekelijks e-mailrapport naar ALERT_EMAIL (0 = uit; anders interval in uren).
+  reportEmailIntervalHours: parseInt(process.env.REPORT_EMAIL_INTERVAL_HOURS || '0', 10),
+  // Webhook-formaat: generic | slack | discord | teams | ntfy.
+  webhookType: (process.env.WEBHOOK_TYPE || 'generic').toLowerCase(),
+  // Gestructureerde JSON-logging (voor log-aggregatie/OpenTelemetry-collectors).
+  logJson: bool(process.env.LOG_JSON, false),
+
+  version: '3.18.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

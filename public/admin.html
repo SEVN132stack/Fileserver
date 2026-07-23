@@ -300,7 +300,7 @@
           <td><input type="date" data-expires="${u.username}" value="${u.expires?new Date(u.expires).toISOString().slice(0,10):''}"></td>
           <td><input data-tenant="${u.username}" value="${esc(u.tenant||'')}" placeholder="afdeling" style="width:90px"></td>
           <td>${u.totp?'aan':'uit'}${u.breakglass?' 🔴BG':''}</td>
-          <td><button data-imp="${u.username}">bekijk als</button> <button class="danger" data-del="${u.username}">verwijder</button></td></tr>`).join('');
+          <td><button data-imp="${u.username}">bekijk als</button> <button data-gdpr="${u.username}">export</button> <button class="danger" data-forget="${u.username}">vergeet</button> <button class="danger" data-del="${u.username}">verwijder</button></td></tr>`).join('');
     }
     async function loadBans() {
       const {bans} = await (await j('/api/admin/bans')).json();
@@ -318,6 +318,8 @@
     document.getElementById('addBan').onclick = async () => { await j('/api/admin/bans',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ip:banIp.value})}); banIp.value=''; loadBans(); };
     document.addEventListener('click', async e => {
       if (e.target.dataset.imp) { await j('/api/admin/impersonate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:e.target.dataset.imp})}); location='/'; }
+      if (e.target.dataset.gdpr) { const u=e.target.dataset.gdpr; const r=await j('/api/admin/gdpr/export/'+u); const b=await r.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='gdpr-'+u+'.json'; a.click(); }
+      if (e.target.dataset.forget) { const u=e.target.dataset.forget; if(confirm('ALLE data van '+u+' verwijderen en anonimiseren? Dit kan niet ongedaan worden.')){ const r=await j('/api/admin/gdpr/forget/'+u,{method:'POST'}); const d=await r.json().catch(()=>({})); alert(r.ok?('Vergeten (geanonimiseerd als '+d.anonymizedAs+')'):(d.error||'Mislukt')); loadUsers(); } }
       if (e.target.dataset.del) { if(confirm('Verwijderen?')){ await j('/api/admin/users/'+e.target.dataset.del,{method:'DELETE'}); loadUsers(); } }
       if (e.target.dataset.unban) { await j('/api/admin/bans/'+encodeURIComponent(e.target.dataset.unban),{method:'DELETE'}); loadBans(); }
     });
