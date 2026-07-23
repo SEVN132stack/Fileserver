@@ -295,6 +295,12 @@ export const config = {
   backupRestoreTest: bool(process.env.BACKUP_RESTORE_TEST, false),
 
   // --- v3.16 ---
+  // Express 'trust proxy': hoeveel/welke proxies te vertrouwen voor het bepalen
+  // van het client-IP (X-Forwarded-For). Standaard '1' = alleen de directe proxy
+  // (bijv. Caddy) vertrouwen — voorkomt dat een client zijn IP kan spoofen om
+  // bans/rate-limiting/geo/IP-allowlist te omzeilen. Zet op 'true' als je meerdere
+  // proxies hebt, of 'false' als de app direct (zonder proxy) benaderbaar is.
+  trustProxy: process.env.TRUST_PROXY || '1',
   // Sessie-timeout bij inactiviteit (ms, 0 = uit; naast de vaste 12u TTL).
   idleTimeoutMs: parseInt(process.env.IDLE_TIMEOUT_MS || '0', 10),
   // Wachtwoordverval (dagen, 0 = uit) en hoeveel oude hashes onthouden (geen hergebruik).
@@ -323,7 +329,7 @@ export const config = {
     accent: process.env.ACCENT_COLOR || '',
   },
 
-  version: '3.16.1',
+  version: '3.16.2',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
