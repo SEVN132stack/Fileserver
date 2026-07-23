@@ -724,6 +724,47 @@ try {
   ok('WebDAV PUT: schoon opgeslagen, besmet (EICAR) geweigerd',
     davClean.status === 201 && davVirus.status === 422 && (await davGet.text()) === 'schone inhoud');
 
+  // 35. DLP: BSN-elfproef en creditcard-Luhn herkennen; wachtwoord-patroon.
+  const { scanText } = await import('../src/dlp.js');
+  const dlpHits = scanText('mijn bsn is 111222333 en kaart 4111 1111 1111 1111, password=Geheim123');
+  ok('DLP herkent BSN, creditcard en wachtwoord',
+    dlpHits.bsn === 1 && dlpHits.creditcard === 1 && dlpHits.wachtwoord === 1);
+
+  // 36. DLP-blokkade bij upload (action=block -> quarantaine).
+  cookie = ''; await login('admin', 'testpass123b');
+  config.dlp.action = 'block';
+  const dlpFd = new FormData(); dlpFd.append('files', new Blob(['kaart 4111 1111 1111 1111']), 'gevoelig.txt');
+  const dlpRes = await (await fetch(H + '/api/upload?path=/', { method: 'POST', headers: jar(), body: dlpFd })).json();
+  config.dlp.action = 'off';
+  ok('DLP blokkeert upload met gevoelige data', Array.isArray(dlpRes.infected) && dlpRes.infected.some((n) => n.includes('DLP')));
+
+  // 37. Admin-impersonatie: bekijk als bob, zie bobs (lege) lijst i.p.v. admins.
+  await fetch(H + '/api/save?path=/alleen-admin.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'x' });
+  const imp = await fetch(H + '/api/admin/impersonate', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ username: 'bob' }) });
+  const whoImp = await (await fetch(H + '/api/whoami', { headers: jar() })).json();
+  const listImp = await (await fetch(H + '/api/list', { headers: jar() })).json();
+  const adminBlocked = await fetch(H + '/api/admin/users', { headers: jar() }); // bob is geen admin
+  await fetch(H + '/api/impersonate/stop', { method: 'POST', headers: jar() });
+  const whoBack = await (await fetch(H + '/api/whoami', { headers: jar() })).json();
+  ok('admin-impersonatie schakelt identiteit en herstelt',
+    imp.status === 200 && whoImp.user === 'bob' && whoImp.impersonating && whoImp.realUser === 'admin'
+    && !listImp.items.some((i) => i.name === 'alleen-admin.txt') && adminBlocked.status === 403
+    && whoBack.user === 'admin' && !whoBack.impersonating);
+
+  // 38. Rapportage-overzicht levert opslag/afdeling/inactief.
+  const repOv = await (await fetch(H + '/api/admin/report/overview', { headers: jar() })).json();
+  const heat = await (await fetch(H + '/api/admin/report/heatmap', { headers: jar() })).json();
+  ok('rapportage + heatmap leveren data',
+    Array.isArray(repOv.users) && repOv.users.some((u) => u.username === 'admin') && repOv.perTenant
+    && Array.isArray(heat.hours) && heat.hours.length === 24);
+
+  // 39. Algemene API-rate-limiting per IP.
+  config.apiRateLimit.max = 3; config.apiRateLimit.windowMs = 60000;
+  let got429 = false;
+  for (let i = 0; i < 6; i++) { const r = await fetch(H + '/api/whoami', { headers: jar() }); if (r.status === 429) got429 = true; }
+  config.apiRateLimit.max = 0;
+  ok('API-rate-limiting weigert boven de limiet (429)', got429 === true);
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

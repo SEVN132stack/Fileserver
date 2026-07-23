@@ -199,6 +199,16 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Automatische TLS via ACME-commando
 - ✅ Branding (naam/logo/accentkleur)
 
+## Compliance, beheer & inzicht (v3.17)
+
+- ✅ DLP-scan op uploads (BSN/creditcard/IBAN/wachtwoord)
+- ✅ Break-glass nood-admin met alarm
+- ✅ Admin-impersonatie ("bekijk als gebruiker") met audit
+- ✅ Rapportage-dashboard (opslag per gebruiker/afdeling, inactieve accounts)
+- ✅ Toegang-heatmap (uur/weekdag/land)
+- ✅ Rate-limiting per endpoint (API + downloads)
+- ✅ E2E-browsertest (Playwright) in CI
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

@@ -335,7 +335,33 @@ export const config = {
     accent: process.env.ACCENT_COLOR || '',
   },
 
-  version: '3.16.4',
+  // --- v3.17 ---
+  // DLP (Data Loss Prevention): scan tekstuele uploads op gevoelige patronen
+  // (BSN, creditcard, IBAN, wachtwoorden). action: 'off' | 'flag' | 'block'.
+  dlp: {
+    action: (process.env.DLP_ACTION || 'off').toLowerCase(), // off|flag|block
+    maxBytes: parseInt(process.env.DLP_MAX_BYTES || '2097152', 10), // scan max 2MB/bestand
+  },
+  // Break-glass nood-admin: normaal gesproken ongebruikt; elk gebruik alarmeert
+  // luid en wordt extra geaudit. Leeg = uit.
+  breakglass: {
+    user: process.env.BREAKGLASS_USER || '',
+    password: process.env.BREAKGLASS_PASSWORD || '',
+  },
+  // Algemene API-rate-limiting per IP (naast de login-brute-force-bescherming).
+  apiRateLimit: {
+    max: parseInt(process.env.API_RATE_MAX || '0', 10), // 0 = uit
+    windowMs: parseInt(process.env.API_RATE_WINDOW_MS || '60000', 10),
+  },
+  // Download-rate-limiting per IP (beschermt tegen scraping/afpersing).
+  downloadRateLimit: {
+    max: parseInt(process.env.DOWNLOAD_RATE_MAX || '0', 10), // 0 = uit
+    windowMs: parseInt(process.env.DOWNLOAD_RATE_WINDOW_MS || '60000', 10),
+  },
+  // Inactieve accounts: markeer als "inactief" na dit aantal dagen zonder login.
+  inactiveDays: parseInt(process.env.INACTIVE_DAYS || '90', 10),
+
+  version: '3.17.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

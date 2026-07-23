@@ -71,6 +71,15 @@ async function loadMe() {
     if (me.branding.appName) document.title = me.branding.appName;
     if (me.branding.accent) document.documentElement.style.setProperty('--accent', me.branding.accent);
   }
+  // Impersonatie-banner: toon dat je als een andere gebruiker kijkt.
+  let banner = document.getElementById('impBanner');
+  if (me.impersonating) {
+    if (!banner) { banner = document.createElement('div'); banner.id = 'impBanner';
+      banner.style.cssText = 'position:sticky;top:0;z-index:99;background:#b45309;color:#fff;padding:.5rem 1rem;text-align:center;font-size:.9rem';
+      document.body.prepend(banner); }
+    banner.innerHTML = `👁️ Je bekijkt als <strong>${esc(me.user)}</strong> (admin: ${esc(me.realUser||'')}). <button id="impStop" style="margin-left:.5rem">Stop</button>`;
+    document.getElementById('impStop').onclick = async () => { await api('/api/impersonate/stop',{method:'POST'}); location='/admin.html'; };
+  } else if (banner) { banner.remove(); }
   // Verplichte wachtwoordwijziging (verlopen wachtwoord).
   if (me.mustChangePassword) changePassword(true);
   // Tweefactor afgedwongen maar nog niet ingeschakeld → forceer inschrijving.
