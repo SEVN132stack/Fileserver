@@ -335,7 +335,7 @@ export const config = {
     accent: process.env.ACCENT_COLOR || '',
   },
 
-  version: '3.16.3',
+  version: '3.16.4',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

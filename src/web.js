@@ -415,6 +415,14 @@ export function createWebServer() {
     if (!validState(req.query.state)) return res.status(400).send('Ongeldige state');
     try {
       const { username, email } = await exchange(req.query.code);
+      // Voorkom account-overname: een OIDC-identiteit mag nooit inloggen op een
+      // bestaand lokaal (niet-OIDC) account met dezelfde naam. Alleen door OIDC
+      // aangemaakte (external) accounts, of nieuwe namen, zijn toegestaan.
+      const existing = getUser(username);
+      if (existing && !existing.external) {
+        audit('web', username, 'login_failed', { method: 'oidc', reason: 'naam botst met lokaal account' });
+        return res.status(409).send('Er bestaat al een lokaal account met deze naam. Neem contact op met de beheerder.');
+      }
       ensureExternalUser(username, email);
       const sid = createSession(username);
       res.set('Set-Cookie', `sid=${sid}; ${cookieAttrs('Lax')}`);
@@ -573,7 +581,9 @@ export function createWebServer() {
     audit('web', share.user, 'drop_upload', { path: share.path, files: (req.files || []).map((f) => f.originalname), ip: clientIp(req) });
     notifyShare('drop_upload', share.user, { path: share.path, ip: clientIp(req) });
     emitToUser(share.user, 'change', { action: 'drop_upload' });
-    res.send('<p style="font-family:sans-serif">✅ Bedankt, je bestanden zijn ontvangen. <a href="/s/' + req.params.token + '">Meer uploaden</a></p>');
+    // Token is een gevalideerde random string, maar escape defensief tegen reflectie.
+    const safeToken = encodeURIComponent(req.params.token);
+    res.send('<p style="font-family:sans-serif">✅ Bedankt, je bestanden zijn ontvangen. <a href="/s/' + safeToken + '">Meer uploaden</a></p>');
   });
 
   // --- Alles hieronder vereist authenticatie ---
@@ -1555,7 +1565,7 @@ export function createWebServer() {
     res.setHeader('Content-Disposition', 'attachment; filename="fileserver-config.json"');
     res.json({ exportedAt: new Date().toISOString(), version: config.version, ...bundle });
   });
-  app.post('/api/admin/import', requireAdmin, express.json({ limit: '20mb' }), (req, res) => {
+  app.post('/api/admin/import', requireAdmin, requireReauth, express.json({ limit: '20mb' }), (req, res) => {
     const map = { users: config.usersFile, groups: config.groupsFile, settings: config.settingsFile, shares: config.sharesFile, permalinks: config.permalinksFile };
     const imported = [];
     for (const [name, file] of Object.entries(map)) {

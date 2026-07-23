@@ -1,5 +1,21 @@
 # Changelog
 
+## [3.16.4] - 2026-07-23
+
+### Opgelost (volledige code-review)
+
+- **OIDC account-overname voorkomen**: een OIDC-identiteit waarvan de naam botst met
+  een bestaand lokaal (niet-OIDC) account kan niet meer op dat account inloggen (409).
+  Voorheen kon iemand met een IdP-`preferred_username` als `admin` het lokale
+  admin-account overnemen (alleen relevant als OIDC aanstond).
+- **Antivirus-bypass via WebDAV & tus gedicht**: uploads via WebDAV `PUT` en via het
+  resumable tus-protocol werden niet gescand. Beide scannen nu na afloop en plaatsen
+  besmette bestanden in quarantaine (422), gelijk aan de web-upload.
+- **WebDAV `PUT` respecteert nu quota en `MAX_UPLOAD_BYTES`** (voorheen ongelimiteerd).
+- **Config-import vereist nu step-up** (`requireReauth`), net als export — het overschrijft
+  gebruikers/instellingen en is een van de gevoeligste beheeracties.
+- **Defensieve escaping** van het (al gevalideerde) token op de drop-upload-bevestigingspagina.
+
 ## [3.16.3] - 2026-07-23
 
 ### Toegevoegd (security-hardening, vervolg op de review)
