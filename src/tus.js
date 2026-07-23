@@ -8,6 +8,8 @@ import { quota } from './users.js';
 import { audit } from './audit.js';
 import { inc } from './metrics.js';
 import { emitToUser } from './events.js';
+import { scanFile } from './scan.js';
+import { quarantine } from './quarantine.js';
 
 // Minimale implementatie van het tus 1.0.0 resumable-uploadprotocol
 // (creation + core). Interopt met standaard tus-clients (Uppy, tus-js-client).
@@ -100,6 +102,15 @@ export async function handleTus(req, res) {
           await fsp.mkdir(path.dirname(dest), { recursive: true });
           await fsp.rename(dataFile(sub), dest);
           await fsp.rm(metaFile(sub), { force: true });
+          // Antivirus-scan na assemblage, gelijk aan de web-upload.
+          try {
+            const verdict = await scanFile(dest);
+            if (verdict.clean === false) {
+              quarantine(dest, { user: req.user, home: req.home, targetPath: meta.targetPath, filename: meta.filename, detail: verdict.detail });
+              audit('web', req.user, 'quarantined', { file: meta.filename, via: 'tus', detail: verdict.detail });
+              return res.status(422).end('Bestand geweigerd (virusscan)');
+            }
+          } catch { /* scanner onbereikbaar: doorlaten (fail-open, als de web-upload) */ }
           audit('web', req.user, 'upload', { path: meta.targetPath, files: [meta.filename], tus: true });
           inc('fileserver_uploads_total');
           inc('fileserver_bytes_uploaded_total', meta.length);

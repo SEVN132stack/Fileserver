@@ -716,6 +716,14 @@ try {
   const smallUp = await fetch(H + '/api/upload?path=/', { method: 'POST', headers: jar(), body: smallFd });
   ok('uploadgrootte-limiet weigert te grote upload (413)', bigUp.status === 413 && smallUp.status === 200);
 
+  // 34. WebDAV PUT wordt nu ook door de virusscanner beschermd (geen bypass).
+  const dav = (p, opts = {}) => fetch(H + '/webdav' + p, { ...opts, headers: { Authorization: 'Basic ' + Buffer.from('admin:testpass123b').toString('base64'), ...(opts.headers || {}) } });
+  const davClean = await dav('/dav-clean.txt', { method: 'PUT', body: 'schone inhoud' });
+  const davVirus = await dav('/dav-virus.txt', { method: 'PUT', body: 'bevat EICAR patroon' });
+  const davGet = await dav('/dav-clean.txt');
+  ok('WebDAV PUT: schoon opgeslagen, besmet (EICAR) geweigerd',
+    davClean.status === 201 && davVirus.status === 422 && (await davGet.text()) === 'schone inhoud');
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

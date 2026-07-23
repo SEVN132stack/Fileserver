@@ -1,7 +1,12 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { resolveWithin } from './paths.js';
+import { resolveWithin, dirSize } from './paths.js';
+import { config } from './config.js';
+import { quota } from './users.js';
+import { scanFile } from './scan.js';
+import { quarantine } from './quarantine.js';
+import { audit } from './audit.js';
 
 // Minimale WebDAV-implementatie zodat je de opslag als netwerkschijf kunt
 // koppelen. Ondersteunt OPTIONS, PROPFIND, GET, PUT, DELETE, MKCOL en MOVE.
@@ -74,11 +79,36 @@ export async function handleWebdav(req, res) {
     if (readonly) return res.status(403).end();
 
     if (method === 'PUT') {
+      // Uploadgrootte-limiet (Content-Length) en quotum, net als de web-upload.
+      const len = parseInt(req.headers['content-length'] || '0', 10);
+      if (config.maxUploadBytes > 0 && len > config.maxUploadBytes) return res.status(413).end('Bestand te groot');
+      const q = quota(req.user);
+      if (q > 0 && dirSize(req.home) + len > q) return res.status(507).end('Quota overschreden');
       await fsp.mkdir(path.dirname(abs), { recursive: true });
       const ws = fs.createWriteStream(abs);
+      // Harde afkap als er meer binnenkomt dan toegestaan (ontbrekende/foute CL).
+      let received = 0;
+      if (config.maxUploadBytes > 0) {
+        req.on('data', (c) => {
+          received += c.length;
+          if (received > config.maxUploadBytes) { req.destroy(); ws.destroy(); fs.rm(abs, { force: true }, () => {}); }
+        });
+      }
       req.pipe(ws);
-      ws.on('close', () => res.status(201).end());
-      ws.on('error', () => res.status(500).end());
+      ws.on('close', async () => {
+        if (res.headersSent) return;
+        // Antivirus-scan na afloop, gelijk aan de web-upload; besmet → quarantaine.
+        try {
+          const verdict = await scanFile(abs);
+          if (verdict.clean === false) {
+            quarantine(abs, { user: req.user, home: req.home, targetPath: path.posix.dirname(davPath(req)), filename: path.basename(abs), detail: verdict.detail });
+            audit('web', req.user, 'quarantined', { file: path.basename(abs), via: 'webdav', detail: verdict.detail });
+            return res.status(422).end('Bestand geweigerd (virusscan)');
+          }
+        } catch { /* scanner onbereikbaar: laat door zoals de web-upload bij fail-open */ }
+        res.status(201).end();
+      });
+      ws.on('error', () => { if (!res.headersSent) res.status(500).end(); });
       return;
     }
 
