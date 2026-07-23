@@ -104,3 +104,39 @@ export function verifyChain() {
   }
   return { ok: true, checked };
 }
+
+// Herbereken de volledige hash-keten van het huidige audit-log. Nodig na een
+// legitieme, geautoriseerde bewerking (AVG-anonimisering): de wet vereist dan
+// wissen, wat de oorspronkelijke keten breekt. Door de keten opnieuw op te
+// bouwen blijft de tamper-evidence voor álle latere gebeurtenissen werken; de
+// bewerking zelf is apart geaudit (gdpr_forget) en gealarmeerd.
+export function rechainAll() {
+  let lines;
+  try { lines = fs.readFileSync(config.auditLog, 'utf8').split('\n').filter(Boolean); }
+  catch { return; }
+  // Begin vanaf de laatste hash van het meest recente geroteerde bestand, zodat
+  // de keten over rotaties heen blijft doorlopen.
+  let prev = '';
+  try {
+    for (let i = 1; i <= config.logKeep; i++) {
+      const f = `${config.auditLog}.${i}`;
+      if (!fs.existsSync(f)) continue;
+      const rot = fs.readFileSync(f, 'utf8').split('\n').filter(Boolean);
+      const last = rot[rot.length - 1];
+      if (last) { try { prev = JSON.parse(last).hash || prev; } catch { /* negeren */ } }
+      break;
+    }
+  } catch { /* geen geroteerde bestanden */ }
+  const out = [];
+  for (const l of lines) {
+    let e; try { e = JSON.parse(l); } catch { out.push(l); continue; }
+    const { hash, prev: _p, ...core } = e;
+    const coreStr = JSON.stringify(core);
+    const newHash = entryHash(prev, coreStr);
+    out.push(JSON.stringify({ ...core, prev: prev || null, hash: newHash }));
+    prev = newHash;
+  }
+  fs.writeFileSync(config.auditLog, out.join('\n') + '\n');
+  fs.writeFileSync(chainFile(), prev, { mode: 0o600 });
+  lastHash = prev;
+}

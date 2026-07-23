@@ -10,6 +10,9 @@ import { inc } from './metrics.js';
 import { emitToUser } from './events.js';
 import { scanFile } from './scan.js';
 import { quarantine } from './quarantine.js';
+import { retainedUntil } from './retention.js';
+import { lockOwner } from './locks.js';
+import { isE2ERequired } from './e2e-folders.js';
 
 // Minimale implementatie van het tus 1.0.0 resumable-uploadprotocol
 // (creation + core). Interopt met standaard tus-clients (Uppy, tus-js-client).
@@ -98,7 +101,17 @@ export async function handleTus(req, res) {
       if (meta.offset >= meta.length) {
         // Klaar: verplaats naar de home-map van de gebruiker.
         try {
-          const dest = resolveWithin(req.home, path.posix.join(meta.targetPath, meta.filename));
+          const relTarget = path.posix.join(meta.targetPath, meta.filename);
+          // Compliance-/vergrendelingscontroles, gelijk aan de web-upload.
+          if (retainedUntil(req.home, relTarget) || lockOwner(req.home, relTarget)) {
+            await fsp.rm(dataFile(sub), { force: true }); await fsp.rm(metaFile(sub), { force: true });
+            return res.status(423).end('Bestand is vergrendeld of onder bewaarplicht');
+          }
+          if (isE2ERequired(req.home, relTarget) && !/\.enc$/i.test(meta.filename)) {
+            await fsp.rm(dataFile(sub), { force: true }); await fsp.rm(metaFile(sub), { force: true });
+            return res.status(422).end('Map vereist end-to-end-versleuteling (.enc)');
+          }
+          const dest = resolveWithin(req.home, relTarget);
           await fsp.mkdir(path.dirname(dest), { recursive: true });
           await fsp.rename(dataFile(sub), dest);
           await fsp.rm(metaFile(sub), { force: true });
