@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.18.1] - 2026-07-23
+
+### Opgelost (security-review v3.18-batch)
+
+- **API-sleutels hadden potentieel beheertoegang**: een API-sleutel (langlevend, zonder
+  2FA/step-up) van een admin kon beheerendpoints bereiken. `requireAdmin` weigert nu elke
+  API-sleutel — beheeracties vereisen een interactieve sessie.
+- **WORM-retentie, bestandsvergrendeling en E2E-verplichting waren te omzeilen via WebDAV
+  en tus**: die uploadpaden dwongen de compliance-controles niet af. WebDAV `PUT`/`DELETE`/
+  `MOVE` en tus-afronding respecteren nu retentie/lock/E2E (423/422), gelijk aan de web-upload.
+- **AVG-anonimisering brak het onvervalsbare audit-log**: het herschrijven van de
+  gebruikersnaam maakte de hash-keten ongeldig. Na een `forget` wordt de keten nu netjes
+  herbouwd, zodat integriteitsverificatie geldig blijft (de erasure zelf is apart geaudit
+  en gealarmeerd).
+
 ## [3.18.0] - 2026-07-23
 
 ### Toegevoegd — compliance

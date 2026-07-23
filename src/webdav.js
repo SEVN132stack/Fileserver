@@ -7,6 +7,9 @@ import { quota } from './users.js';
 import { scanFile } from './scan.js';
 import { quarantine } from './quarantine.js';
 import { audit } from './audit.js';
+import { retainedUntil } from './retention.js';
+import { lockOwner } from './locks.js';
+import { isE2ERequired } from './e2e-folders.js';
 
 // Minimale WebDAV-implementatie zodat je de opslag als netwerkschijf kunt
 // koppelen. Ondersteunt OPTIONS, PROPFIND, GET, PUT, DELETE, MKCOL en MOVE.
@@ -47,6 +50,15 @@ export async function handleWebdav(req, res) {
 
   const readonly = req.userRole === 'readonly';
   const method = req.method;
+  const relPath = davPath(req);
+
+  // Compliance-/vergrendelingscontroles voor wijzigende methodes — gelijk aan de
+  // web-upload, zodat WebDAV geen achterdeur is om WORM/E2E/locks te omzeilen.
+  const blockMutation = () => {
+    if (retainedUntil(req.home, relPath)) return 'Onder bewaarplicht (WORM) — niet wijzigbaar';
+    if (lockOwner(req.home, relPath)) return 'Bestand is vergrendeld';
+    return null;
+  };
 
   try {
     if (method === 'OPTIONS') {
@@ -79,6 +91,9 @@ export async function handleWebdav(req, res) {
     if (readonly) return res.status(403).end();
 
     if (method === 'PUT') {
+      const blocked = blockMutation();
+      if (blocked) return res.status(423).end(blocked);
+      if (isE2ERequired(req.home, relPath) && !/\.enc$/i.test(relPath)) return res.status(422).end('Map vereist end-to-end-versleuteling (.enc)');
       // Uploadgrootte-limiet (Content-Length) en quotum, net als de web-upload.
       const len = parseInt(req.headers['content-length'] || '0', 10);
       if (config.maxUploadBytes > 0 && len > config.maxUploadBytes) return res.status(413).end('Bestand te groot');
@@ -113,6 +128,8 @@ export async function handleWebdav(req, res) {
     }
 
     if (method === 'DELETE') {
+      const blocked = blockMutation();
+      if (blocked) return res.status(423).end(blocked);
       await fsp.rm(abs, { recursive: true, force: true });
       return res.status(204).end();
     }
@@ -123,6 +140,8 @@ export async function handleWebdav(req, res) {
     }
 
     if (method === 'MOVE') {
+      const blocked = blockMutation();
+      if (blocked) return res.status(423).end(blocked);
       const dest = req.headers.destination || '';
       const destPath = decodeURIComponent(new URL(dest, 'http://x').pathname.slice(MOUNT.length));
       const destAbs = resolveWithin(req.home, destPath);

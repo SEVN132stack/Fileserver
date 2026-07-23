@@ -824,6 +824,25 @@ try {
   const slack = formatWebhook('slack', 'upload', { user: 'admin' });
   ok('webhook-template (slack) formatteert', typeof slack.body.text === 'string' && slack.body.text.includes('upload'));
 
+  // 47. API-sleutel (ook write-scope) heeft GEEN beheertoegang.
+  const wkey = await (await fetch(H + '/api/apikeys', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ name: 'w', scope: 'write' }) })).json();
+  const keyAdmin = await fetch(H + '/api/admin/users', { headers: { Authorization: 'Bearer ' + wkey.token } });
+  ok('API-sleutel krijgt geen beheertoegang (403)', keyAdmin.status === 403);
+
+  // 48. WORM-retentie is ook via WebDAV niet te omzeilen.
+  await fetch(H + '/api/save?path=/worm-dav.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'origineel' });
+  await fetch(H + '/api/retention', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/worm-dav.txt', days: 30 }) });
+  const davAuth = { Authorization: 'Basic ' + Buffer.from('admin:testpass123b').toString('base64') };
+  const davOverwrite = await fetch(H + '/webdav/worm-dav.txt', { method: 'PUT', headers: davAuth, body: 'via webdav gewijzigd' });
+  const davDelete = await fetch(H + '/webdav/worm-dav.txt', { method: 'DELETE', headers: davAuth });
+  ok('WORM-retentie blokkeert WebDAV PUT + DELETE', davOverwrite.status === 423 && davDelete.status === 423);
+
+  // 49. GDPR-forget herstelt de audit-keten (blijft verifieerbaar).
+  addUser({ username: 'vergeetmij', password: 'pw', role: 'user' });
+  await fetch(H + '/api/admin/gdpr/forget/vergeetmij', { method: 'POST', headers: jar() });
+  const chainAfter = await (await fetch(H + '/api/admin/audit/verify', { headers: jar() })).json();
+  ok('audit-keten blijft intact na GDPR-forget', chainAfter.ok === true);
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

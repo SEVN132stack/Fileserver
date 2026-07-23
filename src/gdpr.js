@@ -5,7 +5,7 @@ import { config } from './config.js';
 import { getUser, deleteUser, homeDir } from './users.js';
 import { listShares } from './shares.js';
 import * as permalinks from './permalinks.js';
-import { audit } from './audit.js';
+import { audit, rechainAll } from './audit.js';
 
 // AVG/GDPR-toolkit: dataportabiliteit (alles exporteren) en het recht op
 // vergetelheid (verwijderen + anonimiseren), beide met een audit-spoor.
@@ -91,5 +91,8 @@ export function forgetUser(username, requestedBy) {
   // 4. Het account zelf verwijderen.
   deleteUser(username);
   audit('web', requestedBy || null, 'gdpr_forget', { subject: anon });
+  // 5. De hash-keten herbouwen zodat integriteitsverificatie geldig blijft na
+  //    de (wettelijk vereiste) anonimisering.
+  try { rechainAll(); } catch { /* niet-fataal */ }
   return { ok: true, anonymizedAs: anon };
 }

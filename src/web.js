@@ -218,6 +218,9 @@ function requireWrite(req, res, next) {
   next();
 }
 function requireAdmin(req, res, next) {
+  // API-sleutels geven nooit beheertoegang: ze omzeilen 2FA/step-up en zijn
+  // langlevende credentials. Beheeracties vereisen een interactieve sessie.
+  if (req.apiScope) return res.status(403).json({ error: 'API-sleutels hebben geen beheertoegang' });
   if (!isAdmin(req.user)) return res.status(403).json({ error: 'Alleen voor beheerders' });
   next();
 }
@@ -1336,7 +1339,7 @@ export function createWebServer() {
   });
 
   // Server-side conversie (afbeelding/document/av).
-  app.get('/api/convert', async (req, res) => {
+  app.get('/api/convert', downloadLimiter, async (req, res) => {
     try {
       const src = resolveWithin(req.home, req.query.path || '');
       if (!fs.existsSync(src)) return res.status(404).json({ error: 'Niet gevonden' });
