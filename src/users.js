@@ -56,10 +56,37 @@ export function ensureUsers() {
     console.log(`[init] users.json aangemaakt met admin '${config.auth.username}'.`);
   }
   load();
+  // Break-glass nood-admin: aanmaken/bijwerken op basis van .env. Dit account is
+  // bedoeld voor noodgevallen; elk gebruik wordt luid gealarmeerd (zie web.js).
+  if (config.breakglass.user && config.breakglass.password) {
+    const bg = users.get(config.breakglass.user) || { username: config.breakglass.user, home: config.breakglass.user, shares: [] };
+    bg.password = hashPassword(config.breakglass.password);
+    bg.role = 'admin';
+    bg.breakglass = true;
+    bg.pwChangedAt = bg.pwChangedAt || Date.now();
+    users.set(bg.username, bg);
+    saveUsers();
+  }
   for (const u of users.values()) {
     fs.mkdirSync(homeDir(u.username), { recursive: true });
   }
   fs.mkdirSync(config.authorizedKeysDir, { recursive: true });
+}
+
+// Is dit het break-glass nood-account?
+export function isBreakglass(username) {
+  const u = users.get(username);
+  return !!(u && u.breakglass);
+}
+
+// Laatste login-tijd (voor het opsporen van inactieve accounts).
+export function recordLogin(username) {
+  const u = users.get(username);
+  if (u) { u.lastLogin = Date.now(); saveUsers(); }
+}
+export function lastLogin(username) {
+  const u = users.get(username);
+  return (u && u.lastLogin) || 0;
 }
 
 export function getUser(username) {
@@ -166,6 +193,8 @@ export function listUsers() {
     external: !!u.external,
     expires: u.expires || 0,
     tenant: u.tenant || '',
+    lastLogin: u.lastLogin || 0,
+    breakglass: !!u.breakglass,
     shares: u.shares || [],
   }));
 }

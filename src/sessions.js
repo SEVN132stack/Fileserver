@@ -29,6 +29,20 @@ export function getSession(token) {
   return s;
 }
 
+// Admin-impersonatie: laat een sessie tijdelijk als een andere gebruiker
+// functioneren ("bekijk als"). De echte (admin-)identiteit blijft bewaard voor
+// de audit en om terug te schakelen.
+export function startImpersonation(token, targetUser) {
+  const s = sessions.get(token);
+  if (!s) return false;
+  s.impersonating = targetUser;
+  return true;
+}
+export function stopImpersonation(token) {
+  const s = sessions.get(token);
+  if (s) delete s.impersonating;
+}
+
 // Trek alle sessies van een gebruiker in ("overal uitloggen").
 export function revokeAllForUser(username) {
   let n = 0;

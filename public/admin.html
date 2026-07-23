@@ -107,6 +107,15 @@
       <div id="maintOut" class="l" style="margin-top:.8rem;white-space:pre-wrap"></div>
     </div>
 
+    <h2>Rapportage</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button id="btnReport">Opslag & inactieve accounts</button>
+        <button id="btnHeatmap">Toegang-heatmap</button>
+      </div>
+      <div id="reportOut" style="margin-top:.8rem;overflow-x:auto"></div>
+    </div>
+
     <h2>Instellingen</h2>
     <div class="card" style="margin-bottom:2rem">
       <label><input type="checkbox" id="setMaintenance"> Onderhoudsmodus (alleen admins hebben toegang)</label><br><br>
@@ -290,8 +299,8 @@
           <td><input data-email="${u.username}" value="${esc(u.email||'')}" placeholder="e-mail" style="width:150px"></td>
           <td><input type="date" data-expires="${u.username}" value="${u.expires?new Date(u.expires).toISOString().slice(0,10):''}"></td>
           <td><input data-tenant="${u.username}" value="${esc(u.tenant||'')}" placeholder="afdeling" style="width:90px"></td>
-          <td>${u.totp?'aan':'uit'}</td>
-          <td><button class="danger" data-del="${u.username}">verwijder</button></td></tr>`).join('');
+          <td>${u.totp?'aan':'uit'}${u.breakglass?' 🔴BG':''}</td>
+          <td><button data-imp="${u.username}">bekijk als</button> <button class="danger" data-del="${u.username}">verwijder</button></td></tr>`).join('');
     }
     async function loadBans() {
       const {bans} = await (await j('/api/admin/bans')).json();
@@ -308,6 +317,7 @@
     };
     document.getElementById('addBan').onclick = async () => { await j('/api/admin/bans',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ip:banIp.value})}); banIp.value=''; loadBans(); };
     document.addEventListener('click', async e => {
+      if (e.target.dataset.imp) { await j('/api/admin/impersonate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:e.target.dataset.imp})}); location='/'; }
       if (e.target.dataset.del) { if(confirm('Verwijderen?')){ await j('/api/admin/users/'+e.target.dataset.del,{method:'DELETE'}); loadUsers(); } }
       if (e.target.dataset.unban) { await j('/api/admin/bans/'+encodeURIComponent(e.target.dataset.unban),{method:'DELETE'}); loadBans(); }
     });
@@ -399,6 +409,31 @@
     document.getElementById('btnUserTraffic').onclick = async () => { const {users}=await (await j('/api/admin/metrics/users')).json(); mo(users.length?users.map(u=>`${u.user}: ↑${fmtB(u.up)} ↓${fmtB(u.down)}`).join('\n'):'Nog geen verkeer geregistreerd.'); };
     document.getElementById('btnConfigDrift').onclick = async () => { const r=await (await j('/api/admin/config-drift')).json(); mo(r.drifted.length?('⚠ Buiten de app gewijzigd:\n'+r.drifted.join('\n')):'Geen config-drift: alle databestanden ongewijzigd sinds de app ze schreef.'); };
     document.getElementById('btnAcme').onclick = async () => { mo('TLS-certificaat verlengen…'); const r=await (await j('/api/admin/acme/renew',{method:'POST'})).json(); mo(r.skipped?'ACME niet geconfigureerd (ACME_CMD).':r.ok?'Certificaat verlengd/gecontroleerd.':'Mislukt: '+r.error); };
+
+    const ro = (h) => document.getElementById('reportOut').innerHTML = h;
+    document.getElementById('btnReport').onclick = async () => {
+      const r = await (await j('/api/admin/report/overview')).json();
+      const rows = r.users.sort((a,b)=>b.used-a.used).map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.tenant||'')}</td><td>${fmtB(u.used)}</td><td>${u.quota?fmtB(u.quota):'∞'}</td><td>${u.lastLogin?new Date(u.lastLogin).toLocaleDateString():'nooit'}</td></tr>`).join('');
+      const tenants = Object.entries(r.perTenant).map(([t,b])=>`${esc(t)}: ${fmtB(b)}`).join(' · ');
+      const inact = r.inactive.map(u=>esc(u.username)).join(', ')||'geen';
+      ro(`<p><strong>Per afdeling:</strong> ${tenants}</p>
+        <p><strong>Inactief (>${r.inactiveDays}d):</strong> ${inact}</p>
+        <table><tr><th>Gebruiker</th><th>Afdeling</th><th>Opslag</th><th>Quota</th><th>Laatste login</th></tr>${rows}</table>`);
+    };
+    document.getElementById('btnHeatmap').onclick = async () => {
+      const h = await (await j('/api/admin/report/heatmap')).json();
+      const max = Math.max(1, ...h.hours);
+      const cell = (v)=>{ const a=(v/max); return `<td title="${v}" style="background:rgba(56,189,248,${a.toFixed(2)});width:26px;height:22px;text-align:center;font-size:.6rem">${v||''}</td>`; };
+      const hourRow = h.hours.map(cell).join('');
+      const days=['zo','ma','di','wo','do','vr','za'];
+      const wdMax=Math.max(1,...h.weekdays);
+      const wdRow = h.weekdays.map((v,i)=>`<td style="text-align:center;padding:0 .4rem">${days[i]}<br><span style="opacity:${(v/wdMax).toFixed(2)}">${v}</span></td>`).join('');
+      const cty = Object.entries(h.countries).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([c,n])=>`${esc(c)}:${n}`).join(' · ')||'—';
+      ro(`<p><strong>Toegang per uur (${h.total} events):</strong></p>
+        <table style="border-collapse:collapse"><tr>${[...Array(24)].map((_,i)=>`<td style="font-size:.55rem;text-align:center">${i}</td>`).join('')}</tr><tr>${hourRow}</tr></table>
+        <p style="margin-top:.6rem"><strong>Per weekdag:</strong></p><table><tr>${wdRow}</tr></table>
+        <p style="margin-top:.6rem"><strong>Per land:</strong> ${cty}</p>`);
+    };
 
     loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk();
 

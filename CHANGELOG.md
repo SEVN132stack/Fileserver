@@ -1,5 +1,25 @@
 # Changelog
 
+## [3.17.0] - 2026-07-23
+
+### Toegevoegd
+
+- **DLP (Data Loss Prevention)**: tekstuele uploads worden gescand op BSN (elfproef),
+  creditcards (Luhn), IBAN en wachtwoorden-in-klare-tekst. `DLP_ACTION=flag` markeert +
+  alarmeert, `block` plaatst het bestand in quarantaine.
+- **Break-glass nood-admin** (`BREAKGLASS_USER`/`BREAKGLASS_PASSWORD`): een normaal
+  ongebruikt nood-account waarvan elk gebruik luid alarmeert en extra wordt geaudit.
+- **Admin-impersonatie** ("bekijk als gebruiker"): een admin kan tijdelijk als een
+  andere gebruiker de UI bekijken; de echte admin blijft in de audit zichtbaar, en de
+  UI toont een duidelijke banner. Start/stop via het dashboard.
+- **Rapportage-dashboard**: opslag per gebruiker en per afdeling, top-verkeer en
+  inactieve accounts (`INACTIVE_DAYS`).
+- **Toegang-heatmap**: aantal gebeurtenissen per uur-van-de-dag, per weekdag en per
+  land (uit het audit-log), zichtbaar in het admin-paneel.
+- **Rate-limiting per endpoint**: algemene API-limiet (`API_RATE_MAX`) en een strengere
+  download-limiet (`DOWNLOAD_RATE_MAX`) per IP, naast de bestaande login-bescherming.
+- **End-to-end browsertest** (Playwright/Chromium) draait in CI naast de integratietests.
+
 ## [3.16.4] - 2026-07-23
 
 ### Opgelost (volledige code-review)

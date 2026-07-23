@@ -74,12 +74,16 @@ import { officePreview, canPreviewOffice } from './office.js';
 import { videoPoster, audioWaveform, canPoster, canWaveform, hasFfmpeg } from './media.js';
 import { runAcme } from './acme.js';
 import * as configDrift from './config-drift.js';
-import { revokeAllForUser } from './sessions.js';
-import { isPasswordExpired, isPasswordReused } from './users.js';
+import { revokeAllForUser, startImpersonation, stopImpersonation } from './sessions.js';
+import { isPasswordExpired, isPasswordReused, isBreakglass, recordLogin, lastLogin } from './users.js';
+import { scanFileForDlp } from './dlp.js';
+import { rateLimiter } from './ratelimit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const clientIp = (req) => req.ip || req.socket.remoteAddress || 'onbekend';
+// Landcode uit de proxy-header (bijv. CF-IPCountry), voor de toegang-heatmap.
+const countryOf = (req) => (req.headers[config.geoHeader] || '').toString().toUpperCase().slice(0, 2) || undefined;
 const sanitizeId = (id) => String(id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || 'x';
 
 // Notificeer een deel-gebeurtenis via webhook én (indien mogelijk) e-mail naar
@@ -112,9 +116,18 @@ function authenticate(req, res, next) {
   if (token) {
     const s = getSession(token);
     if (s && userExists(s.username) && !isExpired(s.username) && sessionBindOk(s, req, ip)) {
-      req.user = s.username;
-      req.home = homeDir(s.username);
-      req.userRole = role(s.username);
+      // Admin-impersonatie: acteer als de doelgebruiker, maar onthoud de echte
+      // admin voor de audit. Alleen geldig als de echte gebruiker admin is en
+      // het doel bestaat.
+      let effective = s.username;
+      if (s.impersonating && isAdmin(s.username) && userExists(s.impersonating)) {
+        effective = s.impersonating;
+        req.realUser = s.username;
+        req.impersonating = true;
+      }
+      req.user = effective;
+      req.home = homeDir(effective);
+      req.userRole = role(effective);
       req.sid = token;
       return next();
     }
@@ -238,6 +251,10 @@ export function createWebServer() {
     || (config.cookieSecure === 'auto' && config.tls.enabled);
   const cookieAttrs = (sameSite = 'Strict') => `HttpOnly; SameSite=${sameSite}; Path=/${cookieSecure ? '; Secure' : ''}`;
 
+  // Rate-limiters (per IP): algemeen voor de API en strenger voor downloads.
+  const apiLimiter = rateLimiter('api', () => config.apiRateLimit);
+  const downloadLimiter = rateLimiter('dl', () => config.downloadRateLimit);
+
   // Health-endpoint voor uptime-monitoring (geen auth, geen geheimen).
   app.get('/health', (req, res) => res.json({ status: 'ok', version: config.version, uptime: Math.round(process.uptime()) }));
 
@@ -315,6 +332,13 @@ export function createWebServer() {
     }
     recordSuccess('web:' + ip);
     recordLoginSuccess(username);
+    recordLogin(username);
+    // Break-glass nood-account: elk gebruik is een luid alarm.
+    if (isBreakglass(username)) {
+      sysAlert(`breakglass-${Date.now()}`, '⚠ BREAK-GLASS nood-account gebruikt',
+        `Het break-glass nood-account '${username}' is ingelogd vanaf ${ip} (${req.headers['user-agent'] || 'onbekend'}). Controleer of dit legitiem is.`, { force: true });
+      audit('web', username, 'breakglass_login', { ip });
+    }
     // Nieuw-apparaat-melding per e-mail.
     const deviceId = createHash('sha256').update((req.headers['user-agent'] || '') + '|' + ip).digest('hex').slice(0, 16);
     if (!isKnownDevice(username, deviceId)) {
@@ -326,7 +350,7 @@ export function createWebServer() {
     res.set('Set-Cookie', `sid=${sid}; ${cookieAttrs('Strict')}`);
     metrics.inc('fileserver_logins_total');
     emitAdmin('activity', { kind: 'login', user: username });
-    audit('web', username, 'login', { ip });
+    audit('web', username, 'login', { ip, country: countryOf(req) });
     res.json({ ok: true, role: role(username), mustChangePassword: isPasswordExpired(username) });
   });
 
@@ -455,7 +479,7 @@ export function createWebServer() {
   });
 
   // --- Permalink per bestand (stabiele UUID-link, geen auth) ---
-  app.get('/f/:uuid', (req, res) => {
+  app.get('/f/:uuid', downloadLimiter, (req, res) => {
     const entry = permalinks.resolve(req.params.uuid);
     if (!entry) return res.status(404).send('Link niet gevonden of verlopen.');
     if (!permalinks.checkPassword(entry, req.query.pw)) {
@@ -468,7 +492,7 @@ export function createWebServer() {
     if (!fs.existsSync(abs)) return res.status(404).send('Bestand bestaat niet meer.');
     const name = path.basename(abs);
     checkHoneypot(entry.user, entry.path, 'permalink');
-    audit('web', entry.user, 'permalink_access', { path: entry.path, uuid: req.params.uuid, ip: clientIp(req) });
+    audit('web', entry.user, 'permalink_access', { path: entry.path, uuid: req.params.uuid, ip: clientIp(req), country: countryOf(req) });
     accessLog.recordAccess({ owner: entry.user, kind: 'permalink', ref: req.params.uuid, path: entry.path, ip: clientIp(req) });
     if (fs.statSync(abs).isDirectory()) {
       res.attachment(name + '.zip');
@@ -500,7 +524,7 @@ export function createWebServer() {
     <h3>Beveiligde link</h3><input name="pw" type="password" placeholder="Wachtwoord" style="width:100%;padding:.5rem">
     <button style="margin-top:.5rem;padding:.5rem 1rem">Openen</button></form>`;
 
-  app.get('/s/:token', (req, res) => {
+  app.get('/s/:token', downloadLimiter, (req, res) => {
     const share = getShare(req.params.token);
     if (!share) return res.status(404).send('Link niet gevonden of verlopen.');
     if (!checkSharePassword(share, req.query.pw)) return res.send(pwForm());
@@ -521,7 +545,7 @@ export function createWebServer() {
 
     const abs = resolveWithin(homeDir(share.user), share.path);
     const name = path.basename(abs);
-    audit('web', share.user, 'share_access', { path: share.path, token: req.params.token });
+    audit('web', share.user, 'share_access', { path: share.path, token: req.params.token, country: countryOf(req) });
     notifyShare('share_access', share.user, { path: share.path, ip: clientIp(req) });
     accessLog.recordAccess({ owner: share.user, kind: 'share', ref: req.params.token, path: share.path, ip: clientIp(req) });
     countDownload(req.params.token);
@@ -587,6 +611,7 @@ export function createWebServer() {
   });
 
   // --- Alles hieronder vereist authenticatie ---
+  app.use('/api', (req, res, next) => (req.path === '/events' ? next() : apiLimiter(req, res, next)));
   app.use('/api', authenticate);
 
   // Onderhoudsmodus: alleen admins mogen erdoor.
@@ -662,7 +687,27 @@ export function createWebServer() {
       has2fa: !!getUser(req.user)?.totp || getCredentials(req.user).length > 0,
       mustChangePassword: isPasswordExpired(req.user),
       branding: { appName: getSetting('appName'), logoUrl: getSetting('logoUrl'), accent: getSetting('accent') },
+      impersonating: !!req.impersonating,
+      realUser: req.realUser || null,
     });
+  });
+
+  // Admin-impersonatie starten/stoppen ("bekijk als gebruiker").
+  app.post('/api/admin/impersonate', requireAdmin, express.json(), (req, res) => {
+    const target = req.body && req.body.username;
+    if (req.impersonating) return res.status(400).json({ error: 'Al aan het impersoneren' });
+    if (!target || !userExists(target)) return res.status(404).json({ error: 'Gebruiker niet gevonden' });
+    if (target === req.user) return res.status(400).json({ error: 'Kan jezelf niet impersoneren' });
+    startImpersonation(req.sid, target);
+    audit('web', req.user, 'impersonate_start', { target });
+    sysAlert(`impersonate-${req.user}-${target}`, 'Admin-impersonatie gestart', `Admin '${req.user}' bekijkt nu als '${target}'.`);
+    res.json({ ok: true, impersonating: target });
+  });
+  app.post('/api/impersonate/stop', (req, res) => {
+    if (!req.impersonating) return res.status(400).json({ error: 'Niet aan het impersoneren' });
+    audit('web', req.realUser, 'impersonate_stop', { target: req.user });
+    stopImpersonation(req.sid);
+    res.json({ ok: true });
   });
 
   // Realtime updates (Server-Sent Events).
@@ -704,11 +749,11 @@ export function createWebServer() {
     }
   });
 
-  app.get('/api/download', (req, res) => {
+  app.get('/api/download', downloadLimiter, (req, res) => {
     try {
       const file = resolveWithin(req.home, req.query.path || '');
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).json({ error: 'Niet gevonden' });
-      audit('web', req.user, 'download', { path: req.query.path });
+      audit('web', req.user, 'download', { path: req.query.path, country: countryOf(req) });
       checkHoneypot(req.user, req.query.path || '', 'download');
       metrics.inc('fileserver_downloads_total');
       metrics.inc('fileserver_bytes_downloaded_total', fs.statSync(file).size);
@@ -933,6 +978,19 @@ export function createWebServer() {
         sysAlert('quarantine', 'Bestand in quarantaine', `Upload '${f.originalname}' van '${req.user}' is besmet: ${scan.detail||''}`);
         emitAdmin('activity', { kind: 'quarantine', user: req.user });
         continue;
+      }
+      // DLP: gevoelige gegevens (BSN/creditcard/IBAN/wachtwoorden) detecteren.
+      const dlp = scanFileForDlp(f.path, f.originalname);
+      if (dlp) {
+        audit('web', req.user, 'dlp_hit', { file: f.originalname, types: dlp.types, action: config.dlp.action });
+        sysAlert(`dlp-${req.user}-${f.originalname}`, 'DLP: gevoelige gegevens in upload',
+          `Upload '${f.originalname}' van '${req.user}' bevat mogelijk: ${dlp.types.join(', ')}.`);
+        if (config.dlp.action === 'block') {
+          quarantine(f.path, { user: req.user, home: req.home, targetPath: req.query.path || '/', filename: f.originalname, detail: 'DLP: ' + dlp.types.join(', ') });
+          infected.push(f.originalname + ' (DLP)');
+          continue;
+        }
+        try { setMeta(req.home, path.posix.join(req.query.path || '/', f.originalname), { dlp: dlp.types }); } catch { /* optioneel */ }
       }
       names.push(f.originalname);
       runPostUpload(f.path);
@@ -1496,6 +1554,45 @@ export function createWebServer() {
   // Verkeer per gebruiker (bytes up/down) voor het admin-overzicht.
   app.get('/api/admin/metrics/users', requireAdmin, (req, res) => {
     res.json({ users: metrics.userTraffic() });
+  });
+
+  // Rapportage-overzicht: opslag per gebruiker/afdeling, top-downloaders,
+  // inactieve accounts.
+  app.get('/api/admin/report/overview', requireAdmin, (req, res) => {
+    const now = Date.now();
+    const users = listUsers().map((u) => {
+      let used = 0;
+      try { used = dirSize(homeDir(u.username)); } catch { /* map ontbreekt */ }
+      return { username: u.username, tenant: u.tenant || '', used, quota: u.quota || 0,
+        lastLogin: u.lastLogin || 0, inactiveDays: u.lastLogin ? Math.floor((now - u.lastLogin) / 86400000) : null };
+    });
+    const perTenant = {};
+    for (const u of users) { const t = u.tenant || '(geen)'; perTenant[t] = (perTenant[t] || 0) + u.used; }
+    const inactive = users.filter((u) => !u.lastLogin || (now - u.lastLogin) > config.inactiveDays * 86400000)
+      .map((u) => ({ username: u.username, lastLogin: u.lastLogin }));
+    const topTraffic = metrics.userTraffic().slice(0, 10);
+    res.json({ users, perTenant, inactive, topTraffic, inactiveDays: config.inactiveDays });
+  });
+
+  // Toegang-heatmap: aantal gebeurtenissen per uur-van-de-dag en per weekdag,
+  // plus per land (indien de proxy de landcode meestuurt), afgeleid uit het audit-log.
+  app.get('/api/admin/report/heatmap', requireAdmin, (req, res) => {
+    const hours = new Array(24).fill(0);
+    const weekdays = new Array(7).fill(0);
+    const countries = {};
+    let total = 0;
+    try {
+      const raw = fs.readFileSync(config.auditLog, 'utf8').trim().split('\n').slice(-20000);
+      for (const line of raw) {
+        let e; try { e = JSON.parse(line); } catch { continue; }
+        if (!e.ts) continue;
+        if (!['login', 'download', 'upload', 'share_access', 'permalink_access'].includes(e.action)) continue;
+        const d = new Date(e.ts);
+        hours[d.getHours()]++; weekdays[d.getDay()]++; total++;
+        if (e.country) countries[e.country] = (countries[e.country] || 0) + 1;
+      }
+    } catch { /* geen log */ }
+    res.json({ hours, weekdays, countries, total });
   });
   // Statusoverzicht: één samenvatting van de gezondheid van het systeem.
   app.get('/api/admin/status', requireAdmin, (req, res) => {

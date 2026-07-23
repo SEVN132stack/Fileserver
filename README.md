@@ -192,6 +192,17 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Compliance, beheer & inzicht (v3.17)
+
+- **DLP-scan** op uploads: BSN (elfproef), creditcard (Luhn), IBAN en wachtwoorden
+  in klare tekst worden gedetecteerd; `DLP_ACTION=flag` markeert, `block` quaranteert.
+- **Break-glass nood-admin** (`BREAKGLASS_USER`): normaal ongebruikt, elk gebruik alarmeert.
+- **Admin-impersonatie** ("bekijk als gebruiker") met audit en een duidelijke banner.
+- **Rapportage-dashboard** (opslag per gebruiker/afdeling, inactieve accounts) en een
+  **toegang-heatmap** (uur/weekdag/land) in het admin-paneel.
+- **Rate-limiting per endpoint** (`API_RATE_MAX`, `DOWNLOAD_RATE_MAX`) naast de login-bescherming.
+- **E2E-browsertest** (Playwright) draait in CI: `npm run test:e2e`.
+
 ## Privacy, samenwerking, media & multi-tenant (v3.16)
 
 - **Toegangslog** voor gedeelde bestanden (wie downloadde je link, wanneer) en
