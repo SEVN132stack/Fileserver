@@ -46,6 +46,9 @@ Een fileserver die dezelfde bestanden aanbiedt via **SFTP**, een **web UI** en
 
 ## Installatie & starten
 
+> **Productie-deploy?** Volg de **[deploy-checklist](deploy/CHECKLIST.md)** met de
+> aanbevolen `.env`-instellingen (achter Caddy, met TLS, 2FA, back-ups en alerts).
+
 ```bash
 npm install
 npm start
