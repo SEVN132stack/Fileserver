@@ -640,9 +640,12 @@ try {
   await fetch(H + '/api/save?path=/lockme.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'x' });
   const lk = await fetch(H + '/api/lock', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/lockme.txt' }) });
   const renLocked = await fetch(H + '/api/rename', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ from: '/lockme.txt', to: '/renamed.txt' }) });
+  // Ook overschrijven via de editor moet geweigerd worden zolang het vergrendeld is.
+  const saveLocked = await fetch(H + '/api/save?path=/lockme.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'overschrijf' });
   await fetch(H + '/api/unlock', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/lockme.txt' }) });
   const renOk = await fetch(H + '/api/rename', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ from: '/lockme.txt', to: '/renamed.txt' }) });
-  ok('bestandsvergrendeling blokkeert hernoemen tot ontgrendeld', lk.status === 200 && renLocked.status === 423 && renOk.status === 200);
+  ok('bestandsvergrendeling blokkeert hernoemen + overschrijven tot ontgrendeld',
+    lk.status === 200 && renLocked.status === 423 && saveLocked.status === 423 && renOk.status === 200);
 
   // 27. Wachtwoord-hergebruik wordt geweigerd bij zelf wijzigen.
   const reuse = await fetch(H + '/api/change-password', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ current: 'testpass123', password: 'testpass123' }) });

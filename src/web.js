@@ -588,6 +588,10 @@ export function createWebServer() {
         }
       },
       filename(req, file, cb) {
+        // Weiger overschrijven van een vergrendeld bestand.
+        const relPath = path.posix.join(req.query.path || '/', file.originalname);
+        const holder = locks.lockOwner(req.home, relPath);
+        if (holder) return cb(new Error(`Vergrendeld door ${holder}`));
         try {
           // Bewaar de vorige versie vóór overschrijven.
           const rel = path.posix.join(req.query.path || '/', path.dirname(file.originalname));
@@ -783,6 +787,8 @@ export function createWebServer() {
   });
   app.post('/api/sync/apply', requireWrite, express.json({ limit: '200mb' }), async (req, res) => {
     try {
+      const holder = locks.lockOwner(req.home, req.query.path || '');
+      if (holder) return res.status(423).json({ error: `Vergrendeld door ${holder} — eerst ontgrendelen` });
       const file = resolveWithin(req.home, req.query.path || '');
       // Quota-controle op de nieuwe grootte.
       const newSize = (req.body.ops || []).reduce((n, op) => n + (op.d !== undefined ? Buffer.byteLength(op.d, 'base64') : (req.body.blockSize || DEFAULT_BLOCK)), 0);
@@ -940,6 +946,8 @@ export function createWebServer() {
   // Tekst-editor: bestand opslaan.
   app.post('/api/save', requireWrite, express.text({ limit: '5mb', type: '*/*' }), async (req, res) => {
     try {
+      const holder = locks.lockOwner(req.home, req.query.path || '');
+      if (holder) return res.status(423).json({ error: `Vergrendeld door ${holder} — eerst ontgrendelen` });
       const file = resolveWithin(req.home, req.query.path || '');
       await fsp.mkdir(path.dirname(file), { recursive: true });
       snapshot(req.home, file);
