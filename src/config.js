@@ -383,7 +383,7 @@ export const config = {
   // Gestructureerde JSON-logging (voor log-aggregatie/OpenTelemetry-collectors).
   logJson: bool(process.env.LOG_JSON, false),
 
-  version: '3.18.1',
+  version: '3.18.2',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

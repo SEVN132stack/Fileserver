@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.18.2] - 2026-07-23
+
+### Opgelost (restpunten security-review)
+
+- **Conversie ruimt tijdelijke bestanden op**: `soffice`/`ffmpeg`-resultaten (en de tmp-map)
+  worden na verzending verwijderd — geen opeenhoping meer in de tmp-map.
+- **API-sleutel-authenticatie is nu rate-limited** per IP en geeft bij een ongeldige sleutel
+  netjes 401 (i.p.v. stille doorval), zodat sleutels niet ongelimiteerd te proberen zijn.
+- **WORM-nood-override**: een admin kan een per ongeluk ingestelde bewaarplicht opheffen via
+  `/api/admin/retention/release` — alleen met step-up, luid gealarmeerd en geaudit.
+
 ## [3.18.1] - 2026-07-23
 
 ### Opgelost (security-review v3.18-batch)

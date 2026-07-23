@@ -29,6 +29,19 @@ export function retainedUntil(home, p) {
   return until > Date.now() ? until : 0;
 }
 
+// Retentie opheffen. Bewust voorbehouden aan een admin (via een apart endpoint
+// met step-up), zwaar geaudit en gealarmeerd — voor het corrigeren van échte
+// vergissingen, niet voor routinematig gebruik. Zonder deze uitweg zou een per
+// ongeluk ingestelde bewaarplicht een bestand permanent onaanraakbaar maken.
+export function releaseRetention(home, p) {
+  const all = readAll();
+  const k = key(home, p);
+  if (!all[k]) return false;
+  delete all[k];
+  writeAll(all);
+  return true;
+}
+
 export function listRetention(home) {
   const all = readAll();
   const prefix = home + '|';
