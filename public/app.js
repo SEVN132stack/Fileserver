@@ -180,6 +180,13 @@ async function openFile(p) {
   else if (isText(name)) { const txt = await (await api(url)).text(); openModal(`<h3>${esc(name)}</h3><pre>${txt.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`); }
   else if (/\.(docx|xlsx|pptx)$/i.test(name)) { const r = await (await api('/api/office-preview?path='+enc(p))).json(); openModal(`<h3>${esc(name)}</h3><p class="muted">Tekst-preview (${r.type||'office'})</p><pre style="max-width:80vw;max-height:70vh;overflow:auto;white-space:pre-wrap">${(r.text||'(geen tekst)').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre><button data-dl="${enc(p)}">Download origineel</button>`); }
   else openModal(`<h3>${esc(name)}</h3><p class="muted">Geen preview.</p><button data-dl="${enc(p)}">Download</button>`);
+  // Converteer-knoppen (afbeelding→jpg/png/webp, document→pdf).
+  const conv = /\.(jpe?g|png|webp|gif|tiff?|heic|heif|avif|bmp)$/i.test(name) ? ['jpg','png','webp']
+    : /\.(docx?|xlsx?|pptx?|odt|ods|odp|rtf)$/i.test(name) ? ['pdf'] : [];
+  if (conv.length) {
+    const btns = conv.map(t=>`<button data-conv="${enc(p)}|${t}">→ ${t.toUpperCase()}</button>`).join(' ');
+    try { document.getElementById('modalBody').insertAdjacentHTML('beforeend', `<div style="margin-top:.6rem">Converteren: ${btns}</div>`); } catch {}
+  }
   // Gedeelde reacties onder de preview.
   try { document.getElementById('modalBody').insertAdjacentHTML('beforeend', await commentsHtml(p)); } catch {}
 }
@@ -484,6 +491,13 @@ document.addEventListener('click', async (e) => {
   }
   if (t2.dataset.dec) { return decryptDownload(decodeURIComponent(t2.dataset.dec)); }
   if (t2.dataset.sync) { return deltaSync(decodeURIComponent(t2.dataset.sync)); }
+  if (t2.dataset.conv) {
+    const [p, to] = t2.dataset.conv.split('|'); const pp = decodeURIComponent(p);
+    const r = await api('/api/convert?path='+enc(pp)+'&to='+to);
+    if (!r.ok) { alert('Conversie mislukt'); return; }
+    const b = await r.blob(); const a = document.createElement('a'); a.href=URL.createObjectURL(b);
+    a.download = pp.split('/').pop().replace(/\.[^.]+$/, '')+'.'+to; a.click(); return;
+  }
   if (t2.dataset.ver) { return showVersions(decodeURIComponent(t2.dataset.ver)); }
   if (t2.dataset.lock) {
     const p = decodeURIComponent(t2.dataset.lock);
@@ -527,6 +541,40 @@ document.getElementById('2faBtn').onclick = setup2fa;
 document.getElementById('passkeyBtn').onclick = addPasskey;
 document.getElementById('sessionsBtn').onclick = showSessions;
 const pwBtn = document.getElementById('pwBtn'); if (pwBtn) pwBtn.onclick = () => changePassword(false);
+
+// Notificatiecentrum.
+async function refreshNotifCount() {
+  try {
+    const n = await (await api('/api/notifications')).json();
+    const b = document.getElementById('notifCount');
+    if (n.unread > 0) { b.textContent = n.unread; b.style.display = ''; } else b.style.display = 'none';
+  } catch {}
+}
+async function showNotifications() {
+  const n = await (await api('/api/notifications')).json();
+  const rows = (n.items||[]).map(i=>`<li style="padding:.3rem 0;${i.read?'opacity:.6':''}"><strong>${esc(i.title)}</strong> <span class="muted">${new Date(i.ts).toLocaleString()}</span><br>${esc(i.body)}</li>`).join('');
+  openModal(`<h3>🔔 Meldingen</h3><ul style="list-style:none;padding:0;max-width:70vw">${rows||'<li class="muted">Geen meldingen.</li>'}</ul>
+    <button id="notifRead">Alles gelezen</button> <button class="danger" id="notifClear">Wissen</button>`);
+  document.getElementById('notifRead').onclick = async () => { await api('/api/notifications/read',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); refreshNotifCount(); closeModal(); };
+  document.getElementById('notifClear').onclick = async () => { await api('/api/notifications',{method:'DELETE'}); refreshNotifCount(); closeModal(); };
+}
+const notifBtn = document.getElementById('notifBtn'); if (notifBtn) notifBtn.onclick = showNotifications;
+setInterval(refreshNotifCount, 30000); refreshNotifCount();
+
+// API-sleutels beheren.
+async function showApiKeys() {
+  const { keys } = await (await api('/api/apikeys')).json();
+  const rows = keys.map(k=>`<li>${esc(k.name)} <span class="muted">(${k.scope})</span> — ${new Date(k.created).toLocaleDateString()} <button class="danger" data-keydel="${k.id}">intrekken</button></li>`).join('');
+  openModal(`<h3>🔑 API-sleutels</h3><ul style="list-style:none;padding:0">${rows||'<li class="muted">Nog geen sleutels.</li>'}</ul>
+    <div style="display:flex;gap:.4rem;margin-top:.5rem"><input id="keyName" placeholder="naam"><select id="keyScope"><option value="read">alleen-lezen</option><option value="write">lezen+schrijven</option></select><button id="keyAdd">Aanmaken</button></div>
+    <div id="keyOut" style="margin-top:.5rem"></div>`);
+  document.getElementById('keyAdd').onclick = async () => {
+    const r = await (await api('/api/apikeys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:document.getElementById('keyName').value||'api-key',scope:document.getElementById('keyScope').value})})).json();
+    document.getElementById('keyOut').innerHTML = `<p style="color:var(--accent)">Bewaar deze sleutel nu (wordt maar één keer getoond):</p><code style="word-break:break-all">${esc(r.token)}</code>`;
+  };
+  document.querySelectorAll('[data-keydel]').forEach(b=>b.onclick=async()=>{ await api('/api/apikeys/'+b.dataset.keydel,{method:'DELETE'}); showApiKeys(); });
+}
+const apikeyBtn = document.getElementById('apikeyBtn'); if (apikeyBtn) apikeyBtn.onclick = showApiKeys;
 document.getElementById('camInput').onchange = (e) => uploadFiles([...e.target.files]);
 document.getElementById('contentSearch').onchange = load;
 const dropBtn = document.getElementById('dropLinkBtn'); if (dropBtn) dropBtn.onclick = makeDropLink;

@@ -209,6 +209,24 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Rate-limiting per endpoint (API + downloads)
 - ✅ E2E-browsertest (Playwright) in CI
 
+## Compliance, samenwerking & integraties (v3.18)
+
+- ✅ AVG/GDPR-toolkit (export + recht op vergetelheid)
+- ✅ WORM/retentie-vergrendeling
+- ✅ Self-destruct/verlopende bestanden
+- ✅ E2E-verplichte mappen
+- ✅ Aanwezigheid ("wie kijkt nu")
+- ✅ Per-gebruiker API-sleutels (scopes, intrekbaar)
+- ✅ In-app notificatiecentrum
+- ✅ Webhook-templates (Slack/Discord/Teams/ntfy)
+- ✅ rclone-/WebDAV-profielgenerator
+- ✅ Server-side conversie (afbeelding/document/av)
+- ✅ Duplicaten-vinder + opschoon-suggesties
+- ✅ Recent geopende bestanden
+- ✅ Wekelijks e-mailrapport
+- ✅ Docker healthcheck + compose met Caddy
+- ✅ Gestructureerde JSON-logging (correlation-id)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)
