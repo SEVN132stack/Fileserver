@@ -182,6 +182,7 @@ export function addUser({ username, password, home, role = 'user', quota = 0, em
     quota,
     email,
     totp: null,
+    pwChangedAt: Date.now(),
     shares: [],
   });
   saveUsers();

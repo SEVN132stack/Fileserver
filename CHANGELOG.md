@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.16.1] - 2026-07-22
+
+### Opgelost (code-review)
+
+- **Bestandsvergrendeling sloot een gat**: een vergrendeld bestand kon nog steeds
+  worden overschreven via de editor (`/api/save`), delta-sync (`/api/sync/apply`)
+  en her-upload met dezelfde naam. Deze paden respecteren nu de vergrendeling (423).
+- **Wachtwoordverval telde niet vanaf accountaanmaak**: nieuwe accounts kregen geen
+  `pwChangedAt`, waardoor `PASSWORD_MAX_AGE_DAYS` nooit aansloeg tot de eerste
+  wijziging. Aanmaak zet nu de wijzigdatum.
+
 ## [3.16.0] - 2026-07-22
 
 ### Toegevoegd — privacy & beveiliging
