@@ -287,8 +287,8 @@ try {
   const qlist = await (await fetch(H + '/api/admin/quarantine', { headers: jar() })).json();
   ok('besmet bestand in quarantaine (niet geplaatst)', vjson.infected && vjson.infected.includes('virus.txt') && qlist.items.length >= 1);
   const rel = await fetch(H + `/api/admin/quarantine/${qlist.items[0].id}/release`, { method: 'POST', headers: jar() });
-  const afterRel = await (await fetch(H + '/api/list', { headers: jar() })).json();
-  ok('quarantaine vrijgeven zet bestand terug', rel.status === 200 && afterRel.items.some((i) => i.name === 'virus.txt'));
+  const afterQuar = await (await fetch(H + '/api/list', { headers: jar() })).json();
+  ok('quarantaine vrijgeven zet bestand terug', rel.status === 200 && afterQuar.items.some((i) => i.name === 'virus.txt'));
 
   // 13n. Versiegeschiedenis.
   await fetch(H + '/api/save?path=/ver.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'v1' });
@@ -842,6 +842,18 @@ try {
   await fetch(H + '/api/admin/gdpr/forget/vergeetmij', { method: 'POST', headers: jar() });
   const chainAfter = await (await fetch(H + '/api/admin/audit/verify', { headers: jar() })).json();
   ok('audit-keten blijft intact na GDPR-forget', chainAfter.ok === true);
+
+  // 50. Ongeldige API-sleutel wordt netjes geweigerd (401) i.p.v. doorval.
+  const badKey = await fetch(H + '/api/whoami', { headers: { Authorization: 'Bearer fsk_00_ongeldig' } });
+  ok('ongeldige API-sleutel -> 401', badKey.status === 401);
+
+  // 51. WORM admin-override: retentie opheffen maakt het bestand weer wijzigbaar.
+  await fetch(H + '/api/save?path=/worm-release.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'x' });
+  await fetch(H + '/api/retention', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/worm-release.txt', days: 30 }) });
+  const wormBeforeRel = await fetch(H + '/api/save?path=/worm-release.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'y' });
+  await fetch(H + '/api/admin/retention/release', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ user: 'admin', path: '/worm-release.txt' }) });
+  const wormAfterRel = await fetch(H + '/api/save?path=/worm-release.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'z' });
+  ok('WORM admin-override heft retentie op (geaudit)', wormBeforeRel.status === 423 && wormAfterRel.status === 200);
 
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();

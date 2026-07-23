@@ -148,8 +148,12 @@ function authenticate(req, res, next) {
   //    geeft alleen-lezen toegang.
   const apiKeyHeader = req.headers['x-api-key'] || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   if (apiKeyHeader && apiKeyHeader.startsWith('fsk_')) {
+    // Rate-limit API-sleutel-pogingen per IP (naast de enorme keyspace), zodat
+    // een aanvaller niet ongelimiteerd sleutels kan proberen.
+    if (!checkAllowed('apikey:' + ip).allowed) return res.status(429).send('Te veel pogingen.');
     const resolved = apikeys.resolveKey(apiKeyHeader);
     if (resolved && userExists(resolved.user) && !isExpired(resolved.user)) {
+      recordSuccess('apikey:' + ip);
       req.user = resolved.user;
       req.home = homeDir(resolved.user);
       req.userRole = role(resolved.user);
@@ -157,6 +161,8 @@ function authenticate(req, res, next) {
       if (resolved.scope !== 'write') req.apiReadonly = true;
       return next();
     }
+    recordFailure('apikey:' + ip);
+    return res.status(401).json({ error: 'Ongeldige API-sleutel' });
   }
 
   // 3. HTTP Basic Auth (voor API-clients, SFTP-parity en WebDAV).
@@ -1350,9 +1356,11 @@ export function createWebServer() {
         res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
         return res.end(buf);
       }
-      if (to === 'pdf') { const pdf = await convertDocToPdf(src); return res.download(pdf, name); }
-      const out = await transcodeAv(src, to);
-      return res.download(out, name);
+      // Ruim het tijdelijke conversieresultaat op na verzending. LibreOffice
+      // schrijft in een fsconv-tmp-map; verwijder die map, anders het losse bestand.
+      const cleanup = (p) => { try { const parent = path.dirname(p); fs.rmSync(path.basename(parent).startsWith('fsconv-') ? parent : p, { recursive: true, force: true }); } catch { /* al weg */ } };
+      const out = to === 'pdf' ? await convertDocToPdf(src) : await transcodeAv(src, to);
+      return res.download(out, name, () => cleanup(out));
     } catch (err) { res.status(400).json({ error: err.message }); }
   });
 
@@ -1826,6 +1834,20 @@ export function createWebServer() {
       sysAlert(`gdpr-forget-${req.params.user}`, 'AVG: gebruiker vergeten', `Alle data van '${req.params.user}' is verwijderd/geanonimiseerd door '${req.user}'.`);
       res.json(r);
     } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // WORM-retentie opheffen (nood-correctie): admin-only, step-up, luid gealarmeerd.
+  app.post('/api/admin/retention/release', requireAdmin, requireReauth, express.json(), (req, res) => {
+    const target = req.body && req.body.user;
+    const p = (req.body && req.body.path) || '';
+    if (!target || !userExists(target)) return res.status(404).json({ error: 'Gebruiker niet gevonden' });
+    const ok = retention.releaseRetention(homeDir(target), p);
+    if (ok) {
+      audit('web', req.user, 'retention_release', { subject: target, path: p });
+      sysAlert(`retention-release-${target}-${p}`, '⚠ WORM-bewaarplicht opgeheven',
+        `Admin '${req.user}' heeft de bewaarplicht op '${p}' van '${target}' opgeheven. Controleer of dit legitiem is.`, { force: true });
+    }
+    res.json({ ok });
   });
 
   app.post('/api/admin/import', requireAdmin, requireReauth, express.json({ limit: '20mb' }), (req, res) => {
