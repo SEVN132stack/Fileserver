@@ -225,7 +225,10 @@ function ipAllowed(ip) {
 
 export function createWebServer() {
   const app = express();
-  app.set('trust proxy', true);
+  // Vertrouw alleen de geconfigureerde proxy-hop(s) (zie TRUST_PROXY): 'true'/'false',
+  // een getal (aantal hops) of een IP/subnet. Voorkomt IP-spoofing via XFF.
+  const tp = config.trustProxy;
+  app.set('trust proxy', tp === 'true' ? true : tp === 'false' ? false : (/^\d+$/.test(tp) ? parseInt(tp, 10) : tp));
   app.disable('x-powered-by');
 
   // Health-endpoint voor uptime-monitoring (geen auth, geen geheimen).
@@ -385,7 +388,9 @@ export function createWebServer() {
       if (auth !== 'Bearer ' + config.metrics.token) return res.status(401).end();
     }
     res.set('Content-Type', 'text/plain; version=0.0.4');
-    res.end(metrics.render());
+    // Per-gebruiker metrics (met gebruikersnamen) alleen als de endpoint met een
+    // token is beschermd, anders lekken ze publiek.
+    res.end(metrics.render(!!config.metrics.token));
   });
 
   // --- OpenID Connect (SSO), optioneel ---
@@ -564,6 +569,19 @@ export function createWebServer() {
       return res.status(503).json({ error: 'Onderhoudsmodus actief' });
     }
     next();
+  });
+
+  // Tweefactor server-side afdwingen: als het beleid 2FA vereist en de gebruiker
+  // heeft nog geen TOTP/passkey, dan is alleen het inschrijven (+ basisacties)
+  // toegestaan. Zo is REQUIRE_2FA een echte poort, niet slechts een UI-hint.
+  const enroll2faAllowed = new Set(['/whoami', '/logout', '/logout-all', '/2fa/setup', '/2fa/enable',
+    '/webauthn/register/options', '/webauthn/register/verify', '/branding', '/change-password']);
+  app.use('/api', (req, res, next) => {
+    const needs = config.requireTwoFactor === 'all' || (config.requireTwoFactor === 'admin' && isAdmin(req.user));
+    if (!needs) return next();
+    const has = !!getUser(req.user)?.totp || getCredentials(req.user).length > 0;
+    if (has || enroll2faAllowed.has(req.path)) return next();
+    return res.status(403).json({ error: 'Tweefactor-authenticatie is verplicht — schrijf eerst in', code: 'enroll2fa' });
   });
 
   // WebDAV (Basic Auth; eigen mount).
@@ -1069,7 +1087,7 @@ export function createWebServer() {
       filename(req, file, cb) { cb(null, path.basename(file.originalname)); },
     }),
   });
-  app.post('/share-target', shareTargetUpload.array('files'), (req, res) => {
+  app.post('/share-target', authenticate, shareTargetUpload.array('files'), (req, res) => {
     audit('web', req.user, 'share_target_upload', { files: (req.files || []).map((f) => f.originalname) });
     emitToUser(req.user, 'change', { action: 'share_target' });
     res.redirect('/');

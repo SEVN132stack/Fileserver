@@ -45,7 +45,10 @@ export function snapshot() {
   return { ...counters, ...gauges };
 }
 
-export function render() {
+// includePerUser: alleen per-gebruiker (gelabelde) metrics tonen als de /metrics-
+// endpoint met een token is beschermd — anders zouden gebruikersnamen + verkeer
+// publiek uitlekken.
+export function render(includePerUser = true) {
   const lines = [];
   for (const [k, v] of Object.entries(counters)) {
     lines.push(`# TYPE ${k} counter`);
@@ -55,7 +58,7 @@ export function render() {
     lines.push(`# TYPE ${k} gauge`);
     lines.push(`${k} ${v}`);
   }
-  if (perUser.size) {
+  if (perUser.size && includePerUser) {
     lines.push('# TYPE fileserver_user_bytes_uploaded_total counter');
     for (const [user, r] of perUser) lines.push(`fileserver_user_bytes_uploaded_total{user="${escLabel(user)}"} ${r.up}`);
     lines.push('# TYPE fileserver_user_bytes_downloaded_total counter');

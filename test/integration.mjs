@@ -28,6 +28,7 @@ process.env.TAGS_FILE = path.join(tmp, 'tags.json');
 process.env.SHARE_ACCESS_FILE = path.join(tmp, 'share-access.json');
 process.env.LOCKS_FILE = path.join(tmp, 'locks.json');
 process.env.SCHEDULED_EXPORTS_FILE = path.join(tmp, 'scheduled-exports.json');
+process.env.METRICS_TOKEN = 'test-metrics-token';
 // Sessie-binding/step-up uit voor de brede suite; de dedicated tests zetten ze
 // tijdens de run zelf aan via config.
 process.env.SESSION_BIND = 'off';
@@ -236,7 +237,7 @@ try {
   ok('tus upload voltooid', create.status === 201 && patch.status === 204 && tusList.items.some((i) => i.name === 'tusfile.txt'));
 
   // 13j. Prometheus-metrics.
-  const met = await (await fetch(H + '/metrics', { headers: jar() })).text();
+  const met = await (await fetch(H + '/metrics', { headers: { Authorization: 'Bearer test-metrics-token' } })).text();
   ok('metrics-endpoint levert tellers', met.includes('fileserver_uploads_total'));
 
   // 13k. Back-up maken via admin.
@@ -610,9 +611,11 @@ try {
   const ready = await (await fetch(H + '/ready')).json();
   ok('readiness-probe', ready.ready === true && ready.checks.storageWritable && ready.checks.usersLoaded);
 
-  // 22. Per-gebruiker metrics in de Prometheus-output.
-  const promText = await (await fetch(H + '/metrics')).text();
-  ok('per-gebruiker metrics + schijf-gauge', promText.includes('fileserver_user_bytes_uploaded_total') && promText.includes('fileserver_disk_free_percent'));
+  // 22. Per-gebruiker metrics in de Prometheus-output (met token; publiek geen usernames).
+  const promPublic = await (await fetch(H + '/metrics', { headers: { Authorization: 'Bearer test-metrics-token' } })).text();
+  const promNoToken = await fetch(H + '/metrics'); // zonder token -> 401
+  ok('per-gebruiker metrics + schijf-gauge (achter token)',
+    promPublic.includes('fileserver_user_bytes_uploaded_total') && promPublic.includes('fileserver_disk_free_percent') && promNoToken.status === 401);
 
   // 23. Zoekindex: (her)bouwen en gebruiken voor snelle zoekopdracht.
   await fetch(H + '/api/save?path=/indexed.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'uniekwoordxyz erin' });
@@ -689,6 +692,20 @@ try {
   const afterLogoutAll = await fetch(H + '/api/whoami', { headers: { Cookie: cookieBefore } });
   cookie = ''; await login('admin', 'testpass123b');
   ok('overal uitloggen trekt sessies in', lo.status === 200 && afterLogoutAll.status === 401);
+
+  // 31. Server-side 2FA-afdwinging: zonder 2FA alleen inschrijven toegestaan.
+  cookie = ''; await login('admin', 'testpass123b');
+  config.requireTwoFactor = 'all';
+  const gatedList = await fetch(H + '/api/list', { headers: jar() });
+  const gatedWho = await fetch(H + '/api/whoami', { headers: jar() });
+  config.requireTwoFactor = 'off';
+  ok('2FA-afdwinging blokkeert toegang server-side tot inschrijving',
+    gatedList.status === 403 && gatedWho.status === 200);
+
+  // 32. share-target vereist authenticatie (geen anonieme upload).
+  const stFd = new FormData(); stFd.append('files', new Blob(['x']), 'st.txt');
+  const stAnon = await fetch(H + '/share-target', { method: 'POST', body: stFd });
+  ok('share-target weigert zonder auth', stAnon.status === 401);
 
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();

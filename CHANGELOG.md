@@ -1,5 +1,22 @@
 # Changelog
 
+## [3.16.2] - 2026-07-23
+
+### Opgelost (security-review hele repo)
+
+- **`/share-target` stond buiten de auth-mount** (`app.use('/api', authenticate)` dekt
+  alleen `/api/*`): de PWA-share-route had geen authenticatie. Nu expliciet `authenticate`
+  ervoor — de feature werkte hierdoor bovendien nooit correct (geen `req.home`).
+- **`REQUIRE_2FA` was alleen een UI-hint**: een gebruiker zonder 2FA kreeg met enkel een
+  wachtwoord een volwaardige sessie. Nu een **server-side poort**: bij verplicht 2FA zonder
+  ingeschreven TOTP/passkey is alleen het inschrijven (+ whoami/logout/wachtwoord) toegestaan.
+- **`trust proxy: true` vertrouwde álle proxy's** → een direct benaderbare instantie kon
+  via `X-Forwarded-For` het client-IP spoofen en bans/rate-limiting/geo/IP-allowlist omzeilen.
+  Nu configureerbaar via `TRUST_PROXY` (standaard `1` = alleen de directe proxy).
+- **`/metrics` lekte gebruikersnamen** (per-gebruiker verkeer, sinds v3.15) als er geen
+  `METRICS_TOKEN` was gezet. Per-gebruiker-metrics worden nu alleen getoond wanneer de
+  endpoint met een token is beschermd.
+
 ## [3.16.1] - 2026-07-22
 
 ### Opgelost (code-review)
