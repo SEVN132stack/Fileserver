@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.16.3] - 2026-07-23
+
+### Toegevoegd (security-hardening, vervolg op de review)
+
+- **Uploadgrootte-limiet** (`MAX_UPLOAD_BYTES`, 0 = uit) op álle uploadpaden (web,
+  drop-links, chunked, share-target, gedeelde mappen); te grote uploads → 413.
+- **Quotabewaking op anonieme drop-uploads**: een deel-link kan het quotum van de
+  eigenaar niet meer overschrijden (voorkomt schijf-vol-misbruik).
+- **Centrale foutafhandeling**: nette 413/500-JSON i.p.v. een generieke stacktrace.
+- **`COOKIE_SECURE`**: forceer de Secure-vlag op de sessie-cookie ook achter een
+  TLS-terminerende proxy (`COOKIE_SECURE=true`), los van `TLS_ENABLED`.
+
 ## [3.16.2] - 2026-07-23
 
 ### Opgelost (security-review hele repo)
