@@ -3,6 +3,7 @@ import path from 'node:path';
 import { config } from './config.js';
 import { resolveWithin } from './paths.js';
 import { audit } from './audit.js';
+import { retainedUntil } from './retention.js';
 
 // Self-destruct/verlopende bestanden: een bestand kan een vervaldatum krijgen en
 // wordt daarna automatisch verwijderd. Sleutel: "<home>|<pad>" -> expiresAt (ms).
@@ -45,6 +46,10 @@ export function sweepExpired() {
     const sep = k.indexOf('|');
     const home = k.slice(0, sep);
     const rel = k.slice(sep + 1);
+    // WORM-bewaarplicht gaat vóór self-destruct: een bestand onder retentie mag
+    // niet automatisch worden verwijderd. Laat de vervaldatum staan en probeer
+    // later opnieuw (zodra de bewaarplicht is verlopen).
+    if (retainedUntil(home, rel)) continue;
     try {
       const abs = resolveWithin(home, rel);
       if (fs.existsSync(abs)) { fs.rmSync(abs, { recursive: true, force: true }); removed++; audit('system', null, 'file_expired', { home, path: rel }); }

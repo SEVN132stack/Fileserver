@@ -855,6 +855,17 @@ try {
   const wormAfterRel = await fetch(H + '/api/save?path=/worm-release.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'z' });
   ok('WORM admin-override heft retentie op (geaudit)', wormBeforeRel.status === 423 && wormAfterRel.status === 200);
 
+  // 52. Self-destruct respecteert WORM: een verlopen maar onder-bewaarplicht
+  //     bestand wordt NIET verwijderd door de sweep.
+  await fetch(H + '/api/save?path=/worm-expiry.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'blijf' });
+  const adminHome = path.join(config.storageDir, 'admin');
+  await fetch(H + '/api/retention', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/worm-expiry.txt', days: 30 }) });
+  setExpiry(adminHome, '/worm-expiry.txt', Date.now() - 1000); // al verlopen
+  const swept = sweepExpired();
+  const wormExpiryList = await (await fetch(H + '/api/list', { headers: jar() })).json();
+  ok('self-destruct verwijdert géén bestand onder bewaarplicht',
+    wormExpiryList.items.some((i) => i.name === 'worm-expiry.txt'));
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);
