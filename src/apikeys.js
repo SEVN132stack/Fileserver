@@ -32,8 +32,10 @@ export function resolveKey(token) {
   const rec = all[id];
   if (!rec) return null;
   if (rec.hash !== sha(token)) return null;
-  rec.lastUsed = Date.now();
-  writeAll(all);
+  // 'lastUsed' hoogstens één keer per minuut wegschrijven — anders zou elk
+  // API-verzoek het hele bestand herschrijven (disk-belasting + race-risico).
+  const now = Date.now();
+  if (now - (rec.lastUsed || 0) > 60000) { rec.lastUsed = now; writeAll(all); }
   return { user: rec.user, scope: rec.scope };
 }
 

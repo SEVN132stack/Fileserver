@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.18.3] - 2026-07-23
+
+### Opgelost (code-review: fouten & verbeteringen)
+
+- **Self-destruct respecteert nu WORM-bewaarplicht**: de opschoon-sweep verwijderde een
+  verlopen bestand ook als het onder retentie (legal hold) stond — dat kon een wettelijke
+  bewaarplicht ondermijnen. De sweep slaat zulke bestanden nu over tot de retentie afloopt.
+- **AVG-forget verwijdert nu ook commentaren van de gebruiker op andermans bestanden**
+  (voorheen bleven die met gebruikersnaam achter) — volledigere anonimisering.
+- **Duplicaten-vinder hasht in blokken** i.p.v. het hele bestand in het geheugen te lezen —
+  voorkomt geheugenpieken/OOM bij grote bestanden.
+- **API-sleutel `lastUsed` wordt hoogstens 1×/minuut weggeschreven** i.p.v. bij elk verzoek —
+  minder disk-belasting en geen race-conditie die sleutels kon verliezen.
+
 ## [3.18.2] - 2026-07-23
 
 ### Opgelost (restpunten security-review)

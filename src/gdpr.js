@@ -74,6 +74,15 @@ export function forgetUser(username, requestedBy) {
       // Sleutels die met de gebruiker(shome) beginnen, of records met .user.
       if (k === username || k.startsWith(homeDir(username) + '|') || k.startsWith(username + '|') || (v && v.user === username)) {
         delete data[k]; changed = true;
+      } else if (Array.isArray(v)) {
+        // Lijst-waarden (bijv. commentaren op andermans bestanden): verwijder de
+        // items die door deze gebruiker zijn geplaatst, zodat er geen persoons-
+        // gegevens achterblijven.
+        const filtered = v.filter((item) => !(item && item.user === username));
+        if (filtered.length !== v.length) {
+          if (filtered.length) data[k] = filtered; else delete data[k];
+          changed = true;
+        }
       }
     }
     if (changed) { try { fs.writeFileSync(file, JSON.stringify(data), { mode: 0o600 }); } catch { /* negeren */ } }

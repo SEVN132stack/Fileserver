@@ -18,8 +18,19 @@ function walk(dir, base, out) {
   }
 }
 
+// Hash in blokken van 1 MB i.p.v. het hele bestand in het geheugen te lezen,
+// zodat grote bestanden geen geheugenpiek/OOM veroorzaken.
 function sha256(file) {
-  return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  const h = createHash('sha256');
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.allocUnsafe(1024 * 1024);
+    let bytes;
+    while ((bytes = fs.readSync(fd, buf, 0, buf.length, null)) > 0) h.update(buf.subarray(0, bytes));
+  } finally {
+    fs.closeSync(fd);
+  }
+  return h.digest('hex');
 }
 
 // Groepeer identieke bestanden (zelfde grootte én hash) binnen een home.
