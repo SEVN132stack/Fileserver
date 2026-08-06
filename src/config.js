@@ -397,7 +397,7 @@ export const config = {
   userTasksFile: abs(process.env.USER_TASKS_FILE || 'user-tasks.json'),
   userTasksIntervalMinutes: parseInt(process.env.USER_TASKS_INTERVAL || '15', 10),
 
-  version: '3.19.0',
+  version: '3.19.1',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

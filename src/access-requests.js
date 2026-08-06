@@ -11,7 +11,8 @@ function readAll() {
 }
 function writeAll(list) { fs.writeFileSync(config.accessRequestsFile, JSON.stringify(list), { mode: 0o600 }); }
 
-export function createRequest(requester, owner, path, mode = 'ro', note = '') {
+export function createRequest(requester, owner, pathArg, mode = 'ro', note = '') {
+  const path = String(pathArg || '/').slice(0, 1024); // begrens de padlengte
   const list = readAll();
   // Voorkom dubbele openstaande aanvragen voor dezelfde combinatie.
   if (list.some((r) => r.status === 'pending' && r.requester === requester && r.owner === owner && r.path === path)) {

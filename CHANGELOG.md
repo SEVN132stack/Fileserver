@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.19.1] - 2026-07-24
+
+### Opgelost (security-review v3.19-batch)
+
+- **`/api/richpreview` heeft nu een groottelimiet** (100 MB) en rate-limiting: EPUB/STL
+  worden volledig in het geheugen geparseerd, dus buitensporig grote bestanden werden
+  geweigerd om geheugen/CPU-uitputting te voorkomen.
+- **Desktop-sync-client is gehard tegen path-traversal**: een kwaadaardige of
+  gecompromitteerde server kan via een `..`-pad in de sync-respons niet langer bestanden
+  buiten de lokale sync-map schrijven (paden worden gevalideerd).
+- **Toegangsaanvraag-pad wordt begrensd** (lengte) als kleine defensieve maatregel.
+
 ## [3.19.0] - 2026-07-24
 
 ### Toegevoegd

@@ -1443,10 +1443,13 @@ export function createWebServer() {
   });
 
   // Rijke preview: EPUB-omslag of STL (3D)-informatie.
-  app.get('/api/richpreview', (req, res) => {
+  app.get('/api/richpreview', downloadLimiter, (req, res) => {
     try {
       const file = resolveWithin(req.home, req.query.path || '');
       if (!fs.existsSync(file)) return res.status(404).json({ error: 'Niet gevonden' });
+      // Groottelimiet: EPUB/STL worden volledig in het geheugen ingelezen en
+      // geparseerd, dus weiger buitensporig grote bestanden (geheugen/CPU-DoS).
+      if (fs.statSync(file).size > 104857600) return res.status(413).json({ error: 'Bestand te groot voor preview (max 100 MB)' });
       if (/\.epub$/i.test(file)) {
         const cover = epubCover(file);
         if (!cover) return res.status(404).json({ error: 'Geen omslag gevonden' });

@@ -50,6 +50,11 @@ function localFiles(dir, base = '') {
   }
   return out;
 }
+// Blijft dit relatieve pad binnen de lokale sync-map? (tegen path-traversal)
+function withinLocal(rel) {
+  const full = path.resolve(LOCAL, rel);
+  return full === LOCAL || full.startsWith(LOCAL + path.sep);
+}
 const loadState = () => { try { return JSON.parse(fs.readFileSync(STATE, 'utf8')); } catch { return {}; } };
 const saveState = (s) => { try { fs.writeFileSync(STATE, JSON.stringify(s)); } catch {} };
 
@@ -63,6 +68,9 @@ async function syncOnce() {
     const rel = f.path.replace(/^\//, '');
     if (REMOTE && !rel.startsWith(REMOTE.replace(/^\//, '') + '/')) continue;
     const local_rel = REMOTE ? rel.slice(REMOTE.replace(/^\//, '').length + 1) : rel;
+    // Bescherm tegen een kwaadaardige/gecompromitteerde server die een pad met
+    // '..' teruggeeft om buiten de sync-map te schrijven (path-traversal).
+    if (!withinLocal(local_rel)) { console.error('Onveilig pad van server genegeerd:', f.path); continue; }
     remote[local_rel] = f;
   }
   const state = loadState();
