@@ -227,6 +227,15 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Docker healthcheck + compose met Caddy
 - ✅ Gestructureerde JSON-logging (correlation-id)
 
+## Zoeken, samenwerking & sync (v3.19)
+
+- ✅ OCR-zoeken (tekst in afbeeldingen/PDF's doorzoekbaar)
+- ✅ Automatische categorisatie/tagging op inhoud
+- ✅ Desktop-sync-client (`npm run sync`, twee-richtingen)
+- ✅ Toegangsaanvraag-workflow (aanvragen + goedkeuren)
+- ✅ Rijke previews: EPUB-omslag + STL (3D) info
+- ✅ Per-gebruiker geplande taken (opschoning)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

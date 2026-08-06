@@ -16,6 +16,7 @@ import { startAcmeScheduler } from './acme.js';
 import { startConfigDriftMonitor } from './config-drift.js';
 import { startExpiryScheduler } from './expiry.js';
 import { startReportScheduler } from './report-email.js';
+import { startUserTasksScheduler } from './user-tasks.js';
 
 // Startpunt: bereidt opslag, host key en gebruikers voor en start beide servers.
 ensureStorage();
@@ -36,6 +37,7 @@ startAcmeScheduler();
 startConfigDriftMonitor();
 startExpiryScheduler();
 startReportScheduler();
+startUserTasksScheduler();
 
 startWebServer();
 startSftpServer();

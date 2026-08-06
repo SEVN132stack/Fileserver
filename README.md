@@ -195,6 +195,16 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Zoeken, samenwerking & sync (v3.19)
+
+- **OCR-zoeken** — tekst uit afbeeldingen/gescande PDF's wordt doorzoekbaar (`OCR_CMD=tesseract`).
+- **Automatische categorisatie** — uploads krijgen automatisch tags op type + inhoud (`AUTO_TAG=true`).
+- **Desktop-sync-client** — `npm run sync` (of `node bin/fs-sync.mjs --watch`) synct een lokale
+  map twee richtingen met de server (API-sleutel aanbevolen). Zie de kop van `bin/fs-sync.mjs`.
+- **Toegangsaanvraag-workflow** — vraag toegang tot andermans map; de eigenaar keurt goed/af.
+- **Rijke previews** — EPUB-omslag en STL (3D) info-preview in de UI.
+- **Per-gebruiker geplande taken** — eigen opschoontaken (oude bestanden/prullenbak), respecteert WORM.
+
 ## Compliance, beheer & inzicht (v3.17)
 
 - **DLP-scan** op uploads: BSN (elfproef), creditcard (Luhn), IBAN en wachtwoorden
