@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.19.0] - 2026-07-24
+
+### Toegevoegd
+
+- **OCR-zoeken**: tekst uit afbeeldingen en gescande PDF's wordt bij upload herkend
+  (via een extern OCR-commando zoals `tesseract`) en meegenomen in het inhoud-zoeken.
+- **Automatische categorisatie/tagging**: uploads krijgen automatisch tags op basis van
+  bestandstype én inhoud (factuur, contract, cv, financieel, medisch, …). `AUTO_TAG=true`.
+- **Desktop-sync-client** (`bin/fs-sync.mjs`, `npm run sync`): synchroniseert een lokale map
+  twee richtingen met de server (nieuwere versie wint), eenmalig of met `--watch`. Ondersteund
+  door een nieuw `/api/changes`-endpoint dat de boom met mtime levert.
+- **Toegangsaanvraag-workflow**: een gebruiker vraagt toegang tot een map van iemand anders;
+  de eigenaar krijgt een melding en keurt goed (waarna de deling ontstaat) of af.
+- **Rijke previews**: EPUB-omslag (cover) en STL-informatie (3D: aantal driehoeken +
+  afmetingen) in de web-UI.
+- **Per-gebruiker geplande taken**: elke gebruiker kan terugkerende opschoontaken instellen
+  (oude bestanden verwijderen, prullenbak legen) binnen de eigen opslag; respecteert WORM.
+
 ## [3.18.3] - 2026-07-23
 
 ### Opgelost (code-review: fouten & verbeteringen)

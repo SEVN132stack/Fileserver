@@ -32,3 +32,6 @@ file-expiry.json
 e2e-folders.json
 api-keys.json
 notifications.json
+ocr-index.json
+access-requests.json
+user-tasks.json

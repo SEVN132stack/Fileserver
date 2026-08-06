@@ -7,7 +7,7 @@ import { inflateRawSync } from 'node:zlib';
 // volledige rendering, maar genoeg om de inhoud snel te bekijken.
 
 // Zoek en decomprimeer één entry uit een ZIP-buffer op naam (of naam-prefix).
-function readZipEntries(buf, match) {
+export function readZipEntries(buf, match) {
   const EOCD = 0x06054b50;
   let eocd = -1;
   for (let i = buf.length - 22; i >= 0 && i >= buf.length - 22 - 65536; i--) {

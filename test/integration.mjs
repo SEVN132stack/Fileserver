@@ -33,6 +33,10 @@ process.env.EXPIRY_FILE = path.join(tmp, 'expiry.json');
 process.env.E2E_FOLDERS_FILE = path.join(tmp, 'e2e-folders.json');
 process.env.API_KEYS_FILE = path.join(tmp, 'api-keys.json');
 process.env.NOTIFICATIONS_FILE = path.join(tmp, 'notifications.json');
+process.env.OCR_FILE = path.join(tmp, 'ocr-index.json');
+process.env.ACCESS_REQUESTS_FILE = path.join(tmp, 'access-requests.json');
+process.env.USER_TASKS_FILE = path.join(tmp, 'user-tasks.json');
+process.env.AUTO_TAG = 'true';
 process.env.METRICS_TOKEN = 'test-metrics-token';
 process.env.MAX_UPLOAD_BYTES = '1048576'; // 1MB uploadlimiet voor de test
 // Sessie-binding/step-up uit voor de brede suite; de dedicated tests zetten ze
@@ -865,6 +869,61 @@ try {
   const wormExpiryList = await (await fetch(H + '/api/list', { headers: jar() })).json();
   ok('self-destruct verwijdert géén bestand onder bewaarplicht',
     wormExpiryList.items.some((i) => i.name === 'worm-expiry.txt'));
+
+  // 53. Automatische categorisatie: upload krijgt automatisch tags (type + inhoud).
+  const invBlob = new Blob(['Factuur\nFactuurnummer: 123\nBTW: 21%\nTe betalen: 100 euro']);
+  const invFd = new FormData(); invFd.append('files', invBlob, 'rekening.txt');
+  await fetch(H + '/api/upload?path=/', { method: 'POST', headers: jar(), body: invFd });
+  const autoTags = await (await fetch(H + '/api/tags?path=/rekening.txt', { headers: jar() })).json();
+  ok('auto-categorisatie tagt op type + inhoud', autoTags.tags.includes('document') && autoTags.tags.includes('factuur'));
+
+  // 54. OCR-zoeken: geïnjecteerde OCR-tekst wordt gevonden bij inhoud-zoeken.
+  const { setOcrText } = await import('../src/ocr.js');
+  const adminHomeAbs = path.join(config.storageDir, 'admin');
+  fs.writeFileSync(path.join(adminHomeAbs, 'scan.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47])); // dummy 'afbeelding'
+  setOcrText(adminHomeAbs, '/scan.png', 'FACTUURtekst uit ocr zichtbaarwoord123');
+  const ocrSearch = await (await fetch(H + '/api/list?q=zichtbaarwoord123&content=1', { headers: jar() })).json();
+  ok('OCR-tekst is doorzoekbaar', ocrSearch.items.some((i) => i.name === 'scan.png'));
+
+  // 55. Toegangsaanvraag-workflow: carol vraagt, admin keurt goed -> carol ziet de deling.
+  addUser({ username: 'carol', password: 'carolpass', role: 'user' });
+  await fetch(H + '/api/mkdir', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/', name: 'gedeeld-na-verzoek' }) });
+  cookie = ''; await login('carol', 'carolpass');
+  const arCreate = await (await fetch(H + '/api/access-request', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ owner: 'admin', path: '/gedeeld-na-verzoek', mode: 'ro' }) })).json();
+  cookie = ''; await login('admin', 'testpass123b');
+  const incoming = await (await fetch(H + '/api/access-requests', { headers: jar() })).json();
+  await fetch(H + '/api/access-request/' + arCreate.id + '/decide', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ approve: true }) });
+  cookie = ''; await login('carol', 'carolpass');
+  const carolShares = await (await fetch(H + '/api/whoami', { headers: jar() })).json();
+  ok('toegangsaanvraag: aanvragen + goedkeuren geeft deling',
+    arCreate.id && incoming.incoming.some((r) => r.id === arCreate.id) &&
+    (carolShares.shared || []).some((s) => s.owner === 'admin' && s.path === '/gedeeld-na-verzoek'));
+
+  // 56. Per-gebruiker geplande taak: cleanup verwijdert oude bestanden (dry via runTask).
+  cookie = ''; await login('admin', 'testpass123b');
+  await fetch(H + '/api/mkdir', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/', name: 'tmp-oud' }) });
+  const oldFile = path.join(adminHomeAbs, 'tmp-oud', 'oud.txt');
+  fs.writeFileSync(oldFile, 'oud'); fs.utimesSync(oldFile, new Date(Date.now() - 40 * 86400000), new Date(Date.now() - 40 * 86400000));
+  const taskRes = await (await fetch(H + '/api/tasks', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ type: 'cleanup', path: '/tmp-oud', olderThanDays: 30 }) })).json();
+  const run = await (await fetch(H + '/api/tasks/' + taskRes.task.id + '/run', { method: 'POST', headers: jar() })).json();
+  ok('geplande taak: cleanup verwijdert oude bestanden', run.removed >= 1 && !fs.existsSync(oldFile));
+
+  // 57. Rijke preview: STL-info (aantal driehoeken + afmetingen).
+  const { stlInfo } = await import('../src/richpreview.js');
+  // Bouw een minimale binaire STL met 1 driehoek.
+  const stl = Buffer.alloc(84 + 50);
+  stl.writeUInt32LE(1, 80);
+  const tri = [0,0,0, 1,0,0, 0,1,0]; // 3 vertices na de 12-byte normaal
+  for (let i = 0; i < 9; i++) stl.writeFloatLE(tri[i], 84 + 12 + i * 4);
+  const stlPath = path.join(adminHomeAbs, 'model.stl'); fs.writeFileSync(stlPath, stl);
+  const stlApi = await (await fetch(H + '/api/richpreview?path=/model.stl', { headers: jar() })).json();
+  const stlDirect = stlInfo(stlPath);
+  ok('rijke preview: STL-info', stlApi.triangles === 1 && stlDirect.dimensions.x === 1);
+
+  // 58. Sync-endpoint: /api/changes levert de boom met mtime.
+  const changes = await (await fetch(H + '/api/changes?since=0', { headers: jar() })).json();
+  ok('sync-changes-endpoint levert bestanden met mtime',
+    Array.isArray(changes.files) && changes.files.some((f) => typeof f.mtime === 'number') && typeof changes.now === 'number');
 
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();

@@ -383,7 +383,21 @@ export const config = {
   // Gestructureerde JSON-logging (voor log-aggregatie/OpenTelemetry-collectors).
   logJson: bool(process.env.LOG_JSON, false),
 
-  version: '3.18.3',
+  // --- v3.19 ---
+  // OCR: tekst uit afbeeldingen/PDF's halen zodat ze doorzoekbaar worden.
+  // Extern commando (bijv. 'tesseract'); leeg = uit. Resultaat in ocrFile.
+  ocrCmd: process.env.OCR_CMD || '',
+  ocrFile: abs(process.env.OCR_FILE || 'ocr-index.json'),
+  ocrMaxBytes: parseInt(process.env.OCR_MAX_BYTES || '10485760', 10), // 10MB
+  // Automatische categorisatie/tagging van uploads op inhoud (aan/uit).
+  autoTag: bool(process.env.AUTO_TAG, false),
+  // Toegangsaanvragen (map-toegang aanvragen bij de eigenaar).
+  accessRequestsFile: abs(process.env.ACCESS_REQUESTS_FILE || 'access-requests.json'),
+  // Per-gebruiker geplande taken (opschoning/export) + scheduler-interval.
+  userTasksFile: abs(process.env.USER_TASKS_FILE || 'user-tasks.json'),
+  userTasksIntervalMinutes: parseInt(process.env.USER_TASKS_INTERVAL || '15', 10),
+
+  version: '3.19.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

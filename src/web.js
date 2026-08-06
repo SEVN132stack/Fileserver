@@ -89,6 +89,11 @@ import { canConvert, convertImage, convertDocToPdf, transcodeAv } from './conver
 import { recordRecent, listRecent } from './recent.js';
 import * as gdpr from './gdpr.js';
 import { requestLogger } from './log.js';
+import * as ocr from './ocr.js';
+import { classifyFile } from './autotag.js';
+import * as accessRequests from './access-requests.js';
+import { epubCover, stlInfo } from './richpreview.js';
+import * as userTasks from './user-tasks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1040,9 +1045,19 @@ export function createWebServer() {
         try { setMeta(req.home, path.posix.join(req.query.path || '/', f.originalname), { dlp: dlp.types }); } catch { /* optioneel */ }
       }
       names.push(f.originalname);
+      const relUp = path.posix.join(req.query.path || '/', f.originalname);
       // Self-destruct: vervaldatum instellen als de client die meegeeft.
       const expDays = Number(req.query.expiresInDays) || 0;
-      if (expDays > 0) expiry.setExpiry(req.home, path.posix.join(req.query.path || '/', f.originalname), Date.now() + expDays * 86400000);
+      if (expDays > 0) expiry.setExpiry(req.home, relUp, Date.now() + expDays * 86400000);
+      // Automatische categorisatie: tags afleiden uit type/inhoud.
+      if (config.autoTag) {
+        try {
+          const auto = classifyFile(f.originalname, f.path);
+          if (auto.length) { const cur = tags.getTags(req.user, relUp); tags.setTags(req.user, relUp, [...new Set([...cur, ...auto])]); }
+        } catch { /* niet-fataal */ }
+      }
+      // OCR: tekst uit afbeeldingen/PDF's halen (asynchroon) voor doorzoekbaarheid.
+      if (ocr.canOcr(f.originalname)) ocr.runOcr(req.home, relUp, f.path);
       runPostUpload(f.path);
     }
     audit('web', req.user, 'upload', { path: req.query.path || '/', files: names });
@@ -1141,6 +1156,7 @@ export function createWebServer() {
       tags.movePath(req.user, req.body.from, req.body.to);
       locks.movePath(req.home, req.body.from, req.body.to);
       expiry.movePath(req.home, req.body.from, req.body.to);
+      ocr.movePath(req.home, req.body.from, req.body.to);
       recordMutation(req.user, 'rename'); checkHoneypot(req.user, req.body.from, 'rename');
       audit('web', req.user, 'rename', { from: req.body.from, to: req.body.to });
       emitToUser(req.user, 'change', { action: 'rename' });
@@ -1169,6 +1185,7 @@ export function createWebServer() {
         tags.removePath(req.user, p);
         locks.removePath(req.home, p);
         expiry.removePath(req.home, p);
+        ocr.removePath(req.home, p);
         recordMutation(req.user, 'delete'); checkHoneypot(req.user, p, 'delete');
         audit('web', req.user, 'delete', { path: p });
         notify('delete', { user: req.user, path: p });
@@ -1199,6 +1216,7 @@ export function createWebServer() {
         tags.movePath(req.user, p, destRel);
         locks.movePath(req.home, p, destRel);
         expiry.movePath(req.home, p, destRel);
+        ocr.movePath(req.home, p, destRel);
         moved++;
       }
       recordMutation(req.user, 'rename');
@@ -1372,6 +1390,90 @@ export function createWebServer() {
     res.setHeader('Content-Disposition', 'attachment; filename="rclone-zepta-nas.conf"');
     res.end(conf);
   });
+
+  // Wijzigingen sinds een tijdstip (voor de desktop-sync-client): de volledige
+  // boom met mtime + grootte, zodat de client lokaal kan diffen. `since` filtert.
+  app.get('/api/changes', (req, res) => {
+    const since = parseInt(req.query.since || '0', 10) || 0;
+    const out = [];
+    const walk = (dir) => {
+      let entries = [];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        if (dir === req.home && (e.name === config.trashName || e.name === config.versionsName || e.name === '.metadata.json')) continue;
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) { walk(full); continue; }
+        let st; try { st = fs.statSync(full); } catch { continue; }
+        if (st.mtimeMs <= since) continue;
+        out.push({ path: '/' + path.relative(req.home, full).split(path.sep).join('/'), size: st.size, mtime: st.mtimeMs });
+      }
+    };
+    walk(req.home);
+    res.json({ now: Date.now(), files: out });
+  });
+
+  // Toegangsaanvraag-workflow.
+  app.post('/api/access-request', requireWrite, express.json(), (req, res) => {
+    const { owner, path: p, mode, note } = req.body || {};
+    if (!owner || !userExists(owner)) return res.status(404).json({ error: 'Eigenaar niet gevonden' });
+    if (owner === req.user) return res.status(400).json({ error: 'Je bent zelf de eigenaar' });
+    const r = accessRequests.createRequest(req.user, owner, p || '/', mode, note);
+    if (!r) return res.status(409).json({ error: 'Er is al een openstaande aanvraag' });
+    notifications.notifyUser(owner, 'Nieuwe toegangsaanvraag', `${req.user} vraagt toegang tot ${p} (${r.mode}).`);
+    audit('web', req.user, 'access_request', { owner, path: p, mode: r.mode });
+    res.json({ ok: true, id: r.id });
+  });
+  app.get('/api/access-requests', (req, res) => {
+    res.json({ incoming: accessRequests.incoming(req.user), outgoing: accessRequests.outgoing(req.user) });
+  });
+  app.post('/api/access-request/:id/decide', requireWrite, express.json(), (req, res) => {
+    const approve = !!(req.body && req.body.approve);
+    const r = accessRequests.decide(req.params.id, req.user, approve);
+    if (!r) return res.status(404).json({ error: 'Aanvraag niet gevonden of al beslist' });
+    if (approve) {
+      // Ken de deling toe namens de eigenaar (req.user is de eigenaar).
+      const u = getUser(req.user);
+      const shares = (u.shares || []).filter((s) => !(s.to === r.requester && s.path === r.path));
+      shares.push({ to: r.requester, path: r.path, mode: r.mode });
+      updateUser(req.user, { shares });
+    }
+    notifications.notifyUser(r.requester, approve ? 'Toegang goedgekeurd' : 'Toegang geweigerd', `Je aanvraag voor ${r.path} is ${approve ? 'goedgekeurd' : 'geweigerd'}.`);
+    audit('web', req.user, approve ? 'access_approve' : 'access_deny', { requester: r.requester, path: r.path });
+    res.json({ ok: true });
+  });
+
+  // Rijke preview: EPUB-omslag of STL (3D)-informatie.
+  app.get('/api/richpreview', (req, res) => {
+    try {
+      const file = resolveWithin(req.home, req.query.path || '');
+      if (!fs.existsSync(file)) return res.status(404).json({ error: 'Niet gevonden' });
+      if (/\.epub$/i.test(file)) {
+        const cover = epubCover(file);
+        if (!cover) return res.status(404).json({ error: 'Geen omslag gevonden' });
+        res.setHeader('Content-Type', /\.png$/i.test(cover.name) ? 'image/png' : 'image/jpeg');
+        return res.end(cover.buffer);
+      }
+      if (/\.stl$/i.test(file)) return res.json(stlInfo(file) || { error: 'Kon STL niet lezen' });
+      res.status(400).json({ error: 'Geen rijke preview voor dit type' });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Per-gebruiker geplande taken.
+  app.get('/api/tasks', (req, res) => res.json({ tasks: userTasks.listTasks(req.user) }));
+  app.post('/api/tasks', requireWrite, express.json(), (req, res) => {
+    try {
+      const t = userTasks.addTask(req.user, req.body || {});
+      audit('web', req.user, 'task_add', { type: t.type, path: t.path });
+      res.json({ ok: true, task: t });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/tasks/:id/run', requireWrite, (req, res) => {
+    const t = userTasks.listTasks(req.user).find((x) => x.id === req.params.id);
+    if (!t) return res.status(404).json({ error: 'Taak niet gevonden' });
+    const removed = userTasks.runTask(t);
+    res.json({ ok: true, removed });
+  });
+  app.delete('/api/tasks/:id', requireWrite, (req, res) => res.json({ ok: userTasks.deleteTask(req.user, req.params.id) }));
 
   // Office-preview (docx/xlsx/pptx -> platte tekst).
   app.get('/api/office-preview', (req, res) => {
@@ -1930,6 +2032,11 @@ async function searchRecursive(home, dir, query, depth = 6, inContent = false) {
             if (content.toLowerCase().includes(query)) match = true;
           }
         } catch { /* overslaan */ }
+      }
+      // Ook de via OCR herkende tekst (afbeeldingen/PDF's) meenemen bij inhoud-zoeken.
+      if (!match && inContent && !e.isDirectory()) {
+        const rel = '/' + path.relative(home, full).split(path.sep).join('/');
+        if (ocr.ocrMatches(home, rel, query)) match = true;
       }
       if (match) {
         const stat = await fsp.stat(full).catch(() => null);
