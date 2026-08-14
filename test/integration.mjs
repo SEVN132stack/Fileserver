@@ -1030,6 +1030,20 @@ try {
     ok('jsoncache leest de laatst geschreven waarde', r1.n === 1 && r2.n === 2);
   }
 
+  // 70. Gzip-compressie op tekstuele responses; hervatbare (206) download blijft correct.
+  // (fetch/undici decomprimeert gzip transparant, dus we toetsen op de Vary-signatuur
+  //  die de compression-middleware zet wanneer de filter aanslaat.)
+  {
+    const listResp = await fetch(H + '/api/list?path=/', { headers: jar({ 'Accept-Encoding': 'gzip' }) });
+    await listResp.text();
+    ok('tekstuele response is compressie-onderhevig (Vary: Accept-Encoding)',
+      String(listResp.headers.get('vary') || '').toLowerCase().includes('accept-encoding'));
+    const rangeResp = await fetch(H + '/api/download?path=/rangefile.txt', { headers: jar({ 'Accept-Encoding': 'gzip', Range: 'bytes=0-3' }) });
+    const rangeBody = await rangeResp.text();
+    ok('Range-download levert nog steeds 206 + juiste bytes onder compressie',
+      rangeResp.status === 206 && rangeBody === 'ABCD');
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);
