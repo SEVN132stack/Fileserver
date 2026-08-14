@@ -35,3 +35,7 @@ notifications.json
 ocr-index.json
 access-requests.json
 user-tasks.json
+invites.json
+webhook-queue.json
+folder-info.json
+snapshots/

@@ -195,6 +195,25 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Toegang, samenwerking & opslag (v3.20)
+
+- **2FA-herstelcodes** — bij het inschakelen van 2FA krijg je 10 eenmalige herstelcodes; te
+  gebruiken in plaats van de TOTP-code bij inloggen.
+- **Magic-link login** — inloggen via een e-maillink (geldig `MAGIC_LINK_TTL_MIN` minuten).
+- **Zelfregistratie met invite-codes** — beheer maakt invite-codes (rol/quota/max. gebruik/
+  vervaldatum); nieuwe gebruikers via `/register.html?code=…`.
+- **Per-deellink snelheidslimiet** — geef een deel-link een download-limiet (KB/s).
+- **Bestandssjablonen** — nieuw bestand aanmaken vanaf een sjabloon.
+- **Per-map beschrijving/README, mapkleuren & iconen** — mappen krijgen beschrijving, kleur en icoon.
+- **Opslag-deduplicatie** — identieke bestanden worden reflinks (copy-on-write waar ondersteund).
+- **Hervatbare downloads** — `/api/download` ondersteunt HTTP Range (206 Partial Content).
+- **Activiteitenfeed per map** en **"gezien door" read-receipts**.
+- **Publieke status-pagina** — `/status.html` toont server-status zonder inloggen.
+- **Quota-waarschuwing per e-mail** — bericht bij naderen van de quota (`QUOTA_WARN_PERCENT`).
+- **Onveranderbare snapshots** — momentopnames maken en later herstellen.
+- **Uitgaande webhook-wachtrij met retries** — alerts via wachtrij met exponentiële backoff.
+- **Certificaat-vervalbewaking** — waarschuwing als het TLS-cert binnen `CERT_WARN_DAYS` dagen verloopt.
+
 ## Zoeken, samenwerking & sync (v3.19)
 
 - **OCR-zoeken** — tekst uit afbeeldingen/gescande PDF's wordt doorzoekbaar (`OCR_CMD=tesseract`).

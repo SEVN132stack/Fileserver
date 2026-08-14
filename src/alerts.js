@@ -1,7 +1,7 @@
 import { config } from './config.js';
-import { notify } from './notify.js';
 import { sendMail } from './mailer.js';
 import { audit } from './audit.js';
+import { enqueue } from './webhook-queue.js';
 
 // Centrale alert-functie: logt, stuurt een webhook en (indien ingesteld) een
 // e-mail. Dedupliceert dezelfde sleutel binnen een venster zodat je niet
@@ -16,7 +16,8 @@ export function alert(key, subject, message, { force = false } = {}) {
 
   console.warn(`[alert] ${subject}: ${message}`);
   audit('system', null, 'alert', { key, subject });
-  notify('alert', { key, subject, message });
+  // Betrouwbare uitgaande webhook (met retries + afleveringslog).
+  enqueue('alert', { key, subject, message });
   if (config.alertEmail) {
     sendMail({ to: config.alertEmail, subject: `[Fileserver] ${subject}`, text: message })
       .catch((e) => console.error('[alert-mail]', e.message));

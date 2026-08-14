@@ -29,6 +29,7 @@
       <button type="submit">Inloggen</button>
       <a id="sso" href="/api/oidc/login" style="display:none;margin-top:.8rem;text-align:center;color:#38bdf8">Inloggen met SSO</a>
       <button type="button" id="passkeyLogin" style="width:100%;margin-top:.6rem;background:#334155;color:#e2e8f0;display:none">🔑 Inloggen met passkey</button>
+      <button type="button" id="magicLink" style="width:100%;margin-top:.6rem;background:#334155;color:#e2e8f0">✉️ Stuur inloglink</button>
       <a href="/reset.html" style="display:block;margin-top:.8rem;text-align:center;color:#94a3b8;font-size:.85rem">Wachtwoord vergeten?</a>
       <div class="err" id="err"></div>
     </form>
@@ -59,13 +60,22 @@
       const data = await res.json().catch(() => ({}));
       if (data.need2fa) {
         document.getElementById('totp').style.display = 'block';
-        document.getElementById('err').textContent = 'Voer je 2FA-code in.';
+        document.getElementById('err').textContent = 'Voer je 2FA-code (of een herstelcode) in.';
         document.getElementById('token').focus();
         return;
       }
       if (res.ok && data.mustEnroll2fa) { window.location = '/?enroll2fa=1'; return; }
       if (res.ok && data.ok) { window.location = '/'; return; }
       document.getElementById('err').textContent = data.error || 'Inloggen mislukt';
+    };
+    // Magic-link: stuur een inloglink per e-mail.
+    const ml = document.getElementById('magicLink');
+    if (ml) ml.onclick = async () => {
+      const u = document.getElementById('username').value;
+      if (!u) { document.getElementById('err').textContent = 'Vul eerst je gebruikersnaam in.'; return; }
+      await fetch('/api/login/magic', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username: u }) });
+      document.getElementById('err').style.color = '#4ade80';
+      document.getElementById('err').textContent = 'Als je account een e-mailadres heeft, is er een inloglink verstuurd.';
     };
   </script>
 </body>

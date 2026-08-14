@@ -397,7 +397,25 @@ export const config = {
   userTasksFile: abs(process.env.USER_TASKS_FILE || 'user-tasks.json'),
   userTasksIntervalMinutes: parseInt(process.env.USER_TASKS_INTERVAL || '15', 10),
 
-  version: '3.19.1',
+  // --- v3.20 ---
+  // Zelfregistratie met invite-codes.
+  invitesFile: abs(process.env.INVITES_FILE || 'invites.json'),
+  // Uitgaande webhook-wachtrij (retries) + afleveringslog.
+  webhookQueueFile: abs(process.env.WEBHOOK_QUEUE_FILE || 'webhook-queue.json'),
+  webhookMaxRetries: parseInt(process.env.WEBHOOK_MAX_RETRIES || '5', 10),
+  // Onveranderbare snapshots van de opslag.
+  snapshotsDir: abs(process.env.SNAPSHOTS_DIR || 'snapshots'),
+  // Per-map informatie (beschrijving/kleur/icoon).
+  folderInfoFile: abs(process.env.FOLDER_INFO_FILE || 'folder-info.json'),
+  // Quota-waarschuwing: mail de gebruiker bij dit gebruikspercentage (0 = uit).
+  quotaWarnPercent: parseInt(process.env.QUOTA_WARN_PERCENT || '0', 10),
+  quotaWarnIntervalHours: parseInt(process.env.QUOTA_WARN_INTERVAL_HOURS || '24', 10),
+  // Certificaat-vervalbewaking: waarschuw N dagen voor het verlopen (eigen TLS).
+  certWarnDays: parseInt(process.env.CERT_WARN_DAYS || '14', 10),
+  // Magic-link login (vereist werkende e-mail).
+  magicLinkTtlMinutes: parseInt(process.env.MAGIC_LINK_TTL_MIN || '15', 10),
+
+  version: '3.20.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

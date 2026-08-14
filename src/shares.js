@@ -29,7 +29,7 @@ function verify(pw, stored) {
   return calc.length === known.length && timingSafeEqual(calc, known);
 }
 
-export function createShare(user, path, { expiresInHours, password, maxDownloads, type } = {}) {
+export function createShare(user, path, { expiresInHours, password, maxDownloads, type, maxKbps } = {}) {
   const data = read();
   const token = randomBytes(12).toString('base64url');
   data[token] = {
@@ -39,6 +39,7 @@ export function createShare(user, path, { expiresInHours, password, maxDownloads
     expires: expiresInHours ? Date.now() + expiresInHours * 3600000 : 0,
     password: password ? hash(password) : null,
     maxDownloads: maxDownloads ? Number(maxDownloads) : 0,
+    maxKbps: maxKbps ? Number(maxKbps) : 0, // downloadsnelheidslimiet (KB/s), 0 = geen
     downloads: 0,
     uploads: 0,
     created: Date.now(),

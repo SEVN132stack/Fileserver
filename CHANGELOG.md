@@ -1,5 +1,34 @@
 # Changelog
 
+## [3.20.0] - 2026-08-14
+
+### Toegevoegd
+
+- **2FA-herstelcodes**: bij het inschakelen van 2FA krijg je 10 eenmalige herstelcodes
+  (scrypt-gehasht opgeslagen). Deze werken als vervanging voor de TOTP-code bij inloggen.
+- **Magic-link login**: inloggen via een e-maillink (`/api/login/magic`), geldig gedurende
+  `MAGIC_LINK_TTL_MIN` minuten.
+- **Zelfregistratie met invite-codes**: beheerders maken invite-codes (rol, quota, max.
+  gebruik, vervaldatum); nieuwe gebruikers registreren via `/register.html?code=…`.
+- **Per-deellink snelheidslimiet**: een deel-link kan een download-snelheidslimiet (KB/s)
+  krijgen.
+- **Bestandssjablonen**: nieuwe bestanden aanmaken vanaf een sjabloon.
+- **Per-map beschrijving/README**: mappen krijgen een beschrijving die als README wordt
+  getoond.
+- **Mapkleuren & iconen**: mappen krijgen een eigen kleur en icoon.
+- **Opslag-deduplicatie**: identieke bestanden worden vervangen door reflinks
+  (copy-on-write, waar het bestandssysteem dit ondersteunt).
+- **Hervatbare downloads**: `/api/download` ondersteunt HTTP Range (206 Partial Content).
+- **Activiteitenfeed per map**: acties binnen een map worden bijgehouden en getoond.
+- **"Gezien door" read-receipts**: zie wie een gedeeld bestand heeft bekeken.
+- **Publieke status-pagina** (`/status.html`): toont server-status zonder inloggen.
+- **Quota-waarschuwing per e-mail**: gebruikers krijgen bericht bij het naderen van hun quota.
+- **Onveranderbare snapshots**: maak momentopnames van je bestanden en herstel ze later.
+- **Uitgaande webhook-wachtrij met retries**: systeem-alerts gaan via een wachtrij met
+  exponentiële backoff (max. `WEBHOOK_MAX_RETRIES`).
+- **Certificaat-vervalbewaking**: waarschuwing wanneer het TLS-certificaat binnen
+  `CERT_WARN_DAYS` dagen verloopt.
+
 ## [3.19.1] - 2026-07-24
 
 ### Opgelost (security-review v3.19-batch)

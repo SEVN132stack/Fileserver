@@ -37,6 +37,10 @@ process.env.OCR_FILE = path.join(tmp, 'ocr-index.json');
 process.env.ACCESS_REQUESTS_FILE = path.join(tmp, 'access-requests.json');
 process.env.USER_TASKS_FILE = path.join(tmp, 'user-tasks.json');
 process.env.AUTO_TAG = 'true';
+process.env.INVITES_FILE = path.join(tmp, 'invites.json');
+process.env.WEBHOOK_QUEUE_FILE = path.join(tmp, 'webhook-queue.json');
+process.env.SNAPSHOTS_DIR = path.join(tmp, 'snapshots');
+process.env.FOLDER_INFO_FILE = path.join(tmp, 'folder-info.json');
 process.env.METRICS_TOKEN = 'test-metrics-token';
 process.env.MAX_UPLOAD_BYTES = '1048576'; // 1MB uploadlimiet voor de test
 // Sessie-binding/step-up uit voor de brede suite; de dedicated tests zetten ze
@@ -924,6 +928,68 @@ try {
   const changes = await (await fetch(H + '/api/changes?since=0', { headers: jar() })).json();
   ok('sync-changes-endpoint levert bestanden met mtime',
     Array.isArray(changes.files) && changes.files.some((f) => typeof f.mtime === 'number') && typeof changes.now === 'number');
+
+  // 59. 2FA-herstelcodes: genereren en als 2FA-alternatief gebruiken bij login.
+  cookie = ''; await login('admin', 'testpass123b');
+  const recov = await (await fetch(H + '/api/2fa/recovery-codes', { method: 'POST', headers: jar() })).json();
+  const { generateSecret: gs2, generateToken: gt2 } = await import('../src/totp.js');
+  const sec2 = gs2(); updateUser('admin', { totp: sec2 });
+  cookie = '';
+  const loginRc = await login('admin', 'testpass123b', recov.codes[0]); // herstelcode i.p.v. TOTP
+  updateUser('admin', { totp: null }); cookie = ''; await login('admin', 'testpass123b');
+  ok('2FA-herstelcode werkt als alternatief', recov.codes.length === 10 && loginRc.status === 200 && loginRc.body.ok);
+
+  // 60. Invite-code + zelfregistratie.
+  const invite = await (await fetch(H + '/api/admin/invites', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ role: 'user' }) })).json();
+  const reg = await fetch(H + '/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: invite.invite.code, username: 'nieuweling', password: 'welkom12345' }) });
+  const regReuse = await fetch(H + '/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: invite.invite.code, username: 'nieuweling2', password: 'welkom12345' }) });
+  const regLogin = await login('nieuweling', 'welkom12345');
+  cookie = ''; await login('admin', 'testpass123b');
+  ok('invite-registratie: eenmalig bruikbaar + account werkt',
+    reg.status === 200 && regReuse.status === 400 && regLogin.status === 200);
+
+  // 61. Snapshot: maken, home wijzigen, terugzetten.
+  await fetch(H + '/api/save?path=/snaptest.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'origineel' });
+  await fetch(H + '/api/snapshots', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ label: 'test' }) });
+  const snapList = await (await fetch(H + '/api/snapshots', { headers: jar() })).json();
+  await fetch(H + '/api/save?path=/snaptest.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'gewijzigd' });
+  await fetch(H + '/api/snapshots/' + encodeURIComponent(snapList.snapshots[0].id) + '/restore', { method: 'POST', headers: jar() });
+  const snapRestored = await (await fetch(H + '/api/preview?path=/snaptest.txt', { headers: jar() })).text();
+  ok('snapshot maken + terugzetten', snapList.snapshots.length >= 1 && snapRestored === 'origineel');
+
+  // 62. Per-map info (beschrijving/kleur/icoon).
+  await fetch(H + '/api/mkdir', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/', name: 'projectmap' }) });
+  await fetch(H + '/api/folder-info', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/projectmap', description: 'Mijn project', color: '#38bdf8', icon: '🚀' }) });
+  const fi = await (await fetch(H + '/api/folder-info?path=/projectmap', { headers: jar() })).json();
+  ok('per-map info opgeslagen', fi.description === 'Mijn project' && fi.color === '#38bdf8' && fi.icon === '🚀');
+
+  // 63. Hervatbare download (HTTP Range -> 206 met juiste bytes).
+  await fetch(H + '/api/save?path=/rangefile.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'ABCDEFGHIJ' });
+  const rangeResp = await fetch(H + '/api/download?path=/rangefile.txt', { headers: jar({ Range: 'bytes=2-5' }) });
+  const rangeBody = await rangeResp.text();
+  ok('hervatbare download levert 206 + juiste bytes',
+    rangeResp.status === 206 && rangeBody === 'CDEF' && (rangeResp.headers.get('content-range') || '').includes('/10'));
+
+  // 64. Activiteitenfeed per map.
+  const act = await (await fetch(H + '/api/activity?path=/projectmap', { headers: jar() })).json();
+  await fetch(H + '/api/save?path=/projectmap/doc.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'x' });
+  const act2 = await (await fetch(H + '/api/activity?path=/projectmap', { headers: jar() })).json();
+  ok('activiteitenfeed registreert acties in de map',
+    Array.isArray(act.activity) && act2.activity.some((a) => a.path === '/projectmap/doc.txt'));
+
+  // 65. Publieke status + webhook-wachtrij + certificaat-endpoints.
+  const pubStatus = await (await fetch(H + '/api/status-public')).json();
+  const { processQueue } = await import('../src/webhook-queue.js');
+  await processQueue();
+  const wh = await (await fetch(H + '/api/admin/webhooks', { headers: jar() })).json();
+  const cert = await (await fetch(H + '/api/admin/cert', { headers: jar() })).json();
+  ok('status/webhook-log/cert-endpoints werken',
+    pubStatus.status === 'ok' && typeof wh.queued === 'number' && Array.isArray(wh.log) && cert.enabled === false);
+
+  // 66. Per-deellink snelheidslimiet wordt opgeslagen.
+  const limShare = await (await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/rangefile.txt', maxKbps: 500 }) })).json();
+  const limDl = await fetch(H + limShare.url);
+  ok('deel-link met snelheidslimiet levert bestand', limDl.status === 200 && (await limDl.text()) === 'ABCDEFGHIJ');
 
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();

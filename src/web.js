@@ -94,6 +94,14 @@ import { classifyFile } from './autotag.js';
 import * as accessRequests from './access-requests.js';
 import { epubCover, stlInfo } from './richpreview.js';
 import * as userTasks from './user-tasks.js';
+import { generateRecoveryCodes, recoveryCodesRemaining, useRecoveryCode } from './users.js';
+import * as invites from './invites.js';
+import * as folderInfo from './folder-info.js';
+import * as snapshots from './snapshots.js';
+import { dedupeUser } from './dedup.js';
+import { daysUntilExpiry } from './cert-monitor.js';
+import * as webhookQueue from './webhook-queue.js';
+import { createMagicToken, consumeMagicToken } from './magic-link.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -359,7 +367,8 @@ export function createWebServer() {
     const u = getUser(username);
     if (u.totp) {
       if (!token) return res.status(200).json({ need2fa: true });
-      if (!verifyTotp(u.totp, token)) {
+      // Accepteer de TOTP-code óf een geldige eenmalige herstelcode.
+      if (!verifyTotp(u.totp, token) && !useRecoveryCode(username, token)) {
         onLoginFailure(ip, username);
         recordLoginFailure(username);
         return res.status(401).json({ error: 'Onjuiste 2FA-code' });
@@ -417,6 +426,48 @@ export function createWebServer() {
   });
 
   // --- Wachtwoord-reset via e-mail (geen auth) ---
+  // Magic-link login: stuur een eenmalige inloglink per e-mail.
+  app.post('/api/login/magic', express.json(), async (req, res) => {
+    const { username } = req.body || {};
+    if (username && userExists(username) && !isExpired(username)) {
+      const token = createMagicToken(username);
+      const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+      const to = getEmail(username);
+      if (to) sendMail({ to, subject: 'Je inloglink', text: `Klik om in te loggen (geldig ${config.magicLinkTtlMinutes} min):\n${base}/api/login/magic/verify?token=${token}` }).catch((e) => console.error('[magic]', e.message));
+      audit('web', username, 'magic_requested', { ip: clientIp(req) });
+    }
+    res.json({ ok: true }); // geen accountenumeratie
+  });
+  app.get('/api/login/magic/verify', (req, res) => {
+    const user = consumeMagicToken(req.query.token);
+    if (!user || !userExists(user) || isExpired(user)) return res.status(400).send('Link ongeldig of verlopen.');
+    const sid = createSession(user, { ip: clientIp(req), ua: req.headers['user-agent'] });
+    res.set('Set-Cookie', `sid=${sid}; ${cookieAttrs('Lax')}`);
+    recordLogin(user);
+    audit('web', user, 'login', { method: 'magic' });
+    res.redirect('/');
+  });
+
+  // Zelfregistratie met een invite-code (publiek).
+  app.post('/api/register', express.json(), (req, res) => {
+    const { code, username, password, email } = req.body || {};
+    const inv = invites.checkInvite(code);
+    if (!inv) return res.status(400).json({ error: 'Ongeldige of verlopen invite-code' });
+    if (!username || !/^[a-zA-Z0-9_.-]{2,32}$/.test(username)) return res.status(400).json({ error: 'Ongeldige gebruikersnaam' });
+    if (userExists(username)) return res.status(409).json({ error: 'Gebruikersnaam bestaat al' });
+    const perr = validatePassword(password || '');
+    if (perr) return res.status(400).json({ error: perr });
+    addUser({ username, password, role: inv.role, quota: inv.quota, email: email || '' });
+    invites.consumeInvite(code);
+    audit('web', username, 'self_register', { role: inv.role });
+    res.json({ ok: true });
+  });
+
+  // Publieke status (geen geheimen): voor een status-/uptime-pagina.
+  app.get('/api/status-public', (req, res) => {
+    res.json({ status: 'ok', version: config.version, uptime: Math.round(process.uptime()) });
+  });
+
   app.post('/api/reset/request', express.json(), async (req, res) => {
     const { username } = req.body || {};
     // Altijd ok teruggeven (geen accountenumeratie).
@@ -606,6 +657,12 @@ export function createWebServer() {
         res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[\r\n"]/g, '')}"`);
         res.end(buf);
       });
+    }
+    // Optionele snelheidslimiet voor deze deel-link (KB/s).
+    if (share.maxKbps > 0) {
+      res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[\r\n"]/g, '')}"`);
+      res.setHeader('Content-Length', fs.statSync(abs).size);
+      return fs.createReadStream(abs).pipe(throttleStream(share.maxKbps * 1024)).pipe(res);
     }
     res.download(abs, name);
   });
@@ -811,14 +868,30 @@ export function createWebServer() {
       metrics.incUser(req.user, 'down', fs.statSync(file).size);
       emitAdmin('activity', { kind: 'download', user: req.user });
       const bw = bandwidth(req.user);
-      if (bw > 0) {
-        // Met bandbreedtelimiet: throttle de bytestroom.
-        res.setHeader('Content-Disposition', 'attachment; filename="' + path.basename(file) + '"');
-        res.setHeader('Content-Length', fs.statSync(file).size);
-        fs.createReadStream(file).pipe(throttleStream(bw)).pipe(res);
-      } else {
-        res.download(file, path.basename(file));
+      const total = fs.statSync(file).size;
+      const fname = path.basename(file).replace(/[\r\n"]/g, '');
+      res.setHeader('Accept-Ranges', 'bytes');
+      // Hervatbare download: honoreer een Range-verzoek (206 Partial Content).
+      const range = req.headers.range;
+      let start = 0, end = total - 1, status = 200;
+      if (range) {
+        const m = /bytes=(\d*)-(\d*)/.exec(range);
+        if (m) {
+          if (m[1]) start = parseInt(m[1], 10);
+          if (m[2]) end = parseInt(m[2], 10);
+          if (isNaN(start) || start < 0 || start > end || end >= total) {
+            res.setHeader('Content-Range', `bytes */${total}`);
+            return res.status(416).end();
+          }
+          status = 206;
+          res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+        }
       }
+      res.status(status);
+      res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+      res.setHeader('Content-Length', end - start + 1);
+      const stream = fs.createReadStream(file, { start, end });
+      (bw > 0 ? stream.pipe(throttleStream(bw)) : stream).pipe(res);
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
@@ -1157,6 +1230,7 @@ export function createWebServer() {
       locks.movePath(req.home, req.body.from, req.body.to);
       expiry.movePath(req.home, req.body.from, req.body.to);
       ocr.movePath(req.home, req.body.from, req.body.to);
+      folderInfo.movePath(req.home, req.body.from, req.body.to);
       recordMutation(req.user, 'rename'); checkHoneypot(req.user, req.body.from, 'rename');
       audit('web', req.user, 'rename', { from: req.body.from, to: req.body.to });
       emitToUser(req.user, 'change', { action: 'rename' });
@@ -1478,6 +1552,96 @@ export function createWebServer() {
   });
   app.delete('/api/tasks/:id', requireWrite, (req, res) => res.json({ ok: userTasks.deleteTask(req.user, req.params.id) }));
 
+  // 2FA-herstelcodes.
+  app.get('/api/2fa/recovery-codes', (req, res) => res.json({ remaining: recoveryCodesRemaining(req.user) }));
+  app.post('/api/2fa/recovery-codes', requireWrite, (req, res) => {
+    const codes = generateRecoveryCodes(req.user);
+    audit('web', req.user, 'recovery_codes_generated');
+    res.json({ ok: true, codes }); // eenmalig getoond
+  });
+
+  // Per-map beschrijving/kleur/icoon.
+  app.get('/api/folder-info', (req, res) => res.json(folderInfo.getInfo(req.home, req.query.path || '/')));
+  app.post('/api/folder-info', requireWrite, express.json(), (req, res) => {
+    res.json({ ok: true, info: folderInfo.setInfo(req.home, req.body.path || '/', req.body) });
+  });
+
+  // Onveranderbare snapshots.
+  app.get('/api/snapshots', (req, res) => res.json({ snapshots: snapshots.listSnapshots(req.user) }));
+  app.post('/api/snapshots', requireWrite, express.json(), (req, res) => {
+    res.json({ ok: true, ...snapshots.createSnapshot(req.user, (req.body && req.body.label) || '') });
+  });
+  app.post('/api/snapshots/:id/restore', requireWrite, (req, res) => {
+    try { res.json(snapshots.restoreSnapshot(req.user, req.params.id)); emitToUser(req.user, 'change', { action: 'snapshot_restore' }); }
+    catch (err) { res.status(404).json({ error: err.message }); }
+  });
+  app.delete('/api/snapshots/:id', requireWrite, (req, res) => res.json({ ok: snapshots.deleteSnapshot(req.user, req.params.id) }));
+
+  // Opslag-deduplicatie (reflink) van de eigen home.
+  app.post('/api/dedup', requireWrite, (req, res) => {
+    const r = dedupeUser(req.user);
+    res.json(r);
+  });
+
+  // Activiteitenfeed per map (uit het audit-log van de eigen gebruiker).
+  app.get('/api/activity', (req, res) => {
+    const prefix = (req.query.path || '/').toString();
+    const out = [];
+    try {
+      const lines = fs.readFileSync(config.auditLog, 'utf8').trim().split('\n').slice(-20000);
+      for (const l of lines) {
+        let e; try { e = JSON.parse(l); } catch { continue; }
+        if (e.user !== req.user) continue;
+        const p = e.path || e.from || (e.files && e.files[0]) || '';
+        if (prefix !== '/' && !String(p).startsWith(prefix)) continue;
+        if (!['upload', 'edit', 'delete', 'rename', 'grant', 'version_restore'].includes(e.action)) continue;
+        out.push({ ts: e.ts, action: e.action, path: p });
+      }
+    } catch { /* geen log */ }
+    res.json({ activity: out.slice(-200).reverse() });
+  });
+
+  // "Gezien door": toegangen tot een van mijn deel-links.
+  app.get('/api/share-receipts', (req, res) => {
+    const all = accessLog.accessForOwner(req.user);
+    const ref = req.query.token;
+    res.json({ access: ref ? all.filter((a) => a.ref === ref) : all });
+  });
+
+  // Bestandssjablonen: bestanden onder /.templates kunnen als basis dienen.
+  app.get('/api/templates', async (req, res) => {
+    try {
+      const dir = resolveWithin(req.home, '/.templates');
+      if (!fs.existsSync(dir)) return res.json({ templates: [] });
+      res.json({ templates: (await fsp.readdir(dir)).filter((n) => !n.startsWith('.')) });
+    } catch { res.json({ templates: [] }); }
+  });
+  app.post('/api/from-template', requireWrite, express.json(), async (req, res) => {
+    try {
+      const src = resolveWithin(req.home, path.posix.join('/.templates', path.basename(req.body.template || '')));
+      const dest = resolveWithin(req.home, req.body.dest || '');
+      if (!fs.existsSync(src)) return res.status(404).json({ error: 'Sjabloon niet gevonden' });
+      await fsp.mkdir(path.dirname(dest), { recursive: true });
+      await fsp.copyFile(src, dest);
+      audit('web', req.user, 'from_template', { template: req.body.template, dest: req.body.dest });
+      emitToUser(req.user, 'change', { action: 'from_template' });
+      res.json({ ok: true });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Admin: invite-codes beheren.
+  app.get('/api/admin/invites', requireAdmin, (req, res) => res.json({ invites: invites.listInvites() }));
+  app.post('/api/admin/invites', requireAdmin, express.json(), (req, res) => {
+    const inv = invites.createInvite(req.body || {});
+    audit('web', req.user, 'invite_create', { code: inv.code, role: inv.role });
+    res.json({ ok: true, invite: inv });
+  });
+  app.delete('/api/admin/invites/:code', requireAdmin, (req, res) => res.json({ ok: invites.deleteInvite(req.params.code) }));
+
+  // Admin: webhook-afleveringslog + certificaatstatus.
+  app.get('/api/admin/webhooks', requireAdmin, (req, res) => res.json({ queued: webhookQueue.queueLength(), log: webhookQueue.deliveryLog() }));
+  app.get('/api/admin/cert', requireAdmin, (req, res) => res.json({ enabled: config.tls.enabled, daysUntilExpiry: daysUntilExpiry() }));
+
   // Office-preview (docx/xlsx/pptx -> platte tekst).
   app.get('/api/office-preview', (req, res) => {
     try {
@@ -1538,6 +1702,7 @@ export function createWebServer() {
       expiresInHours: req.body.expiresInHours ? Number(req.body.expiresInHours) : 0,
       password: req.body.password || null,
       maxDownloads: req.body.maxDownloads ? Number(req.body.maxDownloads) : 0,
+      maxKbps: req.body.maxKbps ? Number(req.body.maxKbps) : 0,
     });
     audit('web', req.user, 'share_create', { path: req.body.path });
     notifyShare('share_create', req.user, { path: req.body.path, token });

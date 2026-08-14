@@ -302,6 +302,43 @@ export function isExpired(username) {
   return !!(u && u.expires && u.expires < Date.now());
 }
 
+// --- 2FA-herstelcodes ---
+// Genereer N eenmalige herstelcodes, sla alleen de hashes op en geef de leesbare
+// codes één keer terug. Bij inloggen kan een code een verloren authenticator
+// vervangen; een gebruikte code vervalt.
+export function generateRecoveryCodes(username, n = 10) {
+  const u = users.get(username);
+  if (!u) throw new Error('Gebruiker niet gevonden');
+  const codes = [];
+  const hashes = [];
+  for (let i = 0; i < n; i++) {
+    const c = randomBytes(5).toString('hex'); // 10 hex-tekens
+    codes.push(c);
+    hashes.push(scryptSync(c, 'recovery', 32).toString('hex'));
+  }
+  u.recoveryCodes = hashes;
+  saveUsers();
+  return codes;
+}
+export function recoveryCodesRemaining(username) {
+  const u = users.get(username);
+  return (u && u.recoveryCodes) ? u.recoveryCodes.length : 0;
+}
+// Verbruik een herstelcode (constant-tijd-vergelijking). true = geldig + verbruikt.
+export function useRecoveryCode(username, code) {
+  const u = users.get(username);
+  if (!u || !u.recoveryCodes || !code) return false;
+  const calc = scryptSync(String(code).trim(), 'recovery', 32);
+  const idx = u.recoveryCodes.findIndex((h) => {
+    const known = Buffer.from(h, 'hex');
+    return known.length === calc.length && timingSafeEqual(known, calc);
+  });
+  if (idx < 0) return false;
+  u.recoveryCodes.splice(idx, 1);
+  saveUsers();
+  return true;
+}
+
 // --- Accountvergrendeling (per gebruiker, in-memory) ---
 const lockState = new Map(); // username -> { count, until }
 export function isLocked(username) {

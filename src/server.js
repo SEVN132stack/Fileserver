@@ -17,6 +17,9 @@ import { startConfigDriftMonitor } from './config-drift.js';
 import { startExpiryScheduler } from './expiry.js';
 import { startReportScheduler } from './report-email.js';
 import { startUserTasksScheduler } from './user-tasks.js';
+import { startWebhookWorker } from './webhook-queue.js';
+import { startQuotaWarnScheduler } from './quota-warn.js';
+import { startCertMonitor } from './cert-monitor.js';
 
 // Startpunt: bereidt opslag, host key en gebruikers voor en start beide servers.
 ensureStorage();
@@ -38,6 +41,9 @@ startConfigDriftMonitor();
 startExpiryScheduler();
 startReportScheduler();
 startUserTasksScheduler();
+startWebhookWorker();
+startQuotaWarnScheduler();
+startCertMonitor();
 
 startWebServer();
 startSftpServer();
