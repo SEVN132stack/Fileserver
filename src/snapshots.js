@@ -26,7 +26,14 @@ function copyTree(src, dst) {
   }
 }
 
+const MAX_SNAPSHOTS = parseInt(process.env.MAX_SNAPSHOTS_PER_USER || '50', 10);
+
 export function createSnapshot(user, label = '') {
+  // Snapshots liggen buiten de home-map en tellen dus niet mee voor de quota;
+  // begrens het aantal per gebruiker om schijf-uitputting te voorkomen.
+  if (listSnapshots(user).length >= MAX_SNAPSHOTS) {
+    throw new Error(`Maximum aantal snapshots (${MAX_SNAPSHOTS}) bereikt; verwijder er eerst een.`);
+  }
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const id = stamp + (label ? '_' + label.replace(/[^a-zA-Z0-9_-]/g, '') : '');
   const dst = path.join(userSnapDir(user), id);

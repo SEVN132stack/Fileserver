@@ -77,7 +77,7 @@ import * as configDrift from './config-drift.js';
 import { revokeAllForUser, startImpersonation, stopImpersonation } from './sessions.js';
 import { isPasswordExpired, isPasswordReused, isBreakglass, recordLogin, lastLogin } from './users.js';
 import { scanFileForDlp } from './dlp.js';
-import { rateLimiter } from './ratelimit.js';
+import { rateLimiter, rateHit } from './ratelimit.js';
 import * as retention from './retention.js';
 import * as expiry from './expiry.js';
 import * as e2eFolders from './e2e-folders.js';
@@ -428,6 +428,10 @@ export function createWebServer() {
   // --- Wachtwoord-reset via e-mail (geen auth) ---
   // Magic-link login: stuur een eenmalige inloglink per e-mail.
   app.post('/api/login/magic', express.json(), async (req, res) => {
+    // Deze publieke endpoint verstuurt e-mail en staat vóór de generieke
+    // /api-limiter: los per-IP begrenzen tegen e-mail-bombardement / misbruik.
+    const ip = clientIp(req);
+    if (!rateHit(`magic:${ip}`, 5, 15 * 60000).allowed) return res.status(429).json({ error: 'Te veel verzoeken, probeer later opnieuw.' });
     const { username } = req.body || {};
     if (username && userExists(username) && !isExpired(username)) {
       const token = createMagicToken(username);
@@ -450,6 +454,10 @@ export function createWebServer() {
 
   // Zelfregistratie met een invite-code (publiek).
   app.post('/api/register', express.json(), (req, res) => {
+    // Publiek + vóór de generieke /api-limiter: per-IP begrenzen tegen misbruik
+    // en het raden van invite-codes.
+    const ip = clientIp(req);
+    if (!rateHit(`register:${ip}`, 10, 15 * 60000).allowed) return res.status(429).json({ error: 'Te veel verzoeken, probeer later opnieuw.' });
     const { code, username, password, email } = req.body || {};
     const inv = invites.checkInvite(code);
     if (!inv) return res.status(400).json({ error: 'Ongeldige of verlopen invite-code' });
@@ -457,8 +465,11 @@ export function createWebServer() {
     if (userExists(username)) return res.status(409).json({ error: 'Gebruikersnaam bestaat al' });
     const perr = validatePassword(password || '');
     if (perr) return res.status(400).json({ error: perr });
+    // Verbruik de code vóór het aanmaken van het account, zodat een enkele
+    // single-use code niet via gelijktijdige verzoeken (TOCTOU) twee accounts
+    // kan opleveren.
+    if (!invites.consumeInvite(code)) return res.status(400).json({ error: 'Ongeldige of verlopen invite-code' });
     addUser({ username, password, role: inv.role, quota: inv.quota, email: email || '' });
-    invites.consumeInvite(code);
     audit('web', username, 'self_register', { role: inv.role });
     res.json({ ok: true });
   });
@@ -1569,7 +1580,8 @@ export function createWebServer() {
   // Onveranderbare snapshots.
   app.get('/api/snapshots', (req, res) => res.json({ snapshots: snapshots.listSnapshots(req.user) }));
   app.post('/api/snapshots', requireWrite, express.json(), (req, res) => {
-    res.json({ ok: true, ...snapshots.createSnapshot(req.user, (req.body && req.body.label) || '') });
+    try { res.json({ ok: true, ...snapshots.createSnapshot(req.user, (req.body && req.body.label) || '') }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
   });
   app.post('/api/snapshots/:id/restore', requireWrite, (req, res) => {
     try { res.json(snapshots.restoreSnapshot(req.user, req.params.id)); emitToUser(req.user, 'change', { action: 'snapshot_restore' }); }
