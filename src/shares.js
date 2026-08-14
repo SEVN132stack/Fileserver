@@ -1,20 +1,15 @@
-import fs from 'node:fs';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
 import { markWritten } from './config-drift.js';
+import { readJson, writeJson } from './jsoncache.js';
 
 // Publieke deel-links: token -> { user, path, expires, password (hash|null) }.
 
 function read() {
-  if (!fs.existsSync(config.sharesFile)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(config.sharesFile, 'utf8'));
-  } catch {
-    return {};
-  }
+  return readJson(config.sharesFile, () => ({}));
 }
 function write(data) {
-  fs.writeFileSync(config.sharesFile, JSON.stringify(data, null, 2), { mode: 0o600 });
+  writeJson(config.sharesFile, data, { mode: 0o600 });
   markWritten(config.sharesFile);
 }
 

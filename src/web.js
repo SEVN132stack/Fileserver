@@ -19,7 +19,7 @@ import { createSession, getSession, destroySession, tokenFromReq, markReauth, re
 import { generateSecret, verifyTotp, otpauthUrl } from './totp.js';
 import { createShare, getShare, checkSharePassword, listShares, deleteShare, countDownload, listAllShares, adminDeleteShare, adminUpdateShare } from './shares.js';
 import { execFile } from 'node:child_process';
-import { audit, verifyChain } from './audit.js';
+import { audit, verifyChain, tailLines } from './audit.js';
 import { notify } from './notify.js';
 import { ensureTls } from './tls.js';
 import { handleWebdav, WEBDAV_MOUNT } from './webdav.js';
@@ -1439,8 +1439,8 @@ export function createWebServer() {
     // Bepaal welke bestanden ooit gedownload zijn uit het audit-log van deze gebruiker.
     const downloaded = new Set();
     try {
-      for (const line of fs.readFileSync(config.auditLog, 'utf8').trim().split('\n')) {
-        const e = JSON.parse(line);
+      for (const line of tailLines(config.auditLog, 50000)) {
+        let e; try { e = JSON.parse(line); } catch { continue; }
         if (e.user === req.user && e.action === 'download' && e.path) downloaded.add(e.path);
       }
     } catch { /* geen log */ }
@@ -1600,7 +1600,7 @@ export function createWebServer() {
     const prefix = (req.query.path || '/').toString();
     const out = [];
     try {
-      const lines = fs.readFileSync(config.auditLog, 'utf8').trim().split('\n').slice(-20000);
+      const lines = tailLines(config.auditLog, 20000);
       for (const l of lines) {
         let e; try { e = JSON.parse(l); } catch { continue; }
         if (e.user !== req.user) continue;
@@ -1912,7 +1912,7 @@ export function createWebServer() {
   });
   app.get('/api/admin/audit', requireAdmin, (req, res) => {
     if (!fs.existsSync(config.auditLog)) return res.json({ lines: [] });
-    const lines = fs.readFileSync(config.auditLog, 'utf8').trim().split('\n').slice(-200).filter(Boolean).map((l) => JSON.parse(l));
+    const lines = tailLines(config.auditLog, 200).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
     res.json({ lines });
   });
   // Verifieer de onvervalsbaarheid van het audit-log (hash-keten).
@@ -1940,7 +1940,7 @@ export function createWebServer() {
     const users = listUsers();
     const backups = fs.existsSync(config.backup.dir) ? fs.readdirSync(config.backup.dir).filter((f) => f.endsWith('.zip')).length : 0;
     const audit = fs.existsSync(config.auditLog)
-      ? fs.readFileSync(config.auditLog, 'utf8').trim().split('\n').slice(-8).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse()
+      ? tailLines(config.auditLog, 8).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse()
       : [];
     res.json({
       metrics: metrics.snapshot(),
@@ -2020,7 +2020,7 @@ export function createWebServer() {
     const countries = {};
     let total = 0;
     try {
-      const raw = fs.readFileSync(config.auditLog, 'utf8').trim().split('\n').slice(-20000);
+      const raw = tailLines(config.auditLog, 20000);
       for (const line of raw) {
         let e; try { e = JSON.parse(line); } catch { continue; }
         if (!e.ts) continue;

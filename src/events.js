@@ -3,6 +3,8 @@
 // web UI automatisch kan verversen als er via SFTP/WebDAV iets verandert.
 
 import { setGauge } from './metrics.js';
+import { invalidateDirSize } from './paths.js';
+import { homeDir } from './users.js';
 
 const clients = new Map(); // user -> Set<res>
 const adminClients = new Set(); // res-verbindingen van admin-dashboards
@@ -29,6 +31,10 @@ export function addClient(user, res) {
 
 // Stuur een event naar alle verbindingen van een gebruiker.
 export function emitToUser(user, event, data = {}) {
+  // Een 'change'-event betekent dat er iets aan de bestanden van de gebruiker is
+  // gewijzigd: invalideer de gecachete map-grootte zodat quota-checks en de
+  // quota-weergave direct kloppen (ook als er geen SSE-client verbonden is).
+  if (event === 'change') { try { invalidateDirSize(homeDir(user)); } catch { /* geen home */ } }
   const set = clients.get(user);
   if (!set) return;
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;

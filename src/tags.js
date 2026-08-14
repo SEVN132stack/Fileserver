@@ -1,15 +1,14 @@
-import fs from 'node:fs';
 import { config } from './config.js';
+import { readJson, writeJson } from './jsoncache.js';
 
 // Tags/labels per bestand, per gebruiker. Sleutel: "<user>|<pad>". Zo kun je
 // bestanden ordenen en er in bulk op filteren, los van de mapstructuur.
 
 function readAll() {
-  try { return JSON.parse(fs.readFileSync(config.tagsFile, 'utf8')); }
-  catch { return {}; }
+  return readJson(config.tagsFile, () => ({}));
 }
 function writeAll(obj) {
-  fs.writeFileSync(config.tagsFile, JSON.stringify(obj), { mode: 0o600 });
+  writeJson(config.tagsFile, obj, { mode: 0o600 });
 }
 
 const key = (user, p) => `${user}|${p}`;

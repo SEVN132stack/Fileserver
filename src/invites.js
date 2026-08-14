@@ -1,16 +1,15 @@
-import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { config } from './config.js';
+import { readJson, writeJson } from './jsoncache.js';
 
 // Zelfregistratie met invite-codes: een admin maakt een code aan (optioneel met
 // rol/quota/vervaldatum en max. aantal gebruik); nieuwe accounts kunnen zich
 // alleen met een geldige code registreren.
 
 function readAll() {
-  try { return JSON.parse(fs.readFileSync(config.invitesFile, 'utf8')); }
-  catch { return []; }
+  return readJson(config.invitesFile, () => []);
 }
-function writeAll(list) { fs.writeFileSync(config.invitesFile, JSON.stringify(list), { mode: 0o600 }); }
+function writeAll(list) { writeJson(config.invitesFile, list, { mode: 0o600 }); }
 
 export function createInvite({ role = 'user', quota = 0, maxUses = 1, expiresInDays = 7 } = {}) {
   const list = readAll();

@@ -140,3 +140,30 @@ export function rechainAll() {
   fs.writeFileSync(chainFile(), prev, { mode: 0o600 });
   lastHash = prev;
 }
+
+// Lees efficiënt de laatste regels van het audit-log zonder het hele bestand in
+// het geheugen te trekken: open het bestand, lees hooguit de laatste `maxBytes`
+// bytes vanaf het einde en geef de laatste `maxLines` niet-lege regels terug.
+// Scheelt CPU/geheugen op hete endpoints (activiteitenfeed, statistieken).
+export function tailLines(file, maxLines = 200, maxBytes = 4 * 1024 * 1024) {
+  let fd;
+  try {
+    const st = fs.statSync(file);
+    if (st.size === 0) return [];
+    const readLen = Math.min(st.size, maxBytes);
+    const start = st.size - readLen;
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.allocUnsafe(readLen);
+    fs.readSync(fd, buf, 0, readLen, start);
+    let text = buf.toString('utf8');
+    // Als we middenin het bestand begonnen, is de eerste regel mogelijk half;
+    // gooi die weg (behalve als we vanaf het echte begin lazen).
+    if (start > 0) { const nl = text.indexOf('\n'); if (nl >= 0) text = text.slice(nl + 1); }
+    const lines = text.split('\n').filter((l) => l.length);
+    return lines.length > maxLines ? lines.slice(-maxLines) : lines;
+  } catch {
+    return [];
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* al dicht */ } }
+  }
+}

@@ -1,14 +1,13 @@
-import fs from 'node:fs';
 import { config } from './config.js';
+import { readJson, writeJson } from './jsoncache.js';
 
 // Per-map informatie: een beschrijving/README, een kleur en een icoon dat in de
 // UI wordt getoond. Sleutel: "<home>|<mappad>".
 
 function readAll() {
-  try { return JSON.parse(fs.readFileSync(config.folderInfoFile, 'utf8')); }
-  catch { return {}; }
+  return readJson(config.folderInfoFile, () => ({}));
 }
-function writeAll(obj) { fs.writeFileSync(config.folderInfoFile, JSON.stringify(obj), { mode: 0o600 }); }
+function writeAll(obj) { writeJson(config.folderInfoFile, obj, { mode: 0o600 }); }
 const key = (home, p) => `${home}|${p || '/'}`;
 
 export function getInfo(home, p) {
