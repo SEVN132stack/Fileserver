@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.21.0] - 2026-08-14
+
+### Toegevoegd (Batch A — Beveiliging)
+
+- **Hardware-security-keys voor SFTP**: met `SFTP_REQUIRE_HARDWARE_KEY=true` worden alleen
+  FIDO2-backed SSH-sleutels (`sk-ssh-ed25519`, `sk-ecdsa`) geaccepteerd; wachtwoord- en
+  niet-hardware-publickey-auth worden geweigerd.
+- **Geo-/IP-blokkering**: weiger logins uit geblokkeerde landen (`BLOCKED_COUNTRIES`, via de
+  geo-header) en/of IP-bereiken (`BLOCKED_CIDRS`). CIDR-blokken gelden ook voor SFTP.
+- **Just-in-time toegang**: een gebruiker vraagt tijdelijk een hogere rol aan (met reden);
+  een admin keurt goed, waarna de verhoging automatisch vervalt (`JIT_MAX_HOURS`).
+- **Anomalie-detectie**: alarmeer bij ongebruikelijk downloadvolume per uur
+  (`ANOMALY_DL_COUNT` / `ANOMALY_DL_BYTES`) — vroege signalering van data-exfiltratie.
+
 ## [3.20.2] - 2026-08-14
 
 ### Prestatie

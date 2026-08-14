@@ -195,6 +195,17 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Beveiliging: hardware-keys, geo-blokkering & JIT (v3.21)
+
+- **Hardware-security-keys voor SFTP** — `SFTP_REQUIRE_HARDWARE_KEY=true` accepteert alleen
+  FIDO2-backed SSH-sleutels (`sk-ssh-ed25519`, `sk-ecdsa`); wachtwoord- en gewone key-auth uit.
+- **Geo-/IP-blokkering** — weiger logins uit landen (`BLOCKED_COUNTRIES`, via de geo-header)
+  en/of IP-bereiken (`BLOCKED_CIDRS`, gelden ook voor SFTP).
+- **Just-in-time toegang** — vraag via 🛡️ tijdelijk een hogere rol aan (met reden); een admin
+  keurt goed in het dashboard, waarna de verhoging automatisch vervalt (`JIT_MAX_HOURS`).
+- **Anomalie-detectie** — alarm bij ongebruikelijk downloadvolume per uur
+  (`ANOMALY_DL_COUNT` / `ANOMALY_DL_BYTES`).
+
 ## Toegang, samenwerking & opslag (v3.20)
 
 - **2FA-herstelcodes** — bij het inschakelen van 2FA krijg je 10 eenmalige herstelcodes; te

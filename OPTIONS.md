@@ -255,6 +255,13 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Uitgaande webhook-wachtrij met retries
 - ✅ Certificaat-vervalbewaking
 
+## Beveiliging: hardware-keys, geo-blokkering & JIT (v3.21)
+
+- ✅ Hardware-security-keys (FIDO2 `sk-`) verplicht kunnen stellen voor SFTP
+- ✅ Geo-/IP-blokkering (landcodes + CIDR-blokken)
+- ✅ Just-in-time toegang (tijdelijke rol-verhoging met goedkeuring)
+- ✅ Anomalie-detectie (ongebruikelijk downloadvolume → alarm)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

@@ -597,6 +597,16 @@ async function showSnapshots() {
   document.querySelectorAll('[data-snapdel]').forEach(b=>b.onclick=async()=>{ await api('/api/snapshots/'+encodeURIComponent(b.dataset.snapdel),{method:'DELETE'}); showSnapshots(); });
 }
 const snapBtn = document.getElementById('snapBtn'); if (snapBtn) snapBtn.onclick = showSnapshots;
+const jitBtn = document.getElementById('jitBtn');
+if (jitBtn) jitBtn.onclick = async () => {
+  const role = prompt('Welke tijdelijke rol aanvragen? (user/readonly/admin)', 'admin');
+  if (!role) return;
+  const reason = prompt('Reden voor de aanvraag?') || '';
+  const hours = Number(prompt('Voor hoeveel uur?', '1')) || 1;
+  const r = await fetch('/api/jit/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, reason, hours }) });
+  const d = await r.json().catch(() => ({}));
+  alert(r.ok && d.ok ? 'Verzoek ingediend. Een beheerder moet het goedkeuren.' : (d.error || 'Aanvraag mislukt'));
+};
 document.getElementById('camInput').onchange = (e) => uploadFiles([...e.target.files]);
 document.getElementById('contentSearch').onchange = load;
 const dropBtn = document.getElementById('dropLinkBtn'); if (dropBtn) dropBtn.onclick = makeDropLink;
