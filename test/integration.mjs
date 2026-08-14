@@ -44,6 +44,7 @@ process.env.FOLDER_INFO_FILE = path.join(tmp, 'folder-info.json');
 process.env.JIT_FILE = path.join(tmp, 'jit.json');
 process.env.TEAMS_FILE = path.join(tmp, 'teams.json');
 process.env.TEAM_SPACES_DIR = path.join(tmp, 'teamspaces');
+process.env.TEAM_SPACE_MAX_BYTES = '2000'; // kleine cap om de teamruimte-limiet te testen
 process.env.REVIEWS_FILE = path.join(tmp, 'reviews.json');
 process.env.SAVED_SEARCHES_FILE = path.join(tmp, 'saved-searches.json');
 process.env.INBOUND_HOOKS_FILE = path.join(tmp, 'inbound-hooks.json');
@@ -1195,6 +1196,15 @@ try {
     const raw = await fetch(H + '/api/s/' + token + '/raw?file=a.png');
     ok('publieke galerij toont afbeeldingen van gedeelde map',
       g.images.includes('a.png') && raw.status === 200);
+  }
+
+  // 87. Teamruimte-groottecap wordt gehandhaafd (security-hardening).
+  {
+    const t = await (await fetch(H + '/api/teams', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ name: 'CapTeam' }) })).json();
+    const tid = t.team.id;
+    const big = new FormData(); big.append('file', new Blob(['x'.repeat(5000)]), 'big.bin'); // > 2000 byte cap
+    const up = await fetch(H + `/api/teams/${tid}/upload?path=/`, { method: 'POST', headers: jar(), body: big });
+    ok('teamruimte-groottecap weigert te grote upload (413)', up.status === 413);
   }
 
   console.log(`\n${passed} tests geslaagd.`);

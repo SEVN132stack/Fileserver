@@ -1162,15 +1162,36 @@ export function createWebServer() {
     } catch (err) { res.status(400).json({ error: err.message }); }
   });
   const teamUpload = multer({ storage: multer.memoryStorage(), limits: mlimits });
-  app.post('/api/teams/:id/upload', teamGuard('write'), teamUpload.single('file'), (req, res) => {
+  app.post('/api/teams/:id/upload', teamGuard('write'), teamUpload.single('file'), async (req, res) => {
+    let tmp;
     try {
       if (!req.file) return res.status(400).json({ error: 'Geen bestand' });
+      // Grootte-cap per teamruimte (schijf-uitputting voorkomen).
+      if (config.teamSpaceMaxBytes > 0) {
+        const used = dirSize(teams.teamDir(req.params.id));
+        if (used + req.file.buffer.length > config.teamSpaceMaxBytes) return res.status(413).json({ error: 'Teamruimte is vol' });
+      }
       const dest = teams.resolveTeamPath(req.params.id, path.posix.join(req.query.path || '/', req.file.originalname));
       fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.writeFileSync(dest, req.file.buffer);
+      // Schrijf eerst naar een tijdelijk bestand en scan op malware vóór plaatsing,
+      // net als de gewone upload- en drop-link-paden (team-bestanden worden door
+      // andere leden gedownload, dus mogen niet ongescand binnenkomen).
+      tmp = dest + '.scan-' + Date.now();
+      fs.writeFileSync(tmp, req.file.buffer);
+      const scan = await scanFile(tmp);
+      if (!scan.clean) {
+        fs.rmSync(tmp, { force: true }); tmp = undefined;
+        audit('web', req.user, 'team_upload_blocked', { id: req.params.id, file: req.file.originalname, detail: scan.detail });
+        sysAlert(`team-av-${req.user}`, 'Besmet bestand geweigerd in teamruimte', `Upload '${req.file.originalname}' van '${req.user}' is geweigerd: ${scan.detail || ''}`);
+        return res.status(422).json({ error: 'Bestand geweigerd (mogelijk besmet)' });
+      }
+      fs.renameSync(tmp, dest); tmp = undefined;
       audit('web', req.user, 'team_upload', { id: req.params.id, path: req.query.path });
       res.json({ ok: true });
-    } catch (err) { res.status(400).json({ error: err.message }); }
+    } catch (err) {
+      if (tmp) { try { fs.rmSync(tmp, { force: true }); } catch { /* al weg */ } }
+      res.status(400).json({ error: err.message });
+    }
   });
 
   // --- Delta-sync (rsync-achtig) ---
