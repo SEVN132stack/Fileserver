@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.23.0] - 2026-08-14
+
+### Toegevoegd (Batch C — Zoeken & Inzicht)
+
+- **Opgeslagen zoekopdrachten / slimme mappen**: bewaar een zoekopdracht onder een naam en
+  voer die met één klik opnieuw uit (⭐-knop).
+- **Volledige-tekst-zoeken in kantoordocumenten**: de zoekindex neemt nu ook de tekst uit
+  `docx`/`xlsx`/`pptx` mee (`INDEX_OFFICE_CONTENT`).
+- **Duplicaten-dashboard**: 🧬-knop toont groepen identieke bestanden met verspilde ruimte;
+  ruim kopieën op of dedupliceer automatisch met reflinks.
+- **Interactief analytics-overzicht** (admin): actie-verdeling, top-gebruikers en een
+  activiteit-tijdlijn per dag, met instelbare periode.
+
 ## [3.22.0] - 2026-08-14
 
 ### Toegevoegd (Batch B — Samenwerking)

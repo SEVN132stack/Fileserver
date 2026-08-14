@@ -127,6 +127,20 @@
       <table id="invTable" style="margin-top:1rem"></table>
     </div>
 
+    <h2>Analytics</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.6rem">
+        <label class="l">Periode:</label>
+        <select id="anDays"><option value="7">7 dagen</option><option value="30" selected>30 dagen</option><option value="90">90 dagen</option></select>
+        <span class="l" id="anTotal"></span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+        <div><h3 style="margin:.2rem 0">Acties</h3><div id="anActions"></div></div>
+        <div><h3 style="margin:.2rem 0">Top-gebruikers</h3><div id="anUsers"></div></div>
+      </div>
+      <h3 style="margin:.6rem 0 .2rem">Activiteit per dag</h3><div id="anTimeline" style="display:flex;align-items:flex-end;gap:2px;height:80px"></div>
+    </div>
+
     <h2>Just-in-time toegangsverzoeken</h2>
     <div class="card" style="margin-bottom:2rem">
       <p class="l" style="margin-top:0">Tijdelijke rol-verhogingen: keur goed of af. Goedgekeurde verhogingen vervallen automatisch.</p>
@@ -477,7 +491,23 @@
       if (ok || no) { await j('/api/admin/jit/'+encodeURIComponent(ok||no),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approve:!!ok})}); loadJit(); }
     });
 
-    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit();
+    async function loadAnalytics() {
+      const days = document.getElementById('anDays').value;
+      const a = await (await j('/api/admin/report/analytics?days='+days)).json();
+      document.getElementById('anTotal').textContent = (a.total||0)+' gebeurtenissen';
+      const bar = (label, val, max, color) => `<div style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0"><span style="width:120px" class="l">${esc(label)}</span><span style="flex:1;background:var(--border,#334155);border-radius:3px;overflow:hidden"><span style="display:block;height:12px;width:${max?Math.max(3,val/max*100):0}%;background:${color}"></span></span><span class="l" style="width:44px;text-align:right">${val}</span></div>`;
+      const acts = Object.entries(a.byAction||{}).sort((x,y)=>y[1]-x[1]).slice(0,10);
+      const amax = acts.length?acts[0][1]:1;
+      document.getElementById('anActions').innerHTML = acts.map(([k,v])=>bar(k,v,amax,'#38bdf8')).join('')||'<span class="l">Geen data.</span>';
+      const umax = (a.topUsers&&a.topUsers[0])?a.topUsers[0].total:1;
+      document.getElementById('anUsers').innerHTML = (a.topUsers||[]).map(u=>bar(u.user,u.total,umax,'#4ade80')).join('')||'<span class="l">Geen data.</span>';
+      const days2 = Object.entries(a.timeline||{}).sort();
+      const tmax = days2.reduce((m,[,v])=>Math.max(m,v),1);
+      document.getElementById('anTimeline').innerHTML = days2.map(([d,v])=>`<div title="${esc(d)}: ${v}" style="flex:1;min-width:3px;height:${Math.max(2,v/tmax*100)}%;background:#38bdf8;border-radius:2px 2px 0 0"></div>`).join('')||'<span class="l">Geen data.</span>';
+    }
+    document.getElementById('anDays').onchange = loadAnalytics;
+
+    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit(); loadAnalytics();
 
     // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
     // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.

@@ -268,6 +268,13 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Goedkeuringsworkflow (bestand in review → goedkeuren/afkeuren)
 - ✅ Versie-diff-weergave (regel-voor-regel verschil met +/− telling)
 
+## Zoeken & inzicht: opgeslagen zoekopdrachten, office-zoeken, duplicaten & analytics (v3.23)
+
+- ✅ Opgeslagen zoekopdrachten / slimme mappen
+- ✅ Volledige-tekst-zoeken in kantoordocumenten (docx/xlsx/pptx)
+- ✅ Duplicaten-dashboard (opruimen + reflink-dedupe)
+- ✅ Interactief analytics-overzicht (acties, top-gebruikers, tijdlijn)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

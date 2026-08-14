@@ -195,6 +195,13 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Zoeken & inzicht: opgeslagen zoekopdrachten, office-zoeken, duplicaten & analytics (v3.23)
+
+- **Opgeslagen zoekopdrachten / slimme mappen** — bewaar een zoekopdracht en voer die met één klik uit (⭐).
+- **Volledige-tekst-zoeken in kantoordocumenten** — de zoekindex neemt docx/xlsx/pptx-tekst mee (`INDEX_OFFICE_CONTENT`).
+- **Duplicaten-dashboard** — 🧬-knop toont identieke bestanden; opruimen of reflink-dedupe.
+- **Interactief analytics-overzicht** — acties, top-gebruikers en een dag-tijdlijn in het admin-dashboard.
+
 ## Samenwerking: teamruimtes, reviews & diffs (v3.22)
 
 - **Gedeelde teamruimtes** — benoemde ruimtes met meerdere leden en rollen (viewer/editor/admin),

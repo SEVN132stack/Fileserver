@@ -436,7 +436,13 @@ export const config = {
   // Goedkeuringsworkflow: reviewstatus per bestand.
   reviewsFile: abs(process.env.REVIEWS_FILE || 'reviews.json'),
 
-  version: '3.22.0',
+  // --- v3.23 (zoeken & inzicht) ---
+  // Indexeer ook de tekst uit kantoordocumenten (docx/xlsx/pptx) voor zoeken.
+  indexOfficeContent: (process.env.INDEX_OFFICE_CONTENT || 'true') === 'true',
+  // Opgeslagen zoekopdrachten / slimme mappen per gebruiker.
+  savedSearchesFile: abs(process.env.SAVED_SEARCHES_FILE || 'saved-searches.json'),
+
+  version: '3.23.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
