@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.20.1] - 2026-08-14
+
+### Prestatie
+
+- **Gecachete map-grootte** (`dirSize`): quota-checks en de quota-weergave deden bij
+  elk verzoek een volledige, synchrone recursieve tree-walk. Het resultaat wordt nu kort
+  gecachet (`DIRSIZE_CACHE_MS`, standaard 5s) en bij elke wijziging (upload/verwijderen/
+  verplaatsen) direct geïnvalideerd, zodat quota's blijven kloppen.
+- **Efficiënte audit-log-lezer** (`tailLines`): endpoints als de activiteitenfeed en de
+  statistieken lazen telkens het hele audit-logbestand in het geheugen. Ze lezen nu alleen
+  de staart van het bestand via een file-descriptor.
+- **Snapshot-groottes gecachet**: `listSnapshots` statte elk bestand in elke snapshot bij
+  elke aanroep. Grootte/aantal worden nu één keer bij aanmaak berekend en in een
+  sidecar-`.meta.json` bewaard.
+- **JSON-datastores met mtime-lees-cache** (`shares`, `tags`, `notifications`, `folder-info`,
+  `invites`): deze bestanden werden bij elke bewerking opnieuw van schijf gelezen en geparset.
+  Er wordt nu alleen opnieuw geparset als het bestand echt is gewijzigd.
+
 ## [3.20.0] - 2026-08-14
 
 ### Toegevoegd

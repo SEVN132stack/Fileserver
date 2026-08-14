@@ -991,6 +991,45 @@ try {
   const limDl = await fetch(H + limShare.url);
   ok('deel-link met snelheidslimiet levert bestand', limDl.status === 200 && (await limDl.text()) === 'ABCDEFGHIJ');
 
+  // 67. tailLines leest efficiënt alleen de laatste regels van een bestand.
+  {
+    const { tailLines } = await import('../src/audit.js');
+    const tf = path.join(tmp, 'tail-test.log');
+    const many = Array.from({ length: 5000 }, (_, i) => `regel-${i}`).join('\n') + '\n';
+    fs.writeFileSync(tf, many);
+    const last3 = tailLines(tf, 3);
+    ok('tailLines geeft de laatste N regels', last3.length === 3 && last3[2] === 'regel-4999' && last3[0] === 'regel-4997');
+    // Ook met een kleine maxBytes (dwingt gedeeltelijke-eerste-regel-afhandeling af).
+    const capped = tailLines(tf, 10000, 40);
+    ok('tailLines respecteert maxBytes en dropt halve eerste regel',
+      capped.length > 0 && capped[capped.length - 1] === 'regel-4999' && capped.every((l) => /^regel-\d+$/.test(l)));
+  }
+
+  // 68. dirSize-cache: invalidatie levert verse grootte na wijziging.
+  {
+    const { dirSize, invalidateDirSize } = await import('../src/paths.js');
+    const dd = path.join(tmp, 'sizecache');
+    fs.mkdirSync(dd, { recursive: true });
+    fs.writeFileSync(path.join(dd, 'a.bin'), Buffer.alloc(1000));
+    const s1 = dirSize(dd);
+    fs.writeFileSync(path.join(dd, 'b.bin'), Buffer.alloc(500));
+    const sCached = dirSize(dd); // nog uit cache (binnen TTL) -> ongewijzigd
+    invalidateDirSize(dd);
+    const sFresh = dirSize(dd);  // na invalidatie -> vers
+    ok('dirSize cachet en invalideert correct', s1 === 1000 && sCached === 1000 && sFresh === 1500);
+  }
+
+  // 69. JSON-cache: writeJson maakt de wijziging direct zichtbaar via readJson.
+  {
+    const { readJson, writeJson } = await import('../src/jsoncache.js');
+    const jf = path.join(tmp, 'cache-test.json');
+    writeJson(jf, { n: 1 });
+    const r1 = readJson(jf, {});
+    writeJson(jf, { n: 2 });
+    const r2 = readJson(jf, {});
+    ok('jsoncache leest de laatst geschreven waarde', r1.n === 1 && r2.n === 2);
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

@@ -1,15 +1,14 @@
-import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { config } from './config.js';
+import { readJson, writeJson } from './jsoncache.js';
 
 // In-app notificatiecentrum: meldingen per gebruiker (naast e-mail/webhook),
 // zichtbaar via een belletje in de UI.
 
 function readAll() {
-  try { return JSON.parse(fs.readFileSync(config.notificationsFile, 'utf8')); }
-  catch { return {}; } // user -> [{ id, ts, title, body, read }]
+  return readJson(config.notificationsFile, () => ({})); // user -> [{ id, ts, title, body, read }]
 }
-function writeAll(obj) { fs.writeFileSync(config.notificationsFile, JSON.stringify(obj), { mode: 0o600 }); }
+function writeAll(obj) { writeJson(config.notificationsFile, obj, { mode: 0o600 }); }
 
 export function notifyUser(user, title, body) {
   if (!user) return;
