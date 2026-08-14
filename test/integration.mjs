@@ -41,6 +41,9 @@ process.env.INVITES_FILE = path.join(tmp, 'invites.json');
 process.env.WEBHOOK_QUEUE_FILE = path.join(tmp, 'webhook-queue.json');
 process.env.SNAPSHOTS_DIR = path.join(tmp, 'snapshots');
 process.env.FOLDER_INFO_FILE = path.join(tmp, 'folder-info.json');
+process.env.JIT_FILE = path.join(tmp, 'jit.json');
+process.env.ANOMALY_DL_COUNT = '3'; // lage drempel zodat de test snel triggert
+process.env.BLOCKED_CIDRS = '203.0.113.0/24'; // testblok (geen localhost)
 process.env.METRICS_TOKEN = 'test-metrics-token';
 process.env.MAX_UPLOAD_BYTES = '1048576'; // 1MB uploadlimiet voor de test
 // Sessie-binding/step-up uit voor de brede suite; de dedicated tests zetten ze
@@ -1042,6 +1045,41 @@ try {
     const rangeBody = await rangeResp.text();
     ok('Range-download levert nog steeds 206 + juiste bytes onder compressie',
       rangeResp.status === 206 && rangeBody === 'ABCD');
+  }
+
+  // 71. Geo-/IP-blokkering: CIDR-match werkt, localhost niet geblokkeerd.
+  {
+    const { isBlockedIp, blockReason } = await import('../src/geoblock.js');
+    ok('geoblock: IP in geblokkeerd CIDR wordt herkend',
+      isBlockedIp('203.0.113.5') === true && isBlockedIp('127.0.0.1') === false && blockReason('203.0.113.5') === 'ip');
+  }
+
+  // 72. Just-in-time toegang: verzoek -> goedkeuren -> effectieve rol verhoogd -> vervalt.
+  {
+    const jitm = await import('../src/jit.js');
+    const r = jitm.requestElevation('jituser', 'admin', 'incident #42', 1);
+    ok('JIT: effectieve rol vóór goedkeuring is ongewijzigd', jitm.effectiveRole('jituser', 'user') === 'user');
+    const dec = jitm.decide(r.id, 'admin', true);
+    ok('JIT: na goedkeuring is de rol tijdelijk verhoogd',
+      dec.status === 'approved' && dec.until > Date.now() && jitm.effectiveRole('jituser', 'user') === 'admin');
+    const denied = jitm.decide(r.id, 'admin', true); // al besloten
+    ok('JIT: een al-besloten verzoek kan niet opnieuw', denied === null);
+  }
+
+  // 73. Anomalie-detectie: boven de drempel wordt het venster gemarkeerd.
+  {
+    const anom = await import('../src/anomaly.js');
+    for (let i = 0; i < 4; i++) anom.recordDownload('exfiluser', 1000); // drempel = 3
+    const w = anom.windowFor('exfiluser');
+    ok('anomalie: venster wordt gealarmeerd boven de drempel', w && w.count === 4 && w.alerted === true);
+  }
+
+  // 74. JIT-status-endpoint reflecteert een actieve verhoging.
+  {
+    const jitm = await import('../src/jit.js');
+    // admin heeft geen verhoging nodig; controleer het endpoint-contract voor admin.
+    const st = await (await fetch(H + '/api/jit/status', { headers: jar() })).json();
+    ok('JIT-status-endpoint levert effectieve rol', st.effectiveRole === 'admin' && ('elevation' in st));
   }
 
   console.log(`\n${passed} tests geslaagd.`);

@@ -127,6 +127,12 @@
       <table id="invTable" style="margin-top:1rem"></table>
     </div>
 
+    <h2>Just-in-time toegangsverzoeken</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <p class="l" style="margin-top:0">Tijdelijke rol-verhogingen: keur goed of af. Goedgekeurde verhogingen vervallen automatisch.</p>
+      <table id="jitTable"></table>
+    </div>
+
     <h2>Instellingen</h2>
     <div class="card" style="margin-bottom:2rem">
       <label><input type="checkbox" id="setMaintenance"> Onderhoudsmodus (alleen admins hebben toegang)</label><br><br>
@@ -460,13 +466,25 @@
     };
     document.addEventListener('click', async e => { if (e.target.dataset.invdel) { await j('/api/admin/invites/'+encodeURIComponent(e.target.dataset.invdel),{method:'DELETE'}); loadInvites(); } });
 
-    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites();
+    async function loadJit() {
+      const { requests } = await (await j('/api/admin/jit')).json();
+      const fmt = r => { const active = r.status==='approved' && r.until>Date.now(); const st = active ? 'actief tot '+new Date(r.until).toLocaleString() : esc(r.status); return `<tr><td>${esc(r.user)}</td><td>${esc(r.role)}</td><td>${r.hours}u</td><td>${esc(r.reason||'')}</td><td>${st}</td><td>${r.status==='pending'?`<button data-jit-ok="${esc(r.id)}">✓</button> <button class="danger" data-jit-no="${esc(r.id)}">×</button>`:''}</td></tr>`; };
+      document.getElementById('jitTable').innerHTML = '<tr><th>Gebruiker</th><th>Rol</th><th>Duur</th><th>Reden</th><th>Status</th><th></th></tr>' +
+        (requests.length ? requests.map(fmt).join('') : '<tr><td colspan="6" class="l">Geen verzoeken.</td></tr>');
+    }
+    document.addEventListener('click', async e => {
+      const ok = e.target.dataset.jitOk, no = e.target.dataset.jitNo;
+      if (ok || no) { await j('/api/admin/jit/'+encodeURIComponent(ok||no),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approve:!!ok})}); loadJit(); }
+    });
+
+    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit();
 
     // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
     // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.
     let refreshTimer;
     const refreshTables = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => { loadShares(); loadQuarantine(); loadBans(); loadAudit(); }, 800); };
     setInterval(loadOverview, 3000);
+    setInterval(loadJit, 8000);
 
     // Wisselen tussen live-grafieken en historische tijdvensters.
     const rangeSel = document.getElementById('range');

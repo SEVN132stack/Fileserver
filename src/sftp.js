@@ -6,6 +6,7 @@ import { resolveWithin, toClientPath as toClient, dirSize } from './paths.js';
 import { homeDir, verifyPassword, verifyPublicKey, userExists, isReadonly, quota, isExpired } from './users.js';
 import { checkAllowed, recordFailure, recordSuccess } from './ratelimit.js';
 import { isBanned, ban } from './bans.js';
+import { isBlockedIp } from './geoblock.js';
 import { audit } from './audit.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
@@ -23,6 +24,7 @@ export function startSftpServer() {
     client.on('authentication', (ctx) => {
       const key = 'sftp:' + ip;
       if (isBanned(ip)) return ctx.reject();
+      if (isBlockedIp(ip)) { audit('sftp', ctx.username || '', 'login_failed', { ip, reason: 'ip geblokkeerd' }); return ctx.reject(); }
       const gate = checkAllowed(key);
       if (!gate.allowed) return ctx.reject();
 
@@ -46,6 +48,7 @@ export function startSftpServer() {
       }
 
       if (ctx.method === 'password') {
+        if (config.requireHardwareKey) { audit('sftp', user, 'login_failed', { ip, reason: 'hardware-sleutel vereist' }); return ctx.reject(['publickey']); }
         if (!config.sftpPasswordAuth) { audit('sftp', user, 'login_failed', { ip, reason: 'wachtwoord-auth uit' }); return ctx.reject(['publickey']); }
         if (verifyPassword(user, ctx.password || '')) {
           recordSuccess(key);
@@ -57,6 +60,11 @@ export function startSftpServer() {
       }
 
       if (ctx.method === 'publickey') {
+        // Hardware-backed FIDO2-sleutels hebben een 'sk-'-algoritme.
+        if (config.requireHardwareKey && !String(ctx.key.algo).startsWith('sk-')) {
+          audit('sftp', user, 'login_failed', { ip, reason: 'niet-hardware sleutel geweigerd' });
+          return ctx.reject();
+        }
         if (verifyPublicKey(user, ctx.key.algo, ctx.key.data)) {
           recordSuccess(key);
           username = user;

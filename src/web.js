@@ -21,6 +21,9 @@ import { generateSecret, verifyTotp, otpauthUrl } from './totp.js';
 import { createShare, getShare, checkSharePassword, listShares, deleteShare, countDownload, listAllShares, adminDeleteShare, adminUpdateShare } from './shares.js';
 import { execFile } from 'node:child_process';
 import { audit, verifyChain, tailLines } from './audit.js';
+import { blockReason } from './geoblock.js';
+import * as jit from './jit.js';
+import { recordDownload } from './anomaly.js';
 import { notify } from './notify.js';
 import { ensureTls } from './tls.js';
 import { handleWebdav, WEBDAV_MOUNT } from './webdav.js';
@@ -152,7 +155,7 @@ function authenticate(req, res, next) {
       }
       req.user = effective;
       req.home = homeDir(effective);
-      req.userRole = role(effective);
+      req.userRole = jit.effectiveRole(effective, role(effective));
       req.sid = token;
       return next();
     }
@@ -170,7 +173,7 @@ function authenticate(req, res, next) {
       recordSuccess('apikey:' + ip);
       req.user = resolved.user;
       req.home = homeDir(resolved.user);
-      req.userRole = role(resolved.user);
+      req.userRole = jit.effectiveRole(resolved.user, role(resolved.user));
       req.apiScope = resolved.scope;
       if (resolved.scope !== 'write') req.apiReadonly = true;
       return next();
@@ -193,7 +196,7 @@ function authenticate(req, res, next) {
       recordSuccess('web:' + ip);
       req.user = user;
       req.home = homeDir(user);
-      req.userRole = role(user);
+      req.userRole = jit.effectiveRole(user, role(user));
       return next();
     }
     onLoginFailure(ip, user);
@@ -371,6 +374,8 @@ export function createWebServer() {
   app.post('/api/login', express.json(), (req, res) => {
     const ip = clientIp(req);
     if (isBanned(ip)) return res.status(403).json({ error: 'IP geblokkeerd' });
+    const geo = blockReason(ip, countryOf(req));
+    if (geo) { audit('web', (req.body || {}).username || '', 'login_failed', { ip, reason: `geo-blok (${geo})` }); return res.status(403).json({ error: 'Toegang vanaf deze locatie is geblokkeerd' }); }
     if (!checkAllowed('web:' + ip).allowed) return res.status(429).json({ error: 'Te veel pogingen' });
     const { username, password, token } = req.body || {};
     if (username && isLocked(username)) return res.status(423).json({ error: 'Account tijdelijk vergrendeld na te veel pogingen' });
@@ -889,6 +894,7 @@ export function createWebServer() {
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).json({ error: 'Niet gevonden' });
       audit('web', req.user, 'download', { path: req.query.path, country: countryOf(req) });
       recordRecent(req.user, req.query.path || '');
+      recordDownload(req.user, fs.statSync(file).size);
       checkHoneypot(req.user, req.query.path || '', 'download');
       metrics.inc('fileserver_downloads_total');
       metrics.inc('fileserver_bytes_downloaded_total', fs.statSync(file).size);
@@ -1655,6 +1661,25 @@ export function createWebServer() {
       emitToUser(req.user, 'change', { action: 'from_template' });
       res.json({ ok: true });
     } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Just-in-time toegang: verzoek + status voor de gebruiker; beheer voor admin.
+  app.get('/api/jit/status', (req, res) => {
+    const el = jit.activeElevation(req.user);
+    res.json({ effectiveRole: req.userRole, elevation: el ? { role: el.role, until: el.until } : null });
+  });
+  app.post('/api/jit/request', express.json(), (req, res) => {
+    try {
+      const { role: wantRole, reason, hours } = req.body || {};
+      const r = jit.requestElevation(req.user, wantRole, reason, hours);
+      res.json({ ok: true, id: r.id });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.get('/api/admin/jit', requireAdmin, (req, res) => res.json({ requests: jit.listRequests().slice(-100).reverse() }));
+  app.post('/api/admin/jit/:id', requireAdmin, express.json(), (req, res) => {
+    const r = jit.decide(req.params.id, req.user, !!(req.body && req.body.approve));
+    if (!r) return res.status(404).json({ error: 'Verzoek niet gevonden of al besloten' });
+    res.json({ ok: true, request: r });
   });
 
   // Admin: invite-codes beheren.

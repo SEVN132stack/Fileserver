@@ -415,7 +415,21 @@ export const config = {
   // Magic-link login (vereist werkende e-mail).
   magicLinkTtlMinutes: parseInt(process.env.MAGIC_LINK_TTL_MIN || '15', 10),
 
-  version: '3.20.2',
+  // --- v3.21 (beveiliging) ---
+  // Vereis een hardware-backed (FIDO2 sk-) SSH-sleutel voor SFTP; weigert dan
+  // wachtwoord-auth en niet-hardware publickeys.
+  requireHardwareKey: (process.env.SFTP_REQUIRE_HARDWARE_KEY || 'false') === 'true',
+  // Geo-/IP-blokkering: landcodes (ISO-2) en/of CIDR-blokken die worden geweigerd.
+  blockedCountries: (process.env.BLOCKED_COUNTRIES || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean),
+  blockedCidrs: (process.env.BLOCKED_CIDRS || '').split(',').map((s) => s.trim()).filter(Boolean),
+  // Just-in-time toegang: tijdelijke rol-verhoging met goedkeuring.
+  jitFile: abs(process.env.JIT_FILE || 'jit.json'),
+  jitMaxHours: parseInt(process.env.JIT_MAX_HOURS || '4', 10),
+  // Anomalie-detectie: alarmeer bij > N downloads of > N bytes per uur (0 = uit).
+  anomalyDlCount: parseInt(process.env.ANOMALY_DL_COUNT || '0', 10),
+  anomalyDlBytes: parseInt(process.env.ANOMALY_DL_BYTES || '0', 10),
+
+  version: '3.21.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
