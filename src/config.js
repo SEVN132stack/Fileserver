@@ -433,6 +433,8 @@ export const config = {
   // Gedeelde teamruimtes: metadata + de opslagmap met de team-bestanden.
   teamsFile: abs(process.env.TEAMS_FILE || 'teams.json'),
   teamSpacesDir: abs(process.env.TEAM_SPACES_DIR || 'teamspaces'),
+  // Maximale grootte per teamruimte (bytes, 0 = onbeperkt) — voorkomt schijf-uitputting.
+  teamSpaceMaxBytes: parseInt(process.env.TEAM_SPACE_MAX_BYTES || '0', 10),
   // Goedkeuringsworkflow: reviewstatus per bestand.
   reviewsFile: abs(process.env.REVIEWS_FILE || 'reviews.json'),
 
@@ -446,7 +448,7 @@ export const config = {
   // Inkomende webhooks / API-triggers: token -> vooraf toegestane actie.
   inboundHooksFile: abs(process.env.INBOUND_HOOKS_FILE || 'inbound-hooks.json'),
 
-  version: '3.24.0',
+  version: '3.24.1',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

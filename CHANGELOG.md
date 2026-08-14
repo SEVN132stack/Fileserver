@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.24.1] - 2026-08-14
+
+### Opgelost (security-review v3.21–v3.24)
+
+- **Team-uploads worden nu op malware gescand** (antivirus/quarantaine), net als de gewone
+  upload- en drop-link-paden. Voorheen kwamen bestanden in een gedeelde teamruimte ongescand
+  binnen, terwijl andere leden ze downloaden — een pad voor malware-verspreiding.
+- **Teamruimte-groottecap** (`TEAM_SPACE_MAX_BYTES`, standaard onbeperkt): teamopslag telt niet
+  mee voor een gebruikersquota; een cap voorkomt schijf-uitputting via een teamruimte.
+
 ## [3.24.0] - 2026-08-14
 
 ### Toegevoegd (Batch D — Integraties & UX)
