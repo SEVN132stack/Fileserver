@@ -415,7 +415,7 @@ export const config = {
   // Magic-link login (vereist werkende e-mail).
   magicLinkTtlMinutes: parseInt(process.env.MAGIC_LINK_TTL_MIN || '15', 10),
 
-  version: '3.20.1',
+  version: '3.20.2',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

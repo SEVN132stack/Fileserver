@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.20.2] - 2026-08-14
+
+### Prestatie
+
+- **Gzip-compressie** voor tekstuele responses (JSON-listings, HTML/JS/CSS): scheelt fors
+  bandbreedte en laadtijd. Server-Sent Events (moeten ongebufferd stromen), byte-range/206-
+  downloads (compressie zou de `Content-Range` breken) en niet-comprimeerbare types
+  (afbeeldingen, zip, webp) worden bewust overgeslagen.
+
 ## [3.20.1] - 2026-08-14
 
 ### Prestatie

@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import multer from 'multer';
 import archiver from 'archiver';
 import fs from 'node:fs';
@@ -292,6 +293,21 @@ export function createWebServer() {
   const tp = config.trustProxy;
   app.set('trust proxy', tp === 'true' ? true : tp === 'false' ? false : (/^\d+$/.test(tp) ? parseInt(tp, 10) : tp));
   app.disable('x-powered-by');
+
+  // Gzip-compressie voor tekstuele responses (JSON-listings, HTML/JS/CSS). Dit
+  // scheelt fors bandbreedte en laadtijd. We slaan bewust over:
+  //  - Server-Sent Events: moeten ongebufferd blijven stromen;
+  //  - byte-range/partial (206) downloads: compressie zou de Content-Range breken;
+  //  - reeds niet-comprimeerbare types (afbeeldingen, zip, webp) — dat doet de
+  //    standaardfilter van `compression` al op basis van het content-type.
+  app.use(compression({
+    filter: (req, res) => {
+      if (res.getHeader('Content-Range') || res.statusCode === 206) return false;
+      const type = String(res.getHeader('Content-Type') || '');
+      if (type.includes('text/event-stream')) return false;
+      return compression.filter(req, res);
+    },
+  }));
 
   // Maximale uploadgrootte per bestand (0 = onbeperkt) voor alle multer-uploads.
   const mlimits = config.maxUploadBytes > 0 ? { fileSize: config.maxUploadBytes } : undefined;
