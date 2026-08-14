@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.24.0] - 2026-08-14
+
+### Toegevoegd (Batch D — Integraties & UX)
+
+- **Inkomende webhooks / API-triggers**: een admin koppelt een geheime token aan één vooraf
+  toegestane actie (reindex/backup/check-quotas/notify); externe diensten POST'en naar
+  `/api/hooks/<token>` (per-IP rate-limited, geen willekeurige uitvoering).
+- **Zapier/Make-recepten**: kant-en-klare integratiesjablonen (in- en uitgaand) in het
+  beheer en via `/api/integrations/recipes`.
+- **PWA offline-modus**: de service worker cachet de app-schil (stale-while-revalidate) met
+  een nette offline-pagina; de UI laadt ook zonder verbinding.
+- **Bulk-tagging + tag-galerij**: tag een hele selectie ineens en toon alle bestanden met een
+  bepaalde tag.
+- **Thema-planning + hoog contrast**: automatisch dag/nacht-thema (donker/licht/auto) en een
+  hoog-contrast-modus voor toegankelijkheid.
+- **Deelbare openbare galerijen**: een gedeelde afbeeldingsmap opent als read-only galerij op
+  `/g/<token>` (met lightbox en optioneel wachtwoord).
+
 ## [3.23.0] - 2026-08-14
 
 ### Toegevoegd (Batch C — Zoeken & Inzicht)

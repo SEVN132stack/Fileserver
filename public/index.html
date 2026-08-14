@@ -9,6 +9,10 @@
   <style>
     :root { --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --text:#e2e8f0; --muted:#94a3b8; --danger:#f87171; --border:#334155; }
     :root[data-theme="light"] { --bg:#f1f5f9; --panel:#fff; --accent:#0284c7; --text:#0f172a; --muted:#64748b; --danger:#dc2626; --border:#cbd5e1; }
+    /* Hoog-contrast-modus (toegankelijkheid): maximaal contrast + duidelijke randen. */
+    :root.hc { --bg:#000; --panel:#000; --accent:#ffff00; --text:#fff; --muted:#e0e0e0; --danger:#ff5555; --border:#fff; }
+    :root.hc button { outline:1px solid #fff; }
+    :root.hc a { color:#ffff00; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); }
     header { background:var(--panel); padding:.9rem 1.5rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap; border-bottom:1px solid var(--border); }
@@ -67,7 +71,8 @@
     <button class="ghost" id="teamsBtn" title="Gedeelde teamruimtes">🧑‍🤝‍🧑</button>
     <button class="ghost" id="pwBtn" title="Wachtwoord wijzigen">🔑pw</button>
     <button class="ghost" id="langBtn">EN</button>
-    <button class="ghost" id="themeBtn">🌓</button>
+    <button class="ghost" id="themeBtn" title="Thema wisselen (donker/licht/auto)">🌓</button>
+    <button class="ghost" id="hcBtn" title="Hoog contrast (toegankelijkheid)">◐</button>
     <button class="ghost" id="logoutBtn" data-i18n="logout">Uitloggen</button>
   </header>
   <main>
@@ -100,6 +105,8 @@
         <button class="ghost" id="savedBtn" title="Opgeslagen zoekopdrachten">⭐ Zoekopdrachten</button>
         <button class="ghost" id="bulkDl" data-i18n="bulkdl">Download selectie</button>
         <button class="ghost" id="bulkMove">Verplaats selectie</button>
+        <button class="ghost" id="bulkTag" title="Tag toevoegen aan de selectie">🏷️ Tag selectie</button>
+        <button class="ghost" id="tagGalBtn" title="Bestanden met een tag tonen">🏷️ Tag-galerij</button>
         <button class="danger" id="bulkDel" data-i18n="bulkdel">Verwijder selectie</button>
         <button class="ghost" id="refreshBtn">↻</button>
         <input type="search" id="search" data-i18n-ph="searchph" placeholder="Zoeken…" />

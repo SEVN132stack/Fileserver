@@ -275,6 +275,15 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Duplicaten-dashboard (opruimen + reflink-dedupe)
 - ✅ Interactief analytics-overzicht (acties, top-gebruikers, tijdlijn)
 
+## Integraties & UX: hooks, recepten, offline, tags & galerijen (v3.24)
+
+- ✅ Inkomende webhooks / API-triggers (token → vooraf toegestane actie)
+- ✅ Zapier/Make-recepten (in- en uitgaand)
+- ✅ PWA offline-modus (app-schil-cache + offline-pagina)
+- ✅ Bulk-tagging via selectie + tag-galerij
+- ✅ Thema-planning (donker/licht/auto) + hoog-contrast-toegankelijkheid
+- ✅ Deelbare openbare galerijen (/g/<token>)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

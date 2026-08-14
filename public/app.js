@@ -35,11 +35,20 @@ function applyI18n() {
   document.getElementById('langBtn').textContent = LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length].toUpperCase();
 }
 
-// --- Thema ---
-function applyTheme() {
-  const th = localStorage.getItem('theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', th);
+// --- Thema (incl. hoog-contrast en dag/nacht-planning) ---
+function scheduledTheme() {
+  // Tussen 07:00 en 19:00 licht, daarbuiten donker.
+  const h = new Date().getHours();
+  return (h >= 7 && h < 19) ? 'light' : 'dark';
 }
+function applyTheme() {
+  let th = localStorage.getItem('theme') || 'dark';
+  if (th === 'auto') th = scheduledTheme();
+  document.documentElement.setAttribute('data-theme', th);
+  document.documentElement.classList.toggle('hc', localStorage.getItem('highContrast') === '1');
+}
+// Bij 'auto' periodiek herevalueren zodat het thema met de klok meebeweegt.
+setInterval(() => { if ((localStorage.getItem('theme') || 'dark') === 'auto') applyTheme(); }, 300000);
 
 const fmtSize = (n) => { if (!n) return ''; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; };
 const isImg = (name) => /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(name);
@@ -561,6 +570,18 @@ document.getElementById('newfileBtn').onclick = async () => { const n=prompt('Na
 document.getElementById('bulkDl').onclick = async () => { if(!selected.size)return alert('Niets geselecteerd'); const r=await api('/api/bulkzip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:[...selected]})}); const b=await r.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='selectie.zip'; a.click(); };
 document.getElementById('bulkDel').onclick = async () => { if(!selected.size)return alert('Niets geselecteerd'); if(!confirm(selected.size+' item(s) naar prullenbak?'))return; await api('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:[...selected]})}); selected.clear(); load(); loadMe(); };
 const bulkMoveBtn = document.getElementById('bulkMove'); if (bulkMoveBtn) bulkMoveBtn.onclick = async () => { if(!selected.size)return alert('Niets geselecteerd'); const dest=prompt('Verplaats '+selected.size+' item(s) naar welke map? (bijv. /map1)', cwd); if(dest===null)return; const r=await(await api('/api/bulk/move',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:[...selected],dest})})).json(); if(r.error)return alert(r.error); selected.clear(); load(); };
+const bulkTagBtn = document.getElementById('bulkTag'); if (bulkTagBtn) bulkTagBtn.onclick = async () => {
+  if(!selected.size)return alert('Niets geselecteerd');
+  const tag=prompt('Welke tag toevoegen aan '+selected.size+' item(s)?'); if(!tag)return;
+  const r=await(await api('/api/bulk-tag',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:[...selected],tag})})).json();
+  alert((r.changed||0)+' item(s) getagd met "'+tag+'".'); selected.clear(); load();
+};
+const tagGalBtn = document.getElementById('tagGalBtn'); if (tagGalBtn) tagGalBtn.onclick = async () => {
+  const tag=prompt('Toon bestanden met welke tag?'); if(!tag)return;
+  const d=await(await api('/api/by-tag?tag='+enc(tag))).json();
+  const rows=(d.paths||[]).map(p=>`<li>🏷️ ${esc(p)} <a href="/api/download?path=${enc(p)}">⬇</a></li>`).join('');
+  openModal(`<h3>🏷️ Tag: ${esc(tag)}</h3><ul>${rows||'<li class="muted">Geen bestanden met deze tag.</li>'}</ul>`);
+};
 document.getElementById('fileInput').onchange = e => uploadFiles([...e.target.files]);
 document.getElementById('dirInput').onchange = e => { const files=[...e.target.files]; uploadFiles(files, files.map(f=>f.webkitRelativePath||f.name)); };
 document.getElementById('logoutBtn').onclick = async () => { await fetch('/api/logout',{method:'POST'}); window.location='/login.html'; };
@@ -719,7 +740,8 @@ document.getElementById('contentSearch').onchange = load;
 const dropBtn = document.getElementById('dropLinkBtn'); if (dropBtn) dropBtn.onclick = makeDropLink;
 const galBtn = document.getElementById('galleryBtn'); if (galBtn) galBtn.onclick = showGallery;
 document.getElementById('adminBtn').onclick = () => window.location='/admin.html';
-document.getElementById('themeBtn').onclick = () => { const cur=localStorage.getItem('theme')||'dark'; localStorage.setItem('theme',cur==='dark'?'light':'dark'); applyTheme(); };
+document.getElementById('themeBtn').onclick = () => { const order=['dark','light','auto']; const cur=localStorage.getItem('theme')||'dark'; const next=order[(order.indexOf(cur)+1)%order.length]; localStorage.setItem('theme',next); applyTheme(); document.getElementById('themeBtn').title='Thema: '+next; };
+const hcBtn = document.getElementById('hcBtn'); if (hcBtn) hcBtn.onclick = () => { localStorage.setItem('highContrast', localStorage.getItem('highContrast')==='1'?'0':'1'); applyTheme(); };
 document.getElementById('langBtn').onclick = () => { lang = LANGS[(LANGS.indexOf(lang)+1)%LANGS.length]; localStorage.setItem('lang',lang); applyI18n(); loadMe(); load(); };
 
 const drop = document.getElementById('drop');

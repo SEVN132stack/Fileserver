@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Galerij — Fileserver</title>
+  <style>
+    body { margin:0; font-family:system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
+    header { padding:1rem 1.5rem; border-bottom:1px solid #1e293b; }
+    h1 { font-size:1.1rem; margin:0; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:.6rem; padding:1rem; }
+    .grid a { display:block; aspect-ratio:1; overflow:hidden; border-radius:8px; background:#1e293b; }
+    .grid img { width:100%; height:100%; object-fit:cover; display:block; transition:transform .2s; }
+    .grid a:hover img { transform:scale(1.05); }
+    .msg { padding:2rem; color:#94a3b8; }
+    #pwbox { padding:2rem; }
+    input,button { padding:.5rem; border-radius:6px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; }
+    #lightbox { position:fixed; inset:0; background:rgba(0,0,0,.9); display:none; align-items:center; justify-content:center; }
+    #lightbox img { max-width:94vw; max-height:94vh; }
+  </style>
+</head>
+<body>
+  <header><h1>🖼️ Gedeelde galerij</h1></header>
+  <div id="content"><div class="msg">Laden…</div></div>
+  <div id="lightbox"><img></div>
+  <script>
+    const token = location.pathname.split('/').pop();
+    const params = new URLSearchParams(location.search);
+    const pw = params.get('pw') || '';
+    const pwq = pw ? '&pw=' + encodeURIComponent(pw) : '';
+    async function load() {
+      const r = await fetch('/api/s/' + encodeURIComponent(token) + '/gallery?x=1' + pwq);
+      const c = document.getElementById('content');
+      if (r.status === 401) {
+        c.innerHTML = '<div id="pwbox"><p>Deze galerij is met een wachtwoord beveiligd.</p><input id="pw" type="password" placeholder="Wachtwoord"> <button onclick="location.search=\'?pw=\'+encodeURIComponent(document.getElementById(\'pw\').value)">Openen</button></div>';
+        return;
+      }
+      if (!r.ok) { c.innerHTML = '<div class="msg">Galerij niet gevonden of verlopen.</div>'; return; }
+      const d = await r.json();
+      document.querySelector('h1').textContent = '🖼️ ' + d.name;
+      if (!d.images.length) { c.innerHTML = '<div class="msg">Geen afbeeldingen in deze map.</div>'; return; }
+      c.innerHTML = '<div class="grid">' + d.images.map(n => {
+        const u = '/api/s/' + encodeURIComponent(token) + '/raw?file=' + encodeURIComponent(n) + pwq;
+        return '<a href="' + u + '" data-full="' + u + '"><img loading="lazy" src="' + u + '"></a>';
+      }).join('') + '</div>';
+      c.querySelectorAll('a').forEach(a => a.onclick = (e) => { e.preventDefault(); const lb = document.getElementById('lightbox'); lb.querySelector('img').src = a.dataset.full; lb.style.display = 'flex'; });
+    }
+    document.getElementById('lightbox').onclick = () => document.getElementById('lightbox').style.display = 'none';
+    load();
+  </script>
+</body>
+</html>

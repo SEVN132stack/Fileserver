@@ -141,6 +141,18 @@
       <h3 style="margin:.6rem 0 .2rem">Activiteit per dag</h3><div id="anTimeline" style="display:flex;align-items:flex-end;gap:2px;height:80px"></div>
     </div>
 
+    <h2>Inkomende webhooks (API-triggers)</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <p class="l" style="margin-top:0">Koppel een geheime token aan één vooraf toegestane actie. Externe diensten (Zapier/Make/CI) POST'en naar <code>/api/hooks/&lt;token&gt;</code>.</p>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <select id="hookAction"></select>
+        <input id="hookLabel" placeholder="label (optioneel)" style="width:160px">
+        <button id="hookAdd">Hook aanmaken</button>
+      </div>
+      <table id="hookTable" style="margin-top:1rem"></table>
+      <details style="margin-top:.8rem"><summary class="l">Zapier/Make-recepten</summary><div id="recipes" class="l"></div></details>
+    </div>
+
     <h2>Just-in-time toegangsverzoeken</h2>
     <div class="card" style="margin-bottom:2rem">
       <p class="l" style="margin-top:0">Tijdelijke rol-verhogingen: keur goed of af. Goedgekeurde verhogingen vervallen automatisch.</p>
@@ -507,7 +519,22 @@
     }
     document.getElementById('anDays').onchange = loadAnalytics;
 
-    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit(); loadAnalytics();
+    async function loadHooks() {
+      const { hooks, actions } = await (await j('/api/admin/hooks')).json();
+      const sel = document.getElementById('hookAction');
+      if (!sel.options.length) sel.innerHTML = actions.map(a=>`<option>${esc(a)}</option>`).join('');
+      document.getElementById('hookTable').innerHTML = '<tr><th>Actie</th><th>Label</th><th>URL</th><th>Fires</th><th></th></tr>' +
+        (hooks.length ? hooks.map(h=>`<tr><td>${esc(h.action)}</td><td>${esc(h.label||'')}</td><td><code>${esc(location.origin)}/api/hooks/${esc(h.token)}</code></td><td>${h.fires||0}</td><td><button class="danger" data-hookdel="${esc(h.token)}">×</button></td></tr>`).join('') : '<tr><td colspan="5" class="l">Geen hooks.</td></tr>');
+      const { recipes } = await (await j('/api/integrations/recipes')).json();
+      document.getElementById('recipes').innerHTML = recipes.map(r=>`<div style="margin:.4rem 0"><b>${esc(r.name)}</b> <span class="l">(${esc(r.direction)})</span><br>${esc(r.description)}<ol>${r.steps.map(s=>`<li>${esc(s)}</li>`).join('')}</ol></div>`).join('');
+    }
+    document.getElementById('hookAdd').onclick = async () => {
+      await j('/api/admin/hooks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:document.getElementById('hookAction').value,label:document.getElementById('hookLabel').value})});
+      loadHooks();
+    };
+    document.addEventListener('click', async e => { if (e.target.dataset.hookdel) { await j('/api/admin/hooks/'+encodeURIComponent(e.target.dataset.hookdel),{method:'DELETE'}); loadHooks(); } });
+
+    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit(); loadAnalytics(); loadHooks();
 
     // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
     // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.
