@@ -24,6 +24,7 @@ import { audit, verifyChain, tailLines } from './audit.js';
 import { blockReason } from './geoblock.js';
 import * as jit from './jit.js';
 import { recordDownload } from './anomaly.js';
+import * as savedsearch from './savedsearch.js';
 import { notify } from './notify.js';
 import { ensureTls } from './tls.js';
 import { handleWebdav, WEBDAV_MOUNT } from './webdav.js';
@@ -1771,6 +1772,43 @@ export function createWebServer() {
       emitToUser(req.user, 'change', { action: 'from_template' });
       res.json({ ok: true });
     } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Opgeslagen zoekopdrachten / slimme mappen (per gebruiker).
+  app.get('/api/saved-searches', (req, res) => res.json({ searches: savedsearch.listSaved(req.user) }));
+  app.post('/api/saved-searches', requireWrite, express.json(), (req, res) => {
+    try { res.json({ ok: true, search: savedsearch.addSaved(req.user, req.body || {}) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/saved-searches/:id', requireWrite, (req, res) => res.json({ ok: savedsearch.deleteSaved(req.user, req.params.id) }));
+
+  // Interactief analytics-overzicht (admin): actie-verdeling, top-gebruikers en
+  // een dag-tijdlijn, afgeleid uit het audit-log.
+  app.get('/api/admin/report/analytics', requireAdmin, (req, res) => {
+    const days = Math.min(90, Math.max(1, parseInt(req.query.days, 10) || 30));
+    const since = Date.now() - days * 86400000;
+    const byAction = {};
+    const byUser = {};
+    const timeline = {}; // 'YYYY-MM-DD' -> count
+    let total = 0;
+    for (const line of tailLines(config.auditLog, 50000)) {
+      let e; try { e = JSON.parse(line); } catch { continue; }
+      if (!e.ts || new Date(e.ts).getTime() < since) continue;
+      byAction[e.action] = (byAction[e.action] || 0) + 1;
+      if (e.user) {
+        byUser[e.user] = byUser[e.user] || { downloads: 0, uploads: 0, total: 0 };
+        byUser[e.user].total++;
+        if (e.action === 'download') byUser[e.user].downloads++;
+        if (e.action === 'upload') byUser[e.user].uploads++;
+      }
+      const day = new Date(e.ts).toISOString().slice(0, 10);
+      timeline[day] = (timeline[day] || 0) + 1;
+      total++;
+    }
+    const topUsers = Object.entries(byUser)
+      .map(([user, v]) => ({ user, ...v }))
+      .sort((a, b) => b.total - a.total).slice(0, 10);
+    res.json({ days, total, byAction, topUsers, timeline });
   });
 
   // Just-in-time toegang: verzoek + status voor de gebruiker; beheer voor admin.

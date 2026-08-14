@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
+import { canPreviewOffice, officePreview } from './office.js';
 
 // Lichte omgekeerde index (inverted index) voor snelle bestandsnaam- en
 // inhoudzoekacties over grote opslag. In plaats van bij elke zoekopdracht de
@@ -50,6 +51,15 @@ export function buildIndex() {
           for (const t of new Set(tokenize(fs.readFileSync(full, 'utf8')))) add(t, rel);
         }
       } catch { /* overslaan */ }
+    } else if (config.indexOfficeContent && canPreviewOffice(base)) {
+      // Volledige-tekst-zoeken in kantoordocumenten (docx/xlsx/pptx): extraheer
+      // de platte tekst en indexeer die net als gewone tekstbestanden.
+      try {
+        if (fs.statSync(full).size <= MAX_CONTENT_BYTES) {
+          const { text } = officePreview(full);
+          if (text) for (const t of new Set(tokenize(text))) add(t, rel);
+        }
+      } catch { /* niet-parseerbaar office-bestand overslaan */ }
     }
   }
   index = { built: Date.now(), tokens, names };

@@ -640,6 +640,54 @@ async function showTeamSpace(id, sub) {
     ${canW?`<div style="margin-top:.6rem"><label style="cursor:pointer;color:var(--accent)">＋ Upload<input type="file" id="teamUp" data-teamid="${esc(id)}" data-teampath="${esc(path0)}" hidden></label></div>`:''}
     ${d.role==='admin'?`<div style="margin-top:.6rem;border-top:1px solid var(--border);padding-top:.5rem"><input id="teamMember" placeholder="gebruiker" style="width:120px"> <select id="teamRole"><option value="viewer">viewer</option><option value="editor">editor</option><option value="admin">admin</option></select> <button data-teamaddmember="${esc(id)}">Lid toevoegen</button></div>`:''}`);
 }
+// Duplicaten-dashboard: groepen identieke bestanden; behoud de eerste, ruim de rest op.
+async function showDuplicates() {
+  openModal('<h3>🧬 Duplicaten</h3><p class="muted">Bezig met scannen…</p>');
+  const d = await (await api('/api/duplicates')).json();
+  const groups = d.groups || [];
+  const fmt = (g, gi) => {
+    const rows = g.paths.map((p, i) =>
+      `<li>${i === 0 ? '📌 ' : ''}${esc(p)} ${i > 0 ? `<button class="danger" data-dupdel="${enc(p)}">verwijder</button>` : '<span class="muted">(behouden)</span>'}</li>`).join('');
+    return `<div style="border:1px solid var(--border);border-radius:6px;padding:.4rem .6rem;margin:.4rem 0"><b>${(g.size/1024).toFixed(1)} KB × ${g.paths.length}</b><ul style="list-style:none;padding:0;margin:.3rem 0">${rows}</ul></div>`;
+  };
+  openModal(`<h3>🧬 Duplicaten</h3>
+    <p class="muted">Verspild: ${(d.wasted/1e6).toFixed(1)} MB in ${groups.length} groepen.
+    <button data-dedup style="margin-left:.5rem">Automatisch dedupliceren (reflink)</button></p>
+    <div style="max-width:80vw;max-height:66vh;overflow:auto">${groups.length ? groups.map(fmt).join('') : '<p class="muted">Geen duplicaten gevonden.</p>'}</div>`);
+}
+// Opgeslagen zoekopdrachten / slimme mappen.
+async function showSaved() {
+  const { searches } = await (await api('/api/saved-searches')).json();
+  const rows = searches.length ? searches.map(s =>
+    `<li style="margin:.3rem 0"><button class="ghost" data-savedrun="${esc(s.id)}">🔎 ${esc(s.name)}</button> <span class="muted">"${esc(s.query)}"${s.content?' (inhoud)':''}</span> <button class="danger" data-saveddel="${esc(s.id)}">×</button></li>`).join('') : '<li class="muted">Nog geen opgeslagen zoekopdrachten.</li>';
+  openModal(`<h3>⭐ Opgeslagen zoekopdrachten</h3><ul style="list-style:none;padding:0">${rows}</ul>
+    <div style="margin-top:.6rem;border-top:1px solid var(--border);padding-top:.5rem">
+      <input id="savName" placeholder="naam" style="width:110px"> <input id="savQuery" placeholder="zoekterm" style="width:130px">
+      <label class="muted"><input type="checkbox" id="savContent"> inhoud</label> <button data-savedadd>Opslaan</button></div>`);
+}
+let savedList = [];
+const dupBtn = document.getElementById('dupBtn'); if (dupBtn) dupBtn.onclick = showDuplicates;
+const savedBtn = document.getElementById('savedBtn'); if (savedBtn) savedBtn.onclick = showSaved;
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (t.dataset.dupdel) { if (!confirm('Deze kopie verwijderen?')) return; await api('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t.dataset.dupdel)})}); return showDuplicates(); }
+  if (t.hasAttribute && t.hasAttribute('data-dedup')) { t.textContent='Bezig…'; const r = await (await api('/api/dedup',{method:'POST'})).json(); alert(r.supported===false?'Bestandssysteem ondersteunt geen reflinks.':`${r.reflinked} bestanden gededupliceerd (${(r.saved/1e6).toFixed(1)} MB).`); return showDuplicates(); }
+  if (t.hasAttribute && t.hasAttribute('data-savedadd')) {
+    const name = document.getElementById('savName').value.trim(), query = document.getElementById('savQuery').value.trim();
+    if (!name || !query) return; const content = document.getElementById('savContent').checked;
+    const r = await api('/api/saved-searches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,query,content,path:'/'})});
+    if(!r.ok){const ee=await r.json().catch(()=>({}));alert(ee.error||'Mislukt');} return showSaved();
+  }
+  if (t.dataset.saveddel) { await api('/api/saved-searches/'+encodeURIComponent(t.dataset.saveddel),{method:'DELETE'}); return showSaved(); }
+  if (t.dataset.savedrun) {
+    const { searches } = await (await api('/api/saved-searches')).json();
+    const s = searches.find(x => x.id === t.dataset.savedrun); if (!s) return;
+    closeModal();
+    const sEl = document.getElementById('search'), cEl = document.getElementById('contentSearch');
+    if (sEl) sEl.value = s.query; if (cEl) cEl.checked = !!s.content;
+    load();
+  }
+});
 const teamsBtn = document.getElementById('teamsBtn'); if (teamsBtn) teamsBtn.onclick = () => showTeams();
 document.addEventListener('click', async (e) => {
   const t = e.target;

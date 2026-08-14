@@ -45,6 +45,7 @@ process.env.JIT_FILE = path.join(tmp, 'jit.json');
 process.env.TEAMS_FILE = path.join(tmp, 'teams.json');
 process.env.TEAM_SPACES_DIR = path.join(tmp, 'teamspaces');
 process.env.REVIEWS_FILE = path.join(tmp, 'reviews.json');
+process.env.SAVED_SEARCHES_FILE = path.join(tmp, 'saved-searches.json');
 process.env.ANOMALY_DL_COUNT = '3'; // lage drempel zodat de test snel triggert
 process.env.BLOCKED_CIDRS = '203.0.113.0/24'; // testblok (geen localhost)
 process.env.METRICS_TOKEN = 'test-metrics-token';
@@ -1120,6 +1121,40 @@ try {
     const team = teamsMod.getTeam(tid);
     ok('team-rollen: viewer kan lezen maar niet schrijven',
       teamsMod.canRead(team, 'bob') === true && teamsMod.canWrite(team, 'bob') === false && teamsMod.isTeamAdmin(team, 'admin') === true);
+  }
+
+  // 79. Volledige-tekst-zoeken in kantoordocumenten (docx-inhoud in de index).
+  {
+    const si = await import('../src/searchindex.js');
+    si.buildIndex(); // storage bevat admin/doc.docx met "Hallo officewereld"
+    const hits = si.query('admin', 'officewereld');
+    ok('office-inhoud doorzoekbaar via de index', hits.some((p) => p.includes('doc.docx')));
+  }
+
+  // 80. Opgeslagen zoekopdrachten: toevoegen, tonen, verwijderen.
+  {
+    const add = await (await fetch(H + '/api/saved-searches', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ name: 'Facturen', query: 'factuur', content: true }) })).json();
+    const listed = await (await fetch(H + '/api/saved-searches', { headers: jar() })).json();
+    const del = await (await fetch(H + '/api/saved-searches/' + add.search.id, { method: 'DELETE', headers: jar() })).json();
+    const after = await (await fetch(H + '/api/saved-searches', { headers: jar() })).json();
+    ok('opgeslagen zoekopdracht toevoegen/tonen/verwijderen',
+      add.ok && listed.searches.some((s) => s.name === 'Facturen') && del.ok && after.searches.length === 0);
+  }
+
+  // 81. Analytics-overzicht (admin).
+  {
+    const an = await (await fetch(H + '/api/admin/report/analytics?days=30', { headers: jar() })).json();
+    ok('analytics levert acties + top-gebruikers + tijdlijn',
+      typeof an.total === 'number' && an.byAction && typeof an.byAction === 'object' && Array.isArray(an.topUsers) && an.timeline);
+  }
+
+  // 82. Duplicaten-dashboard: identieke bestanden worden als groep herkend.
+  {
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'dupA.txt'), 'zelfde inhoud hier');
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'dupB.txt'), 'zelfde inhoud hier');
+    const dup = await (await fetch(H + '/api/duplicates', { headers: jar() })).json();
+    ok('duplicaten-dashboard groepeert identieke bestanden',
+      dup.groups.some((g) => g.paths.some((p) => p.includes('dupA.txt')) && g.paths.some((p) => p.includes('dupB.txt'))));
   }
 
   console.log(`\n${passed} tests geslaagd.`);
