@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Status — Fileserver</title>
+  <style>
+    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; font-family:system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
+    .card { background:#1e293b; padding:2rem 2.5rem; border-radius:14px; text-align:center; min-width:280px; }
+    .dot { width:14px; height:14px; border-radius:50%; display:inline-block; margin-right:.5rem; vertical-align:middle; }
+    .up { background:#22c55e; box-shadow:0 0 10px #22c55e; } .down { background:#ef4444; }
+    h1 { font-size:1.4rem; margin:.3rem 0; } .muted { color:#94a3b8; font-size:.85rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1><span id="dot" class="dot"></span><span id="state">Controleren…</span></h1>
+    <div class="muted" id="detail"></div>
+  </div>
+  <script>
+    async function check() {
+      try {
+        const r = await fetch('/api/status-public', { cache: 'no-store' });
+        const d = await r.json();
+        document.getElementById('dot').className = 'dot up';
+        document.getElementById('state').textContent = 'Operationeel';
+        const u = d.uptime, days = Math.floor(u/86400), h = Math.floor(u%86400/3600), m = Math.floor(u%3600/60);
+        document.getElementById('detail').textContent = `v${d.version} · uptime ${days}d ${h}u ${m}m`;
+      } catch {
+        document.getElementById('dot').className = 'dot down';
+        document.getElementById('state').textContent = 'Niet bereikbaar';
+        document.getElementById('detail').textContent = '';
+      }
+    }
+    check(); setInterval(check, 15000);
+  </script>
+</body>
+</html>

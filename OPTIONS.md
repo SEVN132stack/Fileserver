@@ -236,6 +236,25 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Rijke previews: EPUB-omslag + STL (3D) info
 - ✅ Per-gebruiker geplande taken (opschoning)
 
+## Toegang, samenwerking & opslag (v3.20)
+
+- ✅ 2FA-herstelcodes (10 eenmalige codes)
+- ✅ Magic-link login (inloggen via e-maillink)
+- ✅ Zelfregistratie met invite-codes
+- ✅ Per-deellink snelheidslimiet (KB/s)
+- ✅ Bestandssjablonen
+- ✅ Per-map beschrijving/README
+- ✅ Mapkleuren & iconen
+- ✅ Opslag-deduplicatie (reflink/copy-on-write)
+- ✅ Hervatbare downloads (HTTP Range / 206)
+- ✅ Activiteitenfeed per map
+- ✅ "Gezien door" read-receipts
+- ✅ Publieke status-pagina
+- ✅ Quota-waarschuwing per e-mail
+- ✅ Onveranderbare snapshots
+- ✅ Uitgaande webhook-wachtrij met retries
+- ✅ Certificaat-vervalbewaking
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

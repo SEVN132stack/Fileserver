@@ -425,12 +425,18 @@ async function setup2fa() {
   openModal(`<h3>2FA instellen</h3><p class="muted">Voeg dit geheim toe aan je authenticator-app:</p>
     <p><code>${r.secret}</code></p><p class="muted" style="word-break:break-all">${r.otpauth}</p>
     <label>Voer een code in om te bevestigen:</label><input id="totpIn"><br>
-    <button id="enable2fa">Inschakelen</button> <button class="danger" id="disable2fa">Uitschakelen</button>`);
+    <button id="enable2fa">Inschakelen</button> <button class="danger" id="disable2fa">Uitschakelen</button>
+    <hr><button id="recCodes">Herstelcodes genereren</button><div id="recOut" style="margin-top:.5rem"></div>`);
   document.getElementById('enable2fa').onclick = async () => {
     const res = await api('/api/2fa/enable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:r.secret,token:document.getElementById('totpIn').value})});
     alert(res.ok ? '2FA ingeschakeld' : '2FA-code onjuist'); if (res.ok) closeModal();
   };
   document.getElementById('disable2fa').onclick = async () => { await api('/api/2fa/disable',{method:'POST'}); alert('2FA uitgeschakeld'); closeModal(); };
+  document.getElementById('recCodes').onclick = async () => {
+    if (!confirm('Nieuwe herstelcodes maken? Oude codes vervallen.')) return;
+    const res = await (await api('/api/2fa/recovery-codes',{method:'POST'})).json();
+    document.getElementById('recOut').innerHTML = `<p class="muted">Bewaar deze eenmalige codes veilig:</p><pre>${res.codes.join('\n')}</pre>`;
+  };
 }
 
 // --- Events ---
@@ -577,6 +583,20 @@ async function showApiKeys() {
   document.querySelectorAll('[data-keydel]').forEach(b=>b.onclick=async()=>{ await api('/api/apikeys/'+b.dataset.keydel,{method:'DELETE'}); showApiKeys(); });
 }
 const apikeyBtn = document.getElementById('apikeyBtn'); if (apikeyBtn) apikeyBtn.onclick = showApiKeys;
+
+// Snapshots (point-in-time momentopnamen van je opslag).
+async function showSnapshots() {
+  const { snapshots } = await (await api('/api/snapshots')).json();
+  const rows = snapshots.map(s=>`<li>${esc(s.created)} — ${s.files} bestand(en), ${fmtSize(s.bytes)}
+    <button data-snaprestore="${esc(s.id)}">terugzetten</button> <button class="danger" data-snapdel="${esc(s.id)}">×</button></li>`).join('');
+  openModal(`<h3>📸 Snapshots</h3><p class="muted">Onveranderbare momentopnamen van je bestanden.</p>
+    <ul style="list-style:none;padding:0;max-width:70vw">${rows||'<li class="muted">Nog geen snapshots.</li>'}</ul>
+    <button id="snapNew">Nieuwe snapshot maken</button>`);
+  document.getElementById('snapNew').onclick = async () => { await api('/api/snapshots',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); showSnapshots(); };
+  document.querySelectorAll('[data-snaprestore]').forEach(b=>b.onclick=async()=>{ if(confirm('Deze snapshot terugzetten? Bestaande bestanden worden overschreven.')){ await api('/api/snapshots/'+encodeURIComponent(b.dataset.snaprestore)+'/restore',{method:'POST'}); alert('Teruggezet'); closeModal(); load(); } });
+  document.querySelectorAll('[data-snapdel]').forEach(b=>b.onclick=async()=>{ await api('/api/snapshots/'+encodeURIComponent(b.dataset.snapdel),{method:'DELETE'}); showSnapshots(); });
+}
+const snapBtn = document.getElementById('snapBtn'); if (snapBtn) snapBtn.onclick = showSnapshots;
 document.getElementById('camInput').onchange = (e) => uploadFiles([...e.target.files]);
 document.getElementById('contentSearch').onchange = load;
 const dropBtn = document.getElementById('dropLinkBtn'); if (dropBtn) dropBtn.onclick = makeDropLink;

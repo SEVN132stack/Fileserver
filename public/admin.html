@@ -116,6 +116,17 @@
       <div id="reportOut" style="margin-top:.8rem;overflow-x:auto"></div>
     </div>
 
+    <h2>Invite-codes (zelfregistratie)</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <select id="invRole"><option value="user">user</option><option value="readonly">readonly</option></select>
+        <input id="invMax" type="number" min="1" value="1" style="width:70px" title="max. gebruik">
+        <input id="invDays" type="number" min="0" value="7" style="width:70px" title="verloopt na dagen">
+        <button id="invAdd">Code aanmaken</button>
+      </div>
+      <table id="invTable" style="margin-top:1rem"></table>
+    </div>
+
     <h2>Instellingen</h2>
     <div class="card" style="margin-bottom:2rem">
       <label><input type="checkbox" id="setMaintenance"> Onderhoudsmodus (alleen admins hebben toegang)</label><br><br>
@@ -437,7 +448,19 @@
         <p style="margin-top:.6rem"><strong>Per land:</strong> ${cty}</p>`);
     };
 
-    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk();
+    async function loadInvites() {
+      const { invites } = await (await j('/api/admin/invites')).json();
+      document.getElementById('invTable').innerHTML = '<tr><th>Code</th><th>Rol</th><th>Gebruik</th><th>Verloopt</th><th></th></tr>' +
+        (invites.length ? invites.map(i=>`<tr><td><code>${esc(i.code)}</code></td><td>${esc(i.role)}</td><td>${i.uses}/${i.maxUses}</td><td>${i.expires?new Date(i.expires).toLocaleDateString():'nooit'}</td><td><button class="danger" data-invdel="${esc(i.code)}">×</button></td></tr>`).join('') : '<tr><td colspan="5" class="l">Geen codes.</td></tr>');
+    }
+    document.getElementById('invAdd').onclick = async () => {
+      const r = await (await j('/api/admin/invites',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:invRole.value,maxUses:Number(invMax.value)||1,expiresInDays:Number(invDays.value)||0})})).json();
+      const base = location.origin;
+      alert('Invite-code: '+r.invite.code+'\nDeel: '+base+'/register.html?code='+r.invite.code); loadInvites();
+    };
+    document.addEventListener('click', async e => { if (e.target.dataset.invdel) { await j('/api/admin/invites/'+encodeURIComponent(e.target.dataset.invdel),{method:'DELETE'}); loadInvites(); } });
+
+    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites();
 
     // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
     // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.
