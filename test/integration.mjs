@@ -42,6 +42,9 @@ process.env.WEBHOOK_QUEUE_FILE = path.join(tmp, 'webhook-queue.json');
 process.env.SNAPSHOTS_DIR = path.join(tmp, 'snapshots');
 process.env.FOLDER_INFO_FILE = path.join(tmp, 'folder-info.json');
 process.env.JIT_FILE = path.join(tmp, 'jit.json');
+process.env.TEAMS_FILE = path.join(tmp, 'teams.json');
+process.env.TEAM_SPACES_DIR = path.join(tmp, 'teamspaces');
+process.env.REVIEWS_FILE = path.join(tmp, 'reviews.json');
 process.env.ANOMALY_DL_COUNT = '3'; // lage drempel zodat de test snel triggert
 process.env.BLOCKED_CIDRS = '203.0.113.0/24'; // testblok (geen localhost)
 process.env.METRICS_TOKEN = 'test-metrics-token';
@@ -1080,6 +1083,43 @@ try {
     // admin heeft geen verhoging nodig; controleer het endpoint-contract voor admin.
     const st = await (await fetch(H + '/api/jit/status', { headers: jar() })).json();
     ok('JIT-status-endpoint levert effectieve rol', st.effectiveRole === 'admin' && ('elevation' in st));
+  }
+
+  // 75. Versie-diff-weergave.
+  {
+    await fetch(H + '/api/save?path=/diff.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'A\nB\nC' });
+    await fetch(H + '/api/save?path=/diff.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'A\nX\nC\nD' });
+    const vs = await (await fetch(H + '/api/versions?path=/diff.txt', { headers: jar() })).json();
+    ok('versie aangemaakt vóór overschrijven', vs.versions.length >= 1);
+    const dif = await (await fetch(H + `/api/version/diff?path=/diff.txt&version=${vs.versions[0].version}`, { headers: jar() })).json();
+    ok('versie-diff telt toevoegingen/verwijderingen', dif.stat.added === 2 && dif.stat.removed === 1);
+  }
+
+  // 76. Goedkeuringsworkflow.
+  {
+    await fetch(H + '/api/review', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/diff.txt', note: 'graag review' }) });
+    const pend = await (await fetch(H + '/api/review?path=/diff.txt', { headers: jar() })).json();
+    const dec = await (await fetch(H + '/api/review/decide', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/diff.txt', approve: true }) })).json();
+    ok('review: pending -> approved', pend.review.status === 'pending' && dec.review.status === 'approved');
+  }
+
+  // 77. Teamruimte: aanmaken, uploaden, listen, downloaden (maker = team-admin).
+  {
+    const t = await (await fetch(H + '/api/teams', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ name: 'Alfa' }) })).json();
+    const tid = t.team.id;
+    const tfd = new FormData(); tfd.append('file', new Blob(['teamdata\n']), 'team.txt');
+    await fetch(H + `/api/teams/${tid}/upload?path=/`, { method: 'POST', headers: jar(), body: tfd });
+    const tl = await (await fetch(H + `/api/teams/${tid}/list?path=/`, { headers: jar() })).json();
+    const dl = await fetch(H + `/api/teams/${tid}/download?path=/team.txt`, { headers: jar() });
+    ok('teamruimte: upload + list + download werkt',
+      tl.role === 'admin' && tl.items.some((i) => i.name === 'team.txt') && dl.status === 200 && (await dl.text()) === 'teamdata\n');
+
+    // 78. Rolgebaseerde toegang: viewer mag lezen maar niet schrijven.
+    await fetch(H + `/api/teams/${tid}/members`, { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ user: 'bob', role: 'viewer' }) });
+    const teamsMod = await import('../src/teams.js');
+    const team = teamsMod.getTeam(tid);
+    ok('team-rollen: viewer kan lezen maar niet schrijven',
+      teamsMod.canRead(team, 'bob') === true && teamsMod.canWrite(team, 'bob') === false && teamsMod.isTeamAdmin(team, 'admin') === true);
   }
 
   console.log(`\n${passed} tests geslaagd.`);

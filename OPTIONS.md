@@ -262,6 +262,12 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Just-in-time toegang (tijdelijke rol-verhoging met goedkeuring)
 - ✅ Anomalie-detectie (ongebruikelijk downloadvolume → alarm)
 
+## Samenwerking: teamruimtes, reviews & diffs (v3.22)
+
+- ✅ Gedeelde teamruimtes (meerdere leden, rollen viewer/editor/admin)
+- ✅ Goedkeuringsworkflow (bestand in review → goedkeuren/afkeuren)
+- ✅ Versie-diff-weergave (regel-voor-regel verschil met +/− telling)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)
