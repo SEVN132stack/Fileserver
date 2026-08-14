@@ -442,7 +442,11 @@ export const config = {
   // Opgeslagen zoekopdrachten / slimme mappen per gebruiker.
   savedSearchesFile: abs(process.env.SAVED_SEARCHES_FILE || 'saved-searches.json'),
 
-  version: '3.23.0',
+  // --- v3.24 (integraties & UX) ---
+  // Inkomende webhooks / API-triggers: token -> vooraf toegestane actie.
+  inboundHooksFile: abs(process.env.INBOUND_HOOKS_FILE || 'inbound-hooks.json'),
+
+  version: '3.24.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

@@ -46,6 +46,7 @@ process.env.TEAMS_FILE = path.join(tmp, 'teams.json');
 process.env.TEAM_SPACES_DIR = path.join(tmp, 'teamspaces');
 process.env.REVIEWS_FILE = path.join(tmp, 'reviews.json');
 process.env.SAVED_SEARCHES_FILE = path.join(tmp, 'saved-searches.json');
+process.env.INBOUND_HOOKS_FILE = path.join(tmp, 'inbound-hooks.json');
 process.env.ANOMALY_DL_COUNT = '3'; // lage drempel zodat de test snel triggert
 process.env.BLOCKED_CIDRS = '203.0.113.0/24'; // testblok (geen localhost)
 process.env.METRICS_TOKEN = 'test-metrics-token';
@@ -1155,6 +1156,45 @@ try {
     const dup = await (await fetch(H + '/api/duplicates', { headers: jar() })).json();
     ok('duplicaten-dashboard groepeert identieke bestanden',
       dup.groups.some((g) => g.paths.some((p) => p.includes('dupA.txt')) && g.paths.some((p) => p.includes('dupB.txt'))));
+  }
+
+  // 83. Inkomende webhook / API-trigger: admin maakt hook, publieke POST voert actie uit.
+  {
+    const created = await (await fetch(H + '/api/admin/hooks', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ action: 'reindex', label: 'CI' }) })).json();
+    const fire = await fetch(H + '/api/hooks/' + created.hook.token, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const fr = await fire.json();
+    const bad = await fetch(H + '/api/hooks/ih_bestaatniet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    ok('inkomende hook: aanmaken + publiek uitvoeren + onbekende = 404',
+      created.hook.token.startsWith('ih_') && fire.status === 200 && fr.ok === true && bad.status === 404);
+  }
+
+  // 84. Integratie-recepten worden geleverd.
+  {
+    const rec = await (await fetch(H + '/api/integrations/recipes', { headers: jar() })).json();
+    ok('integratie-recepten (Zapier/Make) beschikbaar',
+      Array.isArray(rec.recipes) && rec.recipes.length >= 1 && Array.isArray(rec.actions) && rec.actions.includes('reindex'));
+  }
+
+  // 85. Bulk-tagging + tag-galerij.
+  {
+    await fetch(H + '/api/save?path=/tagme1.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'x' });
+    await fetch(H + '/api/save?path=/tagme2.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'y' });
+    const bt = await (await fetch(H + '/api/bulk-tag', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ paths: ['/tagme1.txt', '/tagme2.txt'], tag: 'project-x' }) })).json();
+    const gal = await (await fetch(H + '/api/by-tag?tag=project-x', { headers: jar() })).json();
+    ok('bulk-tag + tag-galerij',
+      bt.changed === 2 && gal.paths.includes('/tagme1.txt') && gal.paths.includes('/tagme2.txt'));
+  }
+
+  // 86. Publieke galerij van een gedeelde afbeeldingsmap.
+  {
+    fs.mkdirSync(path.join(config.storageDir, 'admin', 'fotos'), { recursive: true });
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'fotos', 'a.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+    const sh = await (await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/fotos' }) })).json();
+    const token = sh.url.split('/').pop();
+    const g = await (await fetch(H + '/api/s/' + token + '/gallery')).json();
+    const raw = await fetch(H + '/api/s/' + token + '/raw?file=a.png');
+    ok('publieke galerij toont afbeeldingen van gedeelde map',
+      g.images.includes('a.png') && raw.status === 200);
   }
 
   console.log(`\n${passed} tests geslaagd.`);

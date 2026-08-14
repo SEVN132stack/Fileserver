@@ -25,6 +25,9 @@ import { blockReason } from './geoblock.js';
 import * as jit from './jit.js';
 import { recordDownload } from './anomaly.js';
 import * as savedsearch from './savedsearch.js';
+import * as inboundHooks from './inbound-hooks.js';
+import { recipes as integrationRecipes } from './recipes.js';
+import { getTags, setTags, findByTag } from './tags.js';
 import { notify } from './notify.js';
 import { ensureTls } from './tls.js';
 import { handleWebdav, WEBDAV_MOUNT } from './webdav.js';
@@ -502,6 +505,42 @@ export function createWebServer() {
   // Publieke status (geen geheimen): voor een status-/uptime-pagina.
   app.get('/api/status-public', (req, res) => {
     res.json({ status: 'ok', version: config.version, uptime: Math.round(process.uptime()) });
+  });
+
+  // Inkomende webhook / API-trigger (publiek, per-token vooraf toegestane actie).
+  // Staat vóór de generieke /api-limiter, dus los per-IP begrenzen.
+  app.post('/api/hooks/:token', express.json({ limit: '64kb' }), async (req, res) => {
+    if (!rateHit(`hook:${clientIp(req)}`, 30, 60000).allowed) return res.status(429).json({ error: 'Te veel verzoeken' });
+    const result = await inboundHooks.fireHook(req.params.token, req.body || {});
+    if (result === null) return res.status(404).json({ error: 'Onbekende hook' });
+    res.json(result);
+  });
+
+  // Publieke read-only galerij van een gedeelde afbeeldingsmap.
+  app.get('/g/:token', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'gallery.html')));
+  const imageRe = /\.(jpe?g|png|gif|webp|bmp|avif|svg)$/i;
+  app.get('/api/s/:token/gallery', (req, res) => {
+    const share = getShare(req.params.token);
+    if (!share || share.type === 'upload') return res.status(404).json({ error: 'Niet gevonden' });
+    if (!checkSharePassword(share, req.query.pw)) return res.status(401).json({ error: 'Wachtwoord vereist' });
+    try {
+      const base = resolveWithin(homeDir(share.user), share.path);
+      if (!fs.statSync(base).isDirectory()) return res.status(400).json({ error: 'Geen map' });
+      const images = fs.readdirSync(base).filter((n) => imageRe.test(n));
+      res.json({ name: path.basename(base), images });
+    } catch { res.status(404).json({ error: 'Niet gevonden' }); }
+  });
+  app.get('/api/s/:token/raw', downloadLimiter, (req, res) => {
+    const share = getShare(req.params.token);
+    if (!share || share.type === 'upload') return res.status(404).end();
+    if (!checkSharePassword(share, req.query.pw)) return res.status(401).end();
+    try {
+      const base = resolveWithin(homeDir(share.user), share.path);
+      // Alleen bestanden binnen de gedeelde map; alleen afbeeldingen.
+      const file = resolveWithin(base, req.query.file || '');
+      if (!imageRe.test(file) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).end();
+      res.sendFile(file);
+    } catch { res.status(400).end(); }
   });
 
   app.post('/api/reset/request', express.json(), async (req, res) => {
@@ -1781,6 +1820,37 @@ export function createWebServer() {
     catch (err) { res.status(400).json({ error: err.message }); }
   });
   app.delete('/api/saved-searches/:id', requireWrite, (req, res) => res.json({ ok: savedsearch.deleteSaved(req.user, req.params.id) }));
+
+  // Bulk-tagging: voeg een tag toe aan (of verwijder van) meerdere bestanden ineens.
+  app.post('/api/bulk-tag', requireWrite, express.json(), (req, res) => {
+    const { paths, tag, remove } = req.body || {};
+    if (!Array.isArray(paths) || !tag) return res.status(400).json({ error: 'paths en tag zijn verplicht' });
+    let changed = 0;
+    for (const p of paths.slice(0, 1000)) {
+      try {
+        resolveWithin(req.home, p); // padvalidatie
+        const cur = new Set(getTags(req.user, p) || []);
+        if (remove) cur.delete(tag); else cur.add(String(tag).slice(0, 40));
+        setTags(req.user, p, [...cur]);
+        changed++;
+      } catch { /* ongeldig pad overslaan */ }
+    }
+    res.json({ ok: true, changed });
+  });
+  // Tag-galerij: alle bestanden met een bepaalde tag.
+  app.get('/api/by-tag', (req, res) => res.json({ tag: req.query.tag || '', paths: findByTag(req.user, req.query.tag || '') }));
+
+  // Integratie-recepten (Zapier/Make) + beheer van inkomende hooks (admin).
+  app.get('/api/integrations/recipes', (req, res) => {
+    const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+    res.json({ recipes: integrationRecipes(base), actions: inboundHooks.actionNames() });
+  });
+  app.get('/api/admin/hooks', requireAdmin, (req, res) => res.json({ hooks: inboundHooks.listHooks(), actions: inboundHooks.actionNames() }));
+  app.post('/api/admin/hooks', requireAdmin, express.json(), (req, res) => {
+    try { res.json({ ok: true, hook: inboundHooks.createHook(req.body.action, req.body.label || '') }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/admin/hooks/:token', requireAdmin, (req, res) => res.json({ ok: inboundHooks.deleteHook(req.params.token) }));
 
   // Interactief analytics-overzicht (admin): actie-verdeling, top-gebruikers en
   // een dag-tijdlijn, afgeleid uit het audit-log.

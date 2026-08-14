@@ -195,6 +195,15 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Integraties & UX: hooks, recepten, offline, tags & galerijen (v3.24)
+
+- **Inkomende webhooks / API-triggers** — koppel een token aan een vooraf toegestane actie; extern POST'en naar `/api/hooks/<token>`.
+- **Zapier/Make-recepten** — kant-en-klare integratiesjablonen in het beheer.
+- **PWA offline-modus** — de app-schil is gecachet met een offline-fallback.
+- **Bulk-tagging + tag-galerij** — tag een selectie ineens; toon bestanden per tag.
+- **Thema-planning + hoog contrast** — donker/licht/auto + toegankelijkheidsmodus.
+- **Deelbare openbare galerijen** — gedeelde afbeeldingsmap als read-only galerij op `/g/<token>`.
+
 ## Zoeken & inzicht: opgeslagen zoekopdrachten, office-zoeken, duplicaten & analytics (v3.23)
 
 - **Opgeslagen zoekopdrachten / slimme mappen** — bewaar een zoekopdracht en voer die met één klik uit (⭐).
