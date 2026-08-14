@@ -304,8 +304,23 @@ async function showVersions(p) {
   const rows = versions.length ? versions.map(v =>
     `<li>${new Date(v.date).toLocaleString()} — ${v.size} bytes
       <a href="/api/version/download?path=${enc(p)}&version=${enc(v.version)}">⬇</a>
+      <button class="ghost" data-verdiff="${enc(p)}|${enc(v.version)}">diff</button>
       <button class="ghost" data-verrestore="${enc(p)}|${enc(v.version)}">herstel</button></li>`).join('') : '<li class="muted">Geen eerdere versies.</li>';
   openModal(`<h3>🕘 Versies van ${esc(p.split('/').pop())}</h3><ul>${rows}</ul>`);
+}
+
+// Toon een regel-diff tussen een oudere versie en het huidige bestand.
+async function showDiff(p, version) {
+  const r = await api('/api/version/diff?path='+enc(p)+'&version='+enc(version));
+  const d = await r.json().catch(()=>({}));
+  if (!r.ok) { openModal(`<h3>Diff</h3><p class="muted">${esc(d.error||'Diff mislukt')}</p>`); return; }
+  const esc2 = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const html = d.hunks.map(h => {
+    const c = h.type==='add' ? '#16351f;color:#4ade80' : h.type==='del' ? '#3a1620;color:#f87171' : 'transparent;color:inherit';
+    const pre = h.type==='add' ? '+ ' : h.type==='del' ? '- ' : '  ';
+    return `<div style="background:${c};padding:0 .3rem;white-space:pre-wrap;font-family:monospace">${esc2(pre+h.line)}</div>`;
+  }).join('');
+  openModal(`<h3>Diff — ${esc(p.split('/').pop())}</h3><p class="muted">+${d.stat.added} / −${d.stat.removed}</p><div style="max-width:80vw;max-height:70vh;overflow:auto;border:1px solid var(--border);border-radius:6px">${html}</div>`);
 }
 
 // Ontsleutel een .enc-bestand in de browser en download het klaartekstbestand.
@@ -520,6 +535,10 @@ document.addEventListener('click', async (e) => {
     await api('/api/version/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,version:v})});
     closeModal(); load(); return;
   }
+  if (t2.dataset.verdiff) {
+    const [p, v] = t2.dataset.verdiff.split('|').map(decodeURIComponent);
+    return showDiff(p, v);
+  }
   if (t2.dataset.ren) {
     const cur = decodeURIComponent(t2.dataset.ren), base = cur.substring(0,cur.lastIndexOf('/')+1);
     const nn = prompt('Nieuwe naam of pad:', cur.split('/').pop()); if (!nn) return;
@@ -597,6 +616,46 @@ async function showSnapshots() {
   document.querySelectorAll('[data-snapdel]').forEach(b=>b.onclick=async()=>{ await api('/api/snapshots/'+encodeURIComponent(b.dataset.snapdel),{method:'DELETE'}); showSnapshots(); });
 }
 const snapBtn = document.getElementById('snapBtn'); if (snapBtn) snapBtn.onclick = showSnapshots;
+async function showTeams(openId) {
+  if (openId) return showTeamSpace(openId);
+  const { teams } = await (await api('/api/teams')).json();
+  const rows = teams.length ? teams.map(t =>
+    `<li style="margin:.3rem 0"><button class="ghost" data-teamopen="${esc(t.id)}">📂 ${esc(t.name)}</button> <span class="muted">(${esc(t.role)}, ${t.members} leden)</span></li>`).join('') : '<li class="muted">Nog geen teamruimtes.</li>';
+  openModal(`<h3>🧑‍🤝‍🧑 Teamruimtes</h3><ul style="list-style:none;padding:0">${rows}</ul>
+    <div style="margin-top:.6rem"><input id="teamNew" placeholder="Naam nieuwe ruimte"> <button data-teamcreate>Aanmaken</button></div>`);
+}
+async function showTeamSpace(id, sub) {
+  const path0 = sub || '/';
+  const r = await api(`/api/teams/${id}/list?path=`+enc(path0));
+  const d = await r.json().catch(()=>({}));
+  if (!r.ok) { openModal(`<p class="muted">${esc(d.error||'Geen toegang')}</p>`); return; }
+  const canW = d.role === 'editor' || d.role === 'admin';
+  const items = (d.items||[]).map(i =>
+    `<tr><td>${i.isDir?'📁':'📄'} ${esc(i.name)}</td><td style="text-align:right">
+      ${i.isDir?`<button class="ghost" data-teamcd="${esc(id)}|${esc(i.path)}">open</button>`:`<a href="/api/teams/${id}/download?path=${enc(i.path)}">⬇</a>`}
+      ${canW?`<button class="danger" data-teamdel="${esc(id)}|${esc(i.path)}">×</button>`:''}</td></tr>`).join('');
+  openModal(`<h3>📂 Teamruimte <span class="muted">(${esc(d.role)})</span></h3>
+    <div class="muted" style="margin-bottom:.4rem">Pad: ${esc(path0)}</div>
+    <table style="width:70vw">${items||'<tr><td class="muted">Leeg.</td></tr>'}</table>
+    ${canW?`<div style="margin-top:.6rem"><label style="cursor:pointer;color:var(--accent)">＋ Upload<input type="file" id="teamUp" data-teamid="${esc(id)}" data-teampath="${esc(path0)}" hidden></label></div>`:''}
+    ${d.role==='admin'?`<div style="margin-top:.6rem;border-top:1px solid var(--border);padding-top:.5rem"><input id="teamMember" placeholder="gebruiker" style="width:120px"> <select id="teamRole"><option value="viewer">viewer</option><option value="editor">editor</option><option value="admin">admin</option></select> <button data-teamaddmember="${esc(id)}">Lid toevoegen</button></div>`:''}`);
+}
+const teamsBtn = document.getElementById('teamsBtn'); if (teamsBtn) teamsBtn.onclick = () => showTeams();
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (t.dataset.teamopen) return showTeamSpace(t.dataset.teamopen);
+  if (t.dataset.teamcd) { const [id,p] = t.dataset.teamcd.split('|'); return showTeamSpace(id, p); }
+  if (t.hasAttribute && t.hasAttribute('data-teamcreate')) { const n = document.getElementById('teamNew').value.trim(); if (!n) return; await api('/api/teams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})}); return showTeams(); }
+  if (t.dataset.teamdel) { const [id,p] = t.dataset.teamdel.split('|'); if (!confirm('Verwijderen?')) return; await api(`/api/teams/${id}/file?path=`+enc(p),{method:'DELETE'}); return showTeamSpace(id); }
+  if (t.dataset.teamaddmember) { const id = t.dataset.teamaddmember; const u = document.getElementById('teamMember').value.trim(); const role = document.getElementById('teamRole').value; if (!u) return; const rr = await api(`/api/teams/${id}/members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:u,role})}); if(!rr.ok){const ee=await rr.json().catch(()=>({}));alert(ee.error||'Mislukt');} return showTeamSpace(id); }
+});
+document.addEventListener('change', async (e) => {
+  if (e.target.id === 'teamUp' && e.target.files.length) {
+    const id = e.target.dataset.teamid, p = e.target.dataset.teampath;
+    for (const f of e.target.files) { const fd = new FormData(); fd.append('file', f, f.name); await api(`/api/teams/${id}/upload?path=`+enc(p),{method:'POST',body:fd}); }
+    showTeamSpace(id, p);
+  }
+});
 const jitBtn = document.getElementById('jitBtn');
 if (jitBtn) jitBtn.onclick = async () => {
   const role = prompt('Welke tijdelijke rol aanvragen? (user/readonly/admin)', 'admin');

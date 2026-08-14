@@ -429,7 +429,14 @@ export const config = {
   anomalyDlCount: parseInt(process.env.ANOMALY_DL_COUNT || '0', 10),
   anomalyDlBytes: parseInt(process.env.ANOMALY_DL_BYTES || '0', 10),
 
-  version: '3.21.0',
+  // --- v3.22 (samenwerking) ---
+  // Gedeelde teamruimtes: metadata + de opslagmap met de team-bestanden.
+  teamsFile: abs(process.env.TEAMS_FILE || 'teams.json'),
+  teamSpacesDir: abs(process.env.TEAM_SPACES_DIR || 'teamspaces'),
+  // Goedkeuringsworkflow: reviewstatus per bestand.
+  reviewsFile: abs(process.env.REVIEWS_FILE || 'reviews.json'),
+
+  version: '3.22.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

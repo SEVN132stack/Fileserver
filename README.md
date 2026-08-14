@@ -195,6 +195,13 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Samenwerking: teamruimtes, reviews & diffs (v3.22)
+
+- **Gedeelde teamruimtes** — benoemde ruimtes met meerdere leden en rollen (viewer/editor/admin),
+  elk met een eigen opslagmap. Beheer via de 🧑‍🤝‍🧑-knop.
+- **Goedkeuringsworkflow** — markeer een bestand als "in review"; een admin/eigenaar keurt goed of af.
+- **Versie-diff-weergave** — regel-voor-regel verschil tussen een oudere versie en het huidige bestand.
+
 ## Beveiliging: hardware-keys, geo-blokkering & JIT (v3.21)
 
 - **Hardware-security-keys voor SFTP** — `SFTP_REQUIRE_HARDWARE_KEY=true` accepteert alleen

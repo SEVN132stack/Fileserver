@@ -40,3 +40,6 @@ webhook-queue.json
 folder-info.json
 snapshots/
 jit.json
+teams.json
+reviews.json
+teamspaces/

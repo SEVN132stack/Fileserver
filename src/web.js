@@ -65,6 +65,9 @@ import { createHash } from 'node:crypto';
 import { handleTus, TUS_MOUNT } from './tus.js';
 import { quarantine, listQuarantine, release as qRelease, remove as qRemove } from './quarantine.js';
 import { snapshot, listVersions, versionPath } from './versions.js';
+import { lineDiff, diffStat } from './diff.js';
+import * as reviews from './reviews.js';
+import * as teams from './teams.js';
 import { signature, applyDelta, DEFAULT_BLOCK } from './rsync.js';
 import * as keyring from './keyring.js';
 import * as searchIndex from './searchindex.js';
@@ -1024,6 +1027,111 @@ export function createWebServer() {
       res.json({ ok: true });
     } catch (err) { res.status(400).json({ error: err.message }); }
   });
+  // Diff-weergave: verschil tussen een oudere versie en het huidige bestand
+  // (of tussen twee versies via ?version=&to=). Alleen zinvol voor tekst.
+  app.get('/api/version/diff', (req, res) => {
+    try {
+      const MAX = 2 * 1024 * 1024; // 2 MB per zijde
+      const oldPath = versionPath(req.home, req.query.path || '', req.query.version || '');
+      const newAbs = req.query.to
+        ? versionPath(req.home, req.query.path || '', req.query.to)
+        : resolveWithin(req.home, req.query.path || '');
+      if (!fs.existsSync(newAbs)) return res.status(404).json({ error: 'Doelbestand niet gevonden' });
+      if (fs.statSync(oldPath).size > MAX || fs.statSync(newAbs).size > MAX) {
+        return res.status(413).json({ error: 'Bestand te groot voor diff (max 2 MB)' });
+      }
+      const oldText = fs.readFileSync(oldPath, 'utf8');
+      const newText = fs.readFileSync(newAbs, 'utf8');
+      const hunks = lineDiff(oldText, newText);
+      res.json({ hunks, stat: diffStat(hunks) });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // --- Goedkeuringsworkflow (review-status per bestand) ---
+  app.get('/api/review', (req, res) => res.json({ review: reviews.getReview(req.home, req.query.path || '') }));
+  app.get('/api/reviews', (req, res) => res.json({ reviews: reviews.listReviews(req.home) }));
+  app.post('/api/review', requireWrite, express.json(), (req, res) => {
+    try {
+      const p = req.body.path || '';
+      resolveWithin(req.home, p); // padvalidatie
+      res.json({ ok: true, review: reviews.requestReview(req.home, p, req.user, req.body.note || '') });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/review/decide', requireWrite, express.json(), (req, res) => {
+    // Goedkeuren mag: een admin, óf de eigenaar (dit is de eigen home).
+    if (req.userRole !== 'admin' && req.impersonating) return res.status(403).json({ error: 'Geen rechten' });
+    const r = reviews.decideReview(req.home, req.body.path || '', req.user, !!req.body.approve, req.body.note || '');
+    if (!r) return res.status(404).json({ error: 'Geen openstaande review' });
+    res.json({ ok: true, review: r });
+  });
+
+  // --- Gedeelde teamruimtes ---
+  app.get('/api/teams', (req, res) => res.json({ teams: teams.teamsFor(req.user) }));
+  app.post('/api/teams', requireWrite, express.json(), (req, res) => {
+    try { res.json({ ok: true, team: teams.createTeam(req.body.name || 'Team', req.user) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  // Hulp: haal team op en controleer minimaal de gevraagde toegang.
+  const teamGuard = (need) => (req, res, next) => {
+    const team = teams.getTeam(req.params.id);
+    if (!team) return res.status(404).json({ error: 'Team niet gevonden' });
+    const ok = need === 'read' ? teams.canRead(team, req.user)
+      : need === 'write' ? teams.canWrite(team, req.user)
+      : teams.isTeamAdmin(team, req.user);
+    if (!ok) return res.status(403).json({ error: 'Geen toegang tot deze teamruimte' });
+    req.team = team;
+    next();
+  };
+  app.post('/api/teams/:id/members', teamGuard('admin'), express.json(), (req, res) => {
+    try { res.json({ ok: true, team: teams.setMember(req.params.id, req.body.user, req.body.role, req.user) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/teams/:id/members/:user', teamGuard('admin'), (req, res) => {
+    try { res.json({ ok: true, team: teams.removeMember(req.params.id, req.params.user, req.user) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/teams/:id', teamGuard('admin'), (req, res) => res.json({ ok: teams.deleteTeam(req.params.id, req.user) }));
+  app.get('/api/teams/:id/list', teamGuard('read'), async (req, res) => {
+    try {
+      const dir = teams.resolveTeamPath(req.params.id, req.query.path || '/');
+      const items = await listDir(teams.teamDir(req.params.id), dir);
+      res.json({ path: req.query.path || '/', role: teams.memberRole(req.team, req.user), items });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.get('/api/teams/:id/download', teamGuard('read'), (req, res) => {
+    try {
+      const file = teams.resolveTeamPath(req.params.id, req.query.path || '');
+      if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).json({ error: 'Niet gevonden' });
+      audit('web', req.user, 'team_download', { id: req.params.id, path: req.query.path });
+      res.download(file);
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/teams/:id/mkdir', teamGuard('write'), express.json(), (req, res) => {
+    try {
+      const dir = teams.resolveTeamPath(req.params.id, req.body.path || '');
+      fs.mkdirSync(dir, { recursive: true });
+      res.json({ ok: true });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/teams/:id/file', teamGuard('write'), (req, res) => {
+    try {
+      const file = teams.resolveTeamPath(req.params.id, req.query.path || '');
+      fs.rmSync(file, { recursive: true, force: true });
+      audit('web', req.user, 'team_delete_file', { id: req.params.id, path: req.query.path });
+      res.json({ ok: true });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  const teamUpload = multer({ storage: multer.memoryStorage(), limits: mlimits });
+  app.post('/api/teams/:id/upload', teamGuard('write'), teamUpload.single('file'), (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'Geen bestand' });
+      const dest = teams.resolveTeamPath(req.params.id, path.posix.join(req.query.path || '/', req.file.originalname));
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, req.file.buffer);
+      audit('web', req.user, 'team_upload', { id: req.params.id, path: req.query.path });
+      res.json({ ok: true });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
 
   // --- Delta-sync (rsync-achtig) ---
   app.get('/api/sync/signature', (req, res) => {
@@ -1264,6 +1372,7 @@ export function createWebServer() {
       expiry.movePath(req.home, req.body.from, req.body.to);
       ocr.movePath(req.home, req.body.from, req.body.to);
       folderInfo.movePath(req.home, req.body.from, req.body.to);
+      reviews.movePath(req.home, req.body.from, req.body.to);
       recordMutation(req.user, 'rename'); checkHoneypot(req.user, req.body.from, 'rename');
       audit('web', req.user, 'rename', { from: req.body.from, to: req.body.to });
       emitToUser(req.user, 'change', { action: 'rename' });
@@ -1293,6 +1402,7 @@ export function createWebServer() {
         locks.removePath(req.home, p);
         expiry.removePath(req.home, p);
         ocr.removePath(req.home, p);
+        reviews.removePath(req.home, p);
         recordMutation(req.user, 'delete'); checkHoneypot(req.user, p, 'delete');
         audit('web', req.user, 'delete', { path: p });
         notify('delete', { user: req.user, path: p });

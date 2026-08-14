@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.22.0] - 2026-08-14
+
+### Toegevoegd (Batch B — Samenwerking)
+
+- **Gedeelde teamruimtes**: benoemde ruimtes met meerdere leden en rolgebaseerde toegang
+  (viewer/editor/admin), elk met een eigen opslagmap. Beheer via de 🧑‍🤝‍🧑-knop: bestanden
+  uploaden/downloaden/verwijderen en leden beheren.
+- **Goedkeuringsworkflow**: markeer een bestand als "in review"; een admin/eigenaar keurt
+  goed of af. Status per bestand, verplaatst/verdwijnt mee bij hernoemen/verwijderen.
+- **Versie-diff-weergave**: bekijk het regel-voor-regel verschil tussen een oudere versie en
+  het huidige bestand (met +/− telling) via de "diff"-knop in het versie-overzicht.
+
 ## [3.21.0] - 2026-08-14
 
 ### Toegevoegd (Batch A — Beveiliging)
