@@ -284,6 +284,12 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Thema-planning (donker/licht/auto) + hoog-contrast-toegankelijkheid
 - ✅ Deelbare openbare galerijen (/g/<token>)
 
+## Beveiliging & identiteit: classificatie, apparaten & forensics (v3.25)
+
+- ✅ Data-classificatielabels (openbaar/intern/vertrouwelijk/geheim) met deelbeleid
+- ✅ Vertrouwde apparaten (apparaatlijst + goedkeuren; optioneel verplicht)
+- ✅ Sessie-forensics (IP-historie + geo-sprong-waarschuwing)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

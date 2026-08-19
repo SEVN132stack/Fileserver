@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.25.0] - 2026-08-14
+
+### Toegevoegd (Batch E — Beveiliging & identiteit)
+
+- **Data-classificatielabels**: label bestanden als openbaar/intern/vertrouwelijk/geheim.
+  Beleid: vertrouwelijke en geheime bestanden kunnen niet via een publieke deel-link naar
+  buiten (`/api/share` weigert dit).
+- **Vertrouwde apparaten**: elk apparaat komt in een apparaatlijst (browser, IP, laatst gezien);
+  vertrouw of vergeet ze. Met `REQUIRE_DEVICE_APPROVAL=true` mag een onvertrouwd apparaat niet
+  inloggen (het eerste apparaat van een gebruiker wordt automatisch vertrouwd; een admin kan
+  een apparaat goedkeuren om uitsluiting te voorkomen).
+- **Sessie-forensics**: per gebruiker een overzicht van actieve sessies, IP-historie en een
+  waarschuwing bij logins vanuit meerdere landen (geografische sprong).
+
 ## [3.24.2] - 2026-08-14
 
 ### Opgelost (deploy-check)

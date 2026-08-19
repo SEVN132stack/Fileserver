@@ -195,6 +195,12 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Beveiliging & identiteit: classificatie, apparaten & forensics (v3.25)
+
+- **Data-classificatielabels** — label bestanden (openbaar/intern/vertrouwelijk/geheim); vertrouwelijk+ mag niet publiek gedeeld worden.
+- **Vertrouwde apparaten** — apparaatlijst met vertrouwen/vergeten; `REQUIRE_DEVICE_APPROVAL` blokkeert onvertrouwde apparaten bij login.
+- **Sessie-forensics** — actieve sessies, IP-historie en een waarschuwing bij logins uit meerdere landen.
+
 ## Integraties & UX: hooks, recepten, offline, tags & galerijen (v3.24)
 
 - **Inkomende webhooks / API-triggers** — koppel een token aan een vooraf toegestane actie; extern POST'en naar `/api/hooks/<token>`.

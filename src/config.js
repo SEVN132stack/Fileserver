@@ -453,7 +453,14 @@ export const config = {
   // Inkomende webhooks / API-triggers: token -> vooraf toegestane actie.
   inboundHooksFile: abs(process.env.INBOUND_HOOKS_FILE || 'inbound-hooks.json'),
 
-  version: '3.24.2',
+  // --- v3.25 (beveiliging & identiteit) ---
+  // Data-classificatielabels per bestand (openbaar/intern/vertrouwelijk/geheim).
+  labelsFile: abs(process.env.LABELS_FILE || 'labels.json'),
+  // Vereis dat een apparaat expliciet vertrouwd is voordat het mag inloggen.
+  // (Het eerste apparaat van een gebruiker wordt automatisch vertrouwd.)
+  requireDeviceApproval: (process.env.REQUIRE_DEVICE_APPROVAL || 'false') === 'true',
+
+  version: '3.25.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

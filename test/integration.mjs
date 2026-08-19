@@ -48,6 +48,7 @@ process.env.TEAM_SPACE_MAX_BYTES = '2000'; // kleine cap om de teamruimte-limiet
 process.env.REVIEWS_FILE = path.join(tmp, 'reviews.json');
 process.env.SAVED_SEARCHES_FILE = path.join(tmp, 'saved-searches.json');
 process.env.INBOUND_HOOKS_FILE = path.join(tmp, 'inbound-hooks.json');
+process.env.LABELS_FILE = path.join(tmp, 'labels.json');
 process.env.ANOMALY_DL_COUNT = '3'; // lage drempel zodat de test snel triggert
 process.env.BLOCKED_CIDRS = '203.0.113.0/24'; // testblok (geen localhost)
 process.env.METRICS_TOKEN = 'test-metrics-token';
@@ -1205,6 +1206,35 @@ try {
     const big = new FormData(); big.append('file', new Blob(['x'.repeat(5000)]), 'big.bin'); // > 2000 byte cap
     const up = await fetch(H + `/api/teams/${tid}/upload?path=/`, { method: 'POST', headers: jar(), body: big });
     ok('teamruimte-groottecap weigert te grote upload (413)', up.status === 413);
+  }
+
+  // 88. Classificatielabels: vertrouwelijk bestand mag niet publiek gedeeld worden.
+  {
+    await fetch(H + '/api/save?path=/geheim.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'topsecret' });
+    const set = await (await fetch(H + '/api/label', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/geheim.txt', label: 'vertrouwelijk' }) })).json();
+    const blocked = await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/geheim.txt' }) });
+    // Openbaar bestand mag wél.
+    const okShare = await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/a.txt' }) });
+    ok('classificatie blokkeert publiek delen van vertrouwelijk bestand',
+      set.label === 'vertrouwelijk' && blocked.status === 403 && okShare.status === 200);
+  }
+
+  // 89. Vertrouwde apparaten: eerste apparaat vertrouwd, module trust/forget werkt.
+  {
+    const um = await import('../src/users.js');
+    um.addUser({ username: 'deviceuser', password: 'devpass123', role: 'user' }); // verse gebruiker, nog geen apparaten
+    const r1 = um.recordDevice('deviceuser', { id: 'devA', ua: 'UA1', ip: '10.0.0.1' }); // eerste = bootstrap-trusted
+    const r2 = um.recordDevice('deviceuser', { id: 'devB', ua: 'UA2', ip: '10.0.0.2' }); // tweede = niet vertrouwd
+    const trusted = um.trustDevice('deviceuser', 'devB', true);
+    ok('vertrouwde apparaten: bootstrap-trust + trust/forget',
+      r1.trusted === true && r2.trusted === false && trusted === true && um.isTrustedDevice('deviceuser', 'devB') === true && um.forgetDevice('deviceuser', 'devB') === true);
+  }
+
+  // 90. Sessie-forensics levert sessies + IP-historie.
+  {
+    const fo = await (await fetch(H + '/api/session-forensics', { headers: jar() })).json();
+    ok('sessie-forensics levert sessies + ip-historie',
+      Array.isArray(fo.sessions) && Array.isArray(fo.ipHistory) && Array.isArray(fo.recent) && ('geoJump' in fo));
   }
 
   console.log(`\n${passed} tests geslaagd.`);
