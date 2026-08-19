@@ -51,6 +51,8 @@ process.env.INBOUND_HOOKS_FILE = path.join(tmp, 'inbound-hooks.json');
 process.env.LABELS_FILE = path.join(tmp, 'labels.json');
 process.env.SERVER_SNAPSHOTS_DIR = path.join(tmp, 'server-snapshots');
 process.env.INCIDENTS_FILE = path.join(tmp, 'incidents.json');
+process.env.EVENT_HOOKS_FILE = path.join(tmp, 'event-hooks.json');
+process.env.WEBHOOK_SUBS_FILE = path.join(tmp, 'webhook-subs.json');
 process.env.COLD_STORE_MIN_BYTES = '0';
 process.env.RULES_FILE = path.join(tmp, 'rules.json');
 process.env.SUBSCRIPTIONS_FILE = path.join(tmp, 'subscriptions.json');
@@ -83,6 +85,12 @@ const captured = [];
 http.createServer((rq, rs) => {
   let b = ''; rq.on('data', (c) => (b += c)); rq.on('end', () => { try { captured.push(JSON.parse(b)); } catch {} rs.end('ok'); });
 }).listen(8096);
+
+// Raw-capture-server voor fijnmazige webhook-abonnementen (template-payload).
+const capturedRaw = [];
+http.createServer((rq, rs) => {
+  let b = ''; rq.on('data', (c) => (b += c)); rq.on('end', () => { capturedRaw.push({ body: b, event: rq.headers['x-fs-event'], secret: rq.headers['x-fs-secret'] }); rs.end('ok'); });
+}).listen(8098);
 
 const { config } = await import('../src/config.js');
 const { ensureStorage, ensureHostKey } = await import('../src/util.js');
@@ -1392,6 +1400,32 @@ try {
     ok('statuspagina toont open incident en werkt bij na oplossen',
       pub1.openIncidents.some((i) => i.id === inc.incident.id) && pub1.state === 'storing' &&
       !pub2.openIncidents.some((i) => i.id === inc.incident.id));
+  }
+
+  // 106. OpenAPI-spec + API-docs.
+  {
+    const spec = await (await fetch(H + '/api/openapi.json')).json();
+    const docs = await fetch(H + '/docs');
+    ok('OpenAPI-spec + /docs beschikbaar',
+      spec.openapi === '3.0.3' && spec.paths['/api/list'] && spec.info.title.includes('Fileserver') && docs.status === 200);
+  }
+
+  // 107. Fijnmazige webhook-abonnement met filter + payload-template.
+  {
+    await (await fetch(H + '/api/admin/webhook-subs', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ url: 'http://localhost:8098/wh', events: ['upload'], template: 'nieuw: {{path}} door {{user}}', secret: 's3cr3t' }) })).json();
+    const wfd = new FormData(); wfd.append('files', new Blob(['x']), 'evt.txt');
+    await fetch(H + '/api/upload?path=/', { method: 'POST', headers: jar(), body: wfd });
+    await new Promise((r) => setTimeout(r, 500));
+    const hit = capturedRaw.find((c) => c.event === 'upload' && c.body.includes('nieuw:'));
+    ok('webhook-abonnement levert gefilterde, getemplate payload', !!hit && hit.secret === 's3cr3t' && hit.body.includes('door admin'));
+  }
+
+  // 108. Plugin-/eventhooks: beheer werkt; standaard uitgeschakeld.
+  {
+    const add = await (await fetch(H + '/api/admin/eventhooks', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ event: 'upload', command: 'echo hoi', label: 'test' }) })).json();
+    const list = await (await fetch(H + '/api/admin/eventhooks', { headers: jar() })).json();
+    ok('eventhooks: aanmaken + lijst + standaard uit',
+      add.ok && list.hooks.some((h) => h.id === add.hook.id) && list.enabled === false && list.events.includes('upload'));
   }
 
   console.log(`\n${passed} tests geslaagd.`);

@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.30.0] - 2026-08-14
+
+### Toegevoegd (Batch J — API & extensibiliteit)
+
+- **OpenAPI-spec + API-docs**: machine-leesbare OpenAPI 3.0-spec op `/api/openapi.json`
+  (bruikbaar met Swagger UI/Postman) en een zelf-gehoste documentatiepagina op `/docs`.
+- **Plugin-/extensiesysteem**: een admin koppelt events (upload/delete/rename/share/login/
+  download) aan externe commando's die met de event-details (`FS_EVENT`) worden uitgevoerd.
+  Krachtig, dus standaard **uit** (`EVENT_HOOKS_ENABLED=true`) en alleen admin-beheer.
+- **Fijnmazige uitgaande webhook-abonnementen**: meerdere endpoints, elk met een filter op
+  event-type en pad-prefix en een payload-template met `{{velden}}` (plus optioneel een
+  gedeeld geheim in `X-FS-Secret`).
+
 ## [3.29.0] - 2026-08-14
 
 ### Toegevoegd (Batch I — Opslag & continuïteit)

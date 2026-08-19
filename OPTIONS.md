@@ -317,6 +317,12 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Zelftest-/chaos-knop (back-up-herstel + integriteit)
 - ✅ Statuspagina met incidenthistorie + onderhoudsvensters
 
+## API & extensibiliteit: OpenAPI, plugin-hooks & webhook-abonnementen (v3.30)
+
+- ✅ OpenAPI-spec (/api/openapi.json) + zelf-gehoste API-docs (/docs)
+- ✅ Plugin-/extensiesysteem (event → extern commando, admin, standaard uit)
+- ✅ Fijnmazige uitgaande webhook-abonnementen (filters + payload-templates)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>API-docs — Fileserver</title>
+  <style>
+    body { margin:0; font-family:system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
+    header { padding:1.2rem 1.5rem; border-bottom:1px solid #1e293b; }
+    h1 { font-size:1.3rem; margin:0; } .muted { color:#94a3b8; font-size:.9rem; }
+    main { max-width:820px; margin:1.2rem auto; padding:0 1rem; }
+    .op { background:#1e293b; border-radius:10px; padding:.8rem 1rem; margin:.6rem 0; }
+    .method { font-weight:700; font-size:.75rem; padding:.15rem .5rem; border-radius:5px; margin-right:.5rem; }
+    .get { background:#164e63; color:#67e8f9; } .post { background:#14532d; color:#86efac; } .delete { background:#4c1d1d; color:#fca5a5; }
+    code { background:#0f172a; padding:.1rem .35rem; border-radius:4px; }
+    .path { font-family:monospace; } .summary { color:#cbd5e1; margin:.3rem 0 0; }
+    table { width:100%; border-collapse:collapse; margin-top:.4rem; font-size:.85rem; }
+    td,th { text-align:left; padding:.2rem .4rem; border-bottom:1px solid #334155; }
+    a { color:#38bdf8; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📖 API-documentatie</h1>
+    <div class="muted">Authenticeer met een API-sleutel: <code>Authorization: Bearer fsk_…</code> (maak er één in de web-UI). Machine-leesbare spec: <a href="/api/openapi.json">/api/openapi.json</a> (bruikbaar met Swagger UI/Postman).</div>
+  </header>
+  <main id="ops"><p class="muted">Laden…</p></main>
+  <script>
+    const esc = s => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
+    (async () => {
+      const spec = await (await fetch('/api/openapi.json')).json();
+      const out = [];
+      for (const [p, methods] of Object.entries(spec.paths || {})) {
+        for (const [m, op] of Object.entries(methods)) {
+          const params = (op.parameters || []).map(pr => `<tr><td><code>${esc(pr.name)}</code></td><td>${pr.in}</td><td>${pr.required ? 'ja' : 'nee'}</td><td>${esc(pr.description || '')}</td></tr>`).join('');
+          out.push(`<div class="op"><span class="method ${m}">${m.toUpperCase()}</span><span class="path">${esc(p)}</span>
+            <div class="summary">${esc(op.summary || '')}</div>
+            ${params ? `<table><tr><th>Parameter</th><th>In</th><th>Verplicht</th><th>Omschrijving</th></tr>${params}</table>` : ''}</div>`);
+        }
+      }
+      document.getElementById('ops').innerHTML = `<p class="muted">${esc(spec.info.title)} · v${esc(spec.info.version)}</p>` + out.join('');
+    })().catch(() => { document.getElementById('ops').innerHTML = '<p class="muted">Kon de spec niet laden.</p>'; });
+  </script>
+</body>
+</html>

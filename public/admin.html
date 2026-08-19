@@ -153,6 +153,24 @@
       <details style="margin-top:.8rem"><summary class="l">Zapier/Make-recepten</summary><div id="recipes" class="l"></div></details>
     </div>
 
+    <h2>API & integraties</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <p class="l" style="margin-top:0">📖 API-documentatie: <a href="/docs" target="_blank">/docs</a> · spec: <a href="/api/openapi.json" target="_blank">/api/openapi.json</a></p>
+      <h3 style="margin:.4rem 0 .2rem">Uitgaande webhook-abonnementen</h3>
+      <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+        <input id="whUrl" placeholder="https://…/hook" style="width:170px">
+        <input id="whEvents" placeholder="events (upload,delete)" style="width:150px">
+        <input id="whTpl" placeholder="template {{path}}" style="width:150px">
+        <button id="whAdd">Abonnement toevoegen</button>
+      </div>
+      <table id="whSubTable" style="margin-top:.5rem"></table>
+      <h3 style="margin:.8rem 0 .2rem">Plugin-hooks (event → commando) <span class="l" id="ehState"></span></h3>
+      <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+        <select id="ehEvent"></select><input id="ehCmd" placeholder="commando" style="width:180px"><button id="ehAdd">Hook toevoegen</button>
+      </div>
+      <table id="ehTable" style="margin-top:.5rem"></table>
+    </div>
+
     <h2>Continuïteit & status</h2>
     <div class="card" style="margin-bottom:2rem">
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
@@ -554,6 +572,24 @@
     };
     document.addEventListener('click', async e => { if (e.target.dataset.hookdel) { await j('/api/admin/hooks/'+encodeURIComponent(e.target.dataset.hookdel),{method:'DELETE'}); loadHooks(); } });
 
+    async function loadWebhookSubs() {
+      const { subs } = await (await j('/api/admin/webhook-subs')).json();
+      document.getElementById('whSubTable').innerHTML = '<tr><th>URL</th><th>Events</th><th>Status</th><th></th></tr>' +
+        (subs.length ? subs.map(s=>`<tr><td>${esc(s.url)}</td><td>${esc((s.events||[]).join(',')||'alle')}</td><td>${s.lastStatus||'-'}</td><td><button class="danger" data-whdel="${esc(s.id)}">×</button></td></tr>`).join('') : '<tr><td colspan="4" class="l">Geen.</td></tr>');
+    }
+    async function loadEventHooks() {
+      const d = await (await j('/api/admin/eventhooks')).json();
+      document.getElementById('ehState').textContent = d.enabled ? '(ingeschakeld)' : '(uitgeschakeld — zet EVENT_HOOKS_ENABLED=true)';
+      const sel = document.getElementById('ehEvent'); if (!sel.options.length) sel.innerHTML = d.events.map(e=>`<option>${esc(e)}</option>`).join('');
+      document.getElementById('ehTable').innerHTML = '<tr><th>Event</th><th>Commando</th><th></th></tr>' +
+        (d.hooks.length ? d.hooks.map(h=>`<tr><td>${esc(h.event)}</td><td><code>${esc(h.command)}</code></td><td><button class="danger" data-ehdel="${esc(h.id)}">×</button></td></tr>`).join('') : '<tr><td colspan="3" class="l">Geen.</td></tr>');
+    }
+    document.getElementById('whAdd').onclick = async () => { const url=document.getElementById('whUrl').value.trim(); if(!url)return; const events=document.getElementById('whEvents').value.split(',').map(s=>s.trim()).filter(Boolean); const r=await j('/api/admin/webhook-subs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,events,template:document.getElementById('whTpl').value})}); if(!r.ok){const e=await r.json().catch(()=>({}));alert(e.error||'Mislukt');} loadWebhookSubs(); };
+    document.getElementById('ehAdd').onclick = async () => { const command=document.getElementById('ehCmd').value.trim(); if(!command)return; await j('/api/admin/eventhooks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event:document.getElementById('ehEvent').value,command})}); document.getElementById('ehCmd').value=''; loadEventHooks(); };
+    document.addEventListener('click', async e => {
+      if (e.target.dataset.whdel) { await j('/api/admin/webhook-subs/'+encodeURIComponent(e.target.dataset.whdel),{method:'DELETE'}); loadWebhookSubs(); }
+      if (e.target.dataset.ehdel) { await j('/api/admin/eventhooks/'+encodeURIComponent(e.target.dataset.ehdel),{method:'DELETE'}); loadEventHooks(); }
+    });
     const cm = t => { document.getElementById('contMsg').textContent = t; };
     async function loadSnaps() {
       const { snapshots } = await (await j('/api/admin/server-snapshots')).json();
@@ -580,7 +616,7 @@
       if (d.mntdel) { await j('/api/admin/maintenance/'+encodeURIComponent(d.mntdel),{method:'DELETE'}); loadIncidents(); }
     });
 
-    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit(); loadAnalytics(); loadHooks(); loadSnaps(); loadIncidents();
+    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit(); loadAnalytics(); loadHooks(); loadSnaps(); loadIncidents(); loadWebhookSubs(); loadEventHooks();
 
     // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
     // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.
