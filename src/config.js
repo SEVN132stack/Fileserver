@@ -9,10 +9,15 @@ loadEnv();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
+// Basismap voor persistente data (opslag, users, keys, alle JSON-datastores).
+// In Docker gezet op /data (het gekoppelde volume) zodat ALLE state daar leeft
+// en een container-herstart/-update niets verliest. Zonder DATA_DIR blijft het
+// gedrag ongewijzigd (rootDir), voor een bare-metal-installatie.
+const dataDir = process.env.DATA_DIR || rootDir;
 
 const bool = (v, def = false) =>
   v === undefined ? def : ['1', 'true', 'yes', 'ja', 'on'].includes(String(v).toLowerCase());
-const abs = (p) => (path.isAbsolute(p) ? p : path.join(rootDir, p));
+const abs = (p) => (path.isAbsolute(p) ? p : path.join(dataDir, p));
 
 if (!process.env.AUTH_PASS) {
   console.error('[fout] AUTH_PASS ontbreekt. Zet het in .env (zie .env.example).');
@@ -448,7 +453,7 @@ export const config = {
   // Inkomende webhooks / API-triggers: token -> vooraf toegestane actie.
   inboundHooksFile: abs(process.env.INBOUND_HOOKS_FILE || 'inbound-hooks.json'),
 
-  version: '3.24.1',
+  version: '3.24.2',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

@@ -10,15 +10,11 @@ RUN npm ci --omit=dev
 COPY src ./src
 COPY public ./public
 
-# Data (opslag, keys, users) leeft in /data zodat het als volume kan worden gekoppeld.
-ENV STORAGE_DIR=/data/storage \
-    HOST_KEY_PATH=/data/host.key \
-    USERS_FILE=/data/users.json \
-    AUTHORIZED_KEYS_DIR=/data/authorized_keys \
-    AUDIT_LOG=/data/audit.log \
-    ENV_FILE=/data/.env \
-    TLS_CERT=/data/tls/cert.pem \
-    TLS_KEY=/data/tls/key.pem
+# Alle persistente data (opslag, keys, users, én alle JSON-datastores) leeft in
+# /data zodat het als volume kan worden gekoppeld en een container-update niets
+# verliest. DATA_DIR is de basismap: elk relatief datapad valt hieronder.
+ENV DATA_DIR=/data \
+    ENV_FILE=/data/.env
 
 RUN mkdir -p /data
 VOLUME /data

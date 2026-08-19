@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.24.2] - 2026-08-14
+
+### Opgelost (deploy-check)
+
+- **`DATA_DIR`: alle persistente data op één plek.** In de Docker-image mapte alleen een
+  handvol bestanden naar het `/data`-volume; nieuwere JSON-datastores (deel-links, tags,
+  teams + teamruimtes, snapshots, invites, reviews, opgeslagen zoekopdrachten, inkomende
+  hooks, notificaties, instellingen, …) belandden in de (efemere) app-map en gingen daardoor
+  verloren bij elke container-update (Watchtower draait dagelijks). `abs()` gebruikt nu
+  `DATA_DIR` als basismap; de Dockerfile zet `DATA_DIR=/data`, zodat álle state op het volume
+  leeft. Bare-metal-installaties (zonder `DATA_DIR`) behouden het bestaande gedrag; de
+  kritieke bestanden (users/opslag/host-key) stonden voor Docker al op `/data`, dus geen
+  migratiebreuk.
+
 ## [3.24.1] - 2026-08-14
 
 ### Opgelost (security-review v3.21–v3.24)
