@@ -460,6 +460,18 @@ export const config = {
   // (Het eerste apparaat van een gebruiker wordt automatisch vertrouwd.)
   requireDeviceApproval: (process.env.REQUIRE_DEVICE_APPROVAL || 'false') === 'true',
 
+  // --- v3.29 (opslag & continuïteit) ---
+  // Compressie-at-rest: comprimeer bestanden die N dagen niet zijn gewijzigd.
+  coldStoreDays: parseInt(process.env.COLD_STORE_DAYS || '0', 10), // 0 = handmatig/uit
+  coldStoreMinBytes: parseInt(process.env.COLD_STORE_MIN_BYTES || '4096', 10),
+  // Server-brede point-in-time snapshots van de HELE opslag.
+  serverSnapshotsDir: abs(process.env.SERVER_SNAPSHOTS_DIR || 'server-snapshots'),
+  serverSnapshotsKeep: parseInt(process.env.SERVER_SNAPSHOTS_KEEP || '10', 10),
+  // Zelftest (back-up-herstel + integriteit): interval in uren (0 = alleen handmatig).
+  selfTestIntervalHours: parseInt(process.env.SELFTEST_INTERVAL_HOURS || '0', 10),
+  // Statuspagina: incidenten + onderhoudsvensters.
+  incidentsFile: abs(process.env.INCIDENTS_FILE || 'incidents.json'),
+
   // --- v3.28 (media & bewerking) ---
   // Spraak-naar-tekst commando voor automatische transcriptie (bijv. whisper).
   // Leeg = uit. Ontvangt het bronbestand; moet platte tekst naar stdout schrijven.
@@ -475,7 +487,7 @@ export const config = {
   digestPrefsFile: abs(process.env.DIGEST_PREFS_FILE || 'digest-prefs.json'),
   digestIntervalHours: parseInt(process.env.DIGEST_INTERVAL_HOURS || '24', 10),
 
-  version: '3.28.0',
+  version: '3.29.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

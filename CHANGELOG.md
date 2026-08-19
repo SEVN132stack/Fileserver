@@ -1,5 +1,21 @@
 # Changelog
 
+## [3.29.0] - 2026-08-14
+
+### Toegevoegd (Batch I — Opslag & continuïteit)
+
+- **Compressie-at-rest**: bestanden die lang niet zijn gewijzigd worden met gzip gecomprimeerd
+  (`.gz`, origineel verwijderd) om ruimte te besparen; downloads decomprimeren transparant.
+  Handmatig of gepland via `COLD_STORE_DAYS`; per-bestand weer uit te pakken (`/api/warmup`).
+- **Point-in-time herstel**: server-brede snapshots van de HELE opslag (reflink waar mogelijk);
+  herstel zet de opslag terug naar een gekozen tijdstip, met eerst een veiligheids-snapshot.
+- **Zelftest-/chaos-knop**: draait de continuïteitscontroles achter elkaar (back-up geldig +
+  herstel-test + integriteits-baseline) en alarmeert bij een probleem; optioneel gepland
+  (`SELFTEST_INTERVAL_HOURS`).
+- **Statuspagina met incidenthistorie**: beheerders melden incidenten en plannen
+  onderhoudsvensters; de publieke statuspagina toont de actuele status, actieve incidenten,
+  gepland onderhoud en de historie.
+
 ## [3.28.0] - 2026-08-14
 
 ### Toegevoegd (Batch H — Media & bewerking)

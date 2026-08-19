@@ -63,6 +63,10 @@ import { checkForUpdate } from './updatecheck.js';
 import { checkDisk } from './diskmonitor.js';
 import { verifyLatestBackup, restoreTest } from './backup.js';
 import * as integrity from './integrity.js';
+import * as coldstore from './coldstore.js';
+import * as serverSnaps from './server-snapshots.js';
+import { runSelfTest } from './selftest.js';
+import * as incidents from './incidents.js';
 import * as comments from './comments.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
@@ -518,9 +522,10 @@ export function createWebServer() {
     res.json({ ok: true });
   });
 
-  // Publieke status (geen geheimen): voor een status-/uptime-pagina.
+  // Publieke status (geen geheimen): voor een status-/uptime-pagina, incl.
+  // incidenten en geplande onderhoudsvensters.
   app.get('/api/status-public', (req, res) => {
-    res.json({ status: 'ok', version: config.version, uptime: Math.round(process.uptime()) });
+    res.json({ status: 'ok', version: config.version, uptime: Math.round(process.uptime()), ...incidents.publicStatus() });
   });
 
   // Inkomende webhook / API-trigger (publiek, per-token vooraf toegestane actie).
@@ -951,6 +956,17 @@ export function createWebServer() {
   app.get('/api/download', downloadLimiter, (req, res) => {
     try {
       const file = resolveWithin(req.home, req.query.path || '');
+      // Transparante decompressie: als het bestand cold-gecomprimeerd is (.gz),
+      // decomprimeer on-the-fly zodat de gebruiker het onder de originele naam krijgt.
+      const cold = coldstore.coldPathFor(file);
+      if (cold) {
+        audit('web', req.user, 'download', { path: req.query.path, country: countryOf(req), cold: true });
+        recordRecent(req.user, req.query.path || '');
+        const buf = coldstore.decompress(cold);
+        recordDownload(req.user, buf.length);
+        res.setHeader('Content-Disposition', `attachment; filename="${path.basename(file).replace(/[\r\n"]/g, '')}"`);
+        return res.end(buf);
+      }
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).json({ error: 'Niet gevonden' });
       audit('web', req.user, 'download', { path: req.query.path, country: countryOf(req) });
       recordRecent(req.user, req.query.path || '');
@@ -2418,6 +2434,46 @@ export function createWebServer() {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // Compressie-at-rest: comprimeer koude (lang niet gewijzigde) bestanden.
+  app.post('/api/admin/coldstore/run', requireAdmin, (req, res) => {
+    const days = req.body && req.body.days ? Number(req.body.days) : config.coldStoreDays;
+    res.json({ ok: true, ...coldstore.compressCold(config.storageDir, days) });
+  });
+  // Warm een cold-bestand in de eigen home weer op (uitpakken).
+  app.post('/api/warmup', requireWrite, express.json(), (req, res) => {
+    try { res.json({ ok: coldstore.warmUp(resolveWithin(req.home, req.body.path || '')) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Server-brede point-in-time snapshots (alleen admin).
+  app.get('/api/admin/server-snapshots', requireAdmin, (req, res) => res.json({ snapshots: serverSnaps.listServerSnapshots() }));
+  app.post('/api/admin/server-snapshots', requireAdmin, express.json(), (req, res) =>
+    res.json({ ok: true, ...serverSnaps.createServerSnapshot((req.body && req.body.label) || '') }));
+  app.post('/api/admin/server-snapshots/:id/restore', requireAdmin, (req, res) => {
+    try { res.json(serverSnaps.restoreServerSnapshot(req.params.id, req.user)); }
+    catch (err) { res.status(404).json({ error: err.message }); }
+  });
+  app.delete('/api/admin/server-snapshots/:id', requireAdmin, (req, res) => res.json({ ok: serverSnaps.deleteServerSnapshot(req.params.id) }));
+
+  // Zelftest / chaos-knop: continuïteitscontroles op verzoek.
+  app.post('/api/admin/selftest', requireAdmin, (req, res) => res.json(runSelfTest()));
+
+  // Statuspagina-beheer: incidenten + onderhoudsvensters (alleen admin).
+  app.get('/api/admin/incidents', requireAdmin, (req, res) => res.json(incidents.listAll()));
+  app.post('/api/admin/incidents', requireAdmin, express.json(), (req, res) => {
+    try { res.json({ ok: true, incident: incidents.addIncident(req.body || {}, req.user) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/admin/incidents/:id/resolve', requireAdmin, (req, res) => {
+    const inc = incidents.resolveIncident(req.params.id, req.user);
+    if (!inc) return res.status(404).json({ error: 'Incident niet gevonden' });
+    res.json({ ok: true, incident: inc });
+  });
+  app.delete('/api/admin/incidents/:id', requireAdmin, (req, res) => res.json({ ok: incidents.deleteIncident(req.params.id) }));
+  app.post('/api/admin/maintenance', requireAdmin, express.json(), (req, res) =>
+    res.json({ ok: true, maintenance: incidents.addMaintenance(req.body || {}, req.user) }));
+  app.delete('/api/admin/maintenance/:id', requireAdmin, (req, res) => res.json({ ok: incidents.deleteMaintenance(req.params.id) }));
 
   // Overzicht met belangrijke info (alleen admin).
   app.get('/api/admin/overview', requireAdmin, (req, res) => {

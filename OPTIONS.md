@@ -310,6 +310,13 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Transcoderen op verzoek (video → MP4/WebM via ffmpeg)
 - ✅ Automatische transcriptie (spraak → tekst via extern commando)
 
+## Opslag & continuïteit: compressie, point-in-time, zelftest & status (v3.29)
+
+- ✅ Compressie-at-rest (koude bestanden gzip, transparante download)
+- ✅ Point-in-time herstel van de hele opslag (server-snapshots)
+- ✅ Zelftest-/chaos-knop (back-up-herstel + integriteit)
+- ✅ Statuspagina met incidenthistorie + onderhoudsvensters
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

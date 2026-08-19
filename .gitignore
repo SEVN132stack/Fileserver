@@ -49,3 +49,5 @@ labels.json
 rules.json
 subscriptions.json
 digest-prefs.json
+server-snapshots/
+incidents.json
