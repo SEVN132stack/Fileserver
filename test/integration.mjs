@@ -1307,6 +1307,15 @@ try {
     ok('digest verzamelt en verstuurt een samenvatting', sent >= 1);
   }
 
+  // 98. Classificatiebeleid geldt ook voor permalinks (security-review fix).
+  {
+    await fetch(H + '/api/save?path=/vertrouwelijk.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'intern' });
+    await fetch(H + '/api/label', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/vertrouwelijk.txt', label: 'geheim' }) });
+    const perma = await fetch(H + '/api/permalink', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/vertrouwelijk.txt' }) });
+    const permaOk = await fetch(H + '/api/permalink', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/a.txt' }) });
+    ok('permalink respecteert classificatie (geheim = 403, openbaar = ok)', perma.status === 403 && permaOk.status === 200);
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

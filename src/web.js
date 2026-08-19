@@ -2129,6 +2129,11 @@ export function createWebServer() {
     try {
       const rel = req.body.path || '';
       resolveWithin(req.home, rel); // valideer dat het pad binnen de home valt
+      // Classificatiebeleid geldt ook voor permalinks (publieke egress).
+      if (!labels.mayShare(req.home, rel)) {
+        audit('web', req.user, 'permalink_blocked', { path: rel, reason: 'classificatie' });
+        return res.status(403).json({ error: 'Dit bestand is als vertrouwelijk/geheim gelabeld en mag niet publiek gedeeld worden.' });
+      }
       const opts = {};
       if (req.body.password !== undefined) opts.password = req.body.password || null;
       if (req.body.expiresInHours !== undefined) opts.expiresInHours = req.body.expiresInHours ? Number(req.body.expiresInHours) : 0;

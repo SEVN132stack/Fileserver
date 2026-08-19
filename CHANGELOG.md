@@ -1,5 +1,22 @@
 # Changelog
 
+## [3.27.1] - 2026-08-14
+
+### Opgelost (security-review v3.25–v3.27)
+
+- **Classificatiebeleid geldt nu ook voor permalinks.** Vertrouwelijke/geheime bestanden
+  werden geweigerd bij `/api/share`, maar konden nog via `/api/permalink` (een publieke
+  `/f/`-link) naar buiten. `/api/permalink` past nu dezelfde `mayShare`-controle toe.
+- **Naamgeving-suggestie begrenst office-parsing** (max. 20 MB) om geheugenuitputting bij
+  zeer grote docx/xlsx/pptx te voorkomen.
+
+### Opmerking (bekende beperking)
+
+- Apparaatgoedkeuring (`REQUIRE_DEVICE_APPROVAL`) geldt voor de interactieve web-login
+  (`/api/login`). Op credential-gebaseerde toegang (HTTP Basic, API-sleutels, SFTP) — bedoeld
+  voor clients/automatisering — geldt deze niet; beveilig die kanalen met sterke wachtwoorden,
+  SSH-sleutels en 2FA/hardware-sleutels.
+
 ## [3.27.0] - 2026-08-14
 
 ### Toegevoegd (Batch G — Automatisering & notificaties)
