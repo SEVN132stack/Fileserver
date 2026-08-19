@@ -52,9 +52,34 @@
     #modal textarea { height:60vh; font-family:monospace; }
     .tabs { display:flex; gap:.4rem; margin-bottom:1rem; }
     .tabs button.active { outline:2px solid var(--accent); }
+    /* --- v3.31 UX & toegankelijkheid --- */
+    /* Toegankelijkheid: duidelijke focus + skip-link (WCAG). */
+    a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+    .skip-link { position:absolute; left:-999px; top:0; background:var(--accent); color:#04283a; padding:.5rem 1rem; border-radius:0 0 6px 0; z-index:100; }
+    .skip-link:focus { left:0; }
+    /* Dashboard: vastgezette mappen + recent. */
+    #dashboard { display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+    #dashboard .panel { flex:1; min-width:200px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:.6rem .8rem; }
+    #dashboard h3 { margin:.1rem 0 .4rem; font-size:.8rem; color:var(--muted); text-transform:uppercase; }
+    #dashboard a { color:var(--accent); cursor:pointer; text-decoration:none; display:block; padding:.15rem 0; }
+    /* Rasterweergave. */
+    body.view-grid #rows { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:.6rem; }
+    body.view-grid #rows tr { display:flex; flex-direction:column; align-items:center; text-align:center; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:.6rem; }
+    body.view-grid #rows td { border:0; padding:.2rem; }
+    body.view-grid thead, body.view-grid td:first-child { display:none; }
+    /* Kolom-zichtbaarheid. */
+    body.hide-size .col-size, body.hide-size td:nth-child(3) { display:none; }
+    /* Laagbandbreedte: geen thumbnails, geen animaties. */
+    body.lowbw .thumb { display:none !important; }
+    body.lowbw * { transition:none !important; animation:none !important; }
+    /* Kioskmodus: verberg muterende/beheer-knoppen. */
+    body.kiosk #adminBtn, body.kiosk #drop, body.kiosk .bar button:not(#refreshBtn), body.kiosk .actions .danger,
+    body.kiosk [data-ren], body.kiosk [data-del], body.kiosk [data-share], body.kiosk [data-grant], body.kiosk [data-media] { display:none !important; }
+    body.kiosk .tabs { display:none; }
   </style>
 </head>
 <body>
+  <a href="#rows" class="skip-link">Naar de bestandenlijst</a>
   <header>
     <h1>📁 SFTP Fileserver</h1>
     <span class="quota" id="quota"></span>
@@ -72,7 +97,10 @@
     <button class="ghost" id="jitBtn" title="Tijdelijke rechten aanvragen (JIT)">🛡️</button>
     <button class="ghost" id="teamsBtn" title="Gedeelde teamruimtes">🧑‍🤝‍🧑</button>
     <button class="ghost" id="pwBtn" title="Wachtwoord wijzigen">🔑pw</button>
-    <button class="ghost" id="langBtn">EN</button>
+    <button class="ghost" id="viewBtn" title="Weergave wisselen (lijst/raster)" aria-label="Weergave wisselen">📊</button>
+    <button class="ghost" id="lowbwBtn" title="Laagbandbreedte-modus (geen thumbnails)" aria-label="Laagbandbreedte-modus">🐢</button>
+    <button class="ghost" id="kioskBtn" title="Kioskmodus (vergrendelde weergave)" aria-label="Kioskmodus">🔒kiosk</button>
+    <button class="ghost" id="langBtn" aria-label="Taal wisselen">EN</button>
     <button class="ghost" id="themeBtn" title="Thema wisselen (donker/licht/auto)">🌓</button>
     <button class="ghost" id="hcBtn" title="Hoog contrast (toegankelijkheid)">◐</button>
     <button class="ghost" id="logoutBtn" data-i18n="logout">Uitloggen</button>
@@ -85,6 +113,7 @@
     </div>
 
     <div id="filesView">
+      <div id="dashboard" aria-label="Snelkoppelingen en recente bestanden"></div>
       <div class="bar"><div class="crumbs" id="crumbs"></div></div>
       <div id="drop"><span data-i18n="drophint">Sleep bestanden hierheen, of</span>
         <label style="color:var(--accent);cursor:pointer;text-decoration:underline;">

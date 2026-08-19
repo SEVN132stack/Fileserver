@@ -195,6 +195,14 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## UX & toegankelijkheid: dashboard, weergaven, i18n, kiosk (v3.31)
+
+- **Recent & vastgezet** — dashboard met vastgezette mappen (server-side) + recente bestanden.
+- **Meerdere weergaven** — lijst/raster (📊) + verbergbare kolommen.
+- **Uitgebreide i18n** — NL/EN/DE/FR + ES/IT/PL en RTL (Arabisch); per-gebruiker taalkeuze.
+- **Toegankelijkheid (WCAG-AA)** — skip-link, focus-indicatie, ARIA-labels, `lang`/`dir`.
+- **Laagbandbreedte-modus** (🐢) en **kiosk-/gastmodus** (🔒, `?kiosk=1`).
+
 ## API & extensibiliteit: OpenAPI, plugin-hooks & webhook-abonnementen (v3.30)
 
 - **OpenAPI-spec + API-docs** — `/api/openapi.json` (Swagger UI/Postman) en een documentatiepagina op `/docs`.

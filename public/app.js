@@ -25,14 +25,33 @@ const I18N = {
     trash:'Corbeille', drophint:'Déposez des fichiers ici, ou', choose:'choisir des fichiers', choosedir:'dossier',
     newfolder:'＋ Nouveau dossier', newfile:'＋ Nouveau fichier', bulkdl:'Télécharger la sélection', bulkdel:'Supprimer la sélection',
     searchph:'Rechercher…', col_name:'Nom', col_size:'Taille', col_actions:'Actions', empty:'Rien trouvé.' },
+  es: { admin:'Administración', twofa:'2FA', logout:'Cerrar sesión', files:'Archivos', shared:'Compartido conmigo',
+    trash:'Papelera', drophint:'Arrastra archivos aquí, o', choose:'elegir archivos', choosedir:'carpeta',
+    newfolder:'＋ Nueva carpeta', newfile:'＋ Nuevo archivo', bulkdl:'Descargar selección', bulkdel:'Eliminar selección',
+    searchph:'Buscar…', col_name:'Nombre', col_size:'Tamaño', col_actions:'Acciones', empty:'Nada encontrado.' },
+  it: { admin:'Amministrazione', twofa:'2FA', logout:'Esci', files:'File', shared:'Condivisi con me',
+    trash:'Cestino', drophint:'Trascina i file qui, oppure', choose:'scegli file', choosedir:'cartella',
+    newfolder:'＋ Nuova cartella', newfile:'＋ Nuovo file', bulkdl:'Scarica selezione', bulkdel:'Elimina selezione',
+    searchph:'Cerca…', col_name:'Nome', col_size:'Dimensione', col_actions:'Azioni', empty:'Nulla trovato.' },
+  pl: { admin:'Administracja', twofa:'2FA', logout:'Wyloguj', files:'Pliki', shared:'Udostępnione mnie',
+    trash:'Kosz', drophint:'Przeciągnij pliki tutaj lub', choose:'wybierz pliki', choosedir:'folder',
+    newfolder:'＋ Nowy folder', newfile:'＋ Nowy plik', bulkdl:'Pobierz zaznaczone', bulkdel:'Usuń zaznaczone',
+    searchph:'Szukaj…', col_name:'Nazwa', col_size:'Rozmiar', col_actions:'Akcje', empty:'Nic nie znaleziono.' },
+  ar: { admin:'الإدارة', twofa:'2FA', logout:'تسجيل الخروج', files:'الملفات', shared:'مشارَك معي',
+    trash:'المهملات', drophint:'اسحب الملفات هنا، أو', choose:'اختر الملفات', choosedir:'مجلد',
+    newfolder:'＋ مجلد جديد', newfile:'＋ ملف جديد', bulkdl:'تنزيل المحدد', bulkdel:'حذف المحدد',
+    searchph:'بحث…', col_name:'الاسم', col_size:'الحجم', col_actions:'إجراءات', empty:'لا شيء.' },
 };
-const LANGS = ['nl', 'en', 'de', 'fr'];
+const LANGS = ['nl', 'en', 'de', 'fr', 'es', 'it', 'pl', 'ar'];
+const RTL = ['ar', 'he', 'fa'];
 let lang = localStorage.getItem('lang') || 'nl';
-function t(k) { return (I18N[lang] && I18N[lang][k]) || k; }
+function t(k) { return (I18N[lang] && I18N[lang][k]) || (I18N.en && I18N.en[k]) || k; }
 function applyI18n() {
   document.querySelectorAll('[data-i18n]').forEach(el => el.textContent = t(el.dataset.i18n));
   document.querySelectorAll('[data-i18n-ph]').forEach(el => el.placeholder = t(el.dataset.i18nPh));
-  document.getElementById('langBtn').textContent = LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length].toUpperCase();
+  document.documentElement.lang = lang;
+  document.documentElement.dir = RTL.includes(lang) ? 'rtl' : 'ltr';
+  const lb = document.getElementById('langBtn'); if (lb) lb.textContent = LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length].toUpperCase();
 }
 
 // --- Thema (incl. hoog-contrast en dag/nacht-planning) ---
@@ -126,16 +145,20 @@ async function load() {
   const url = `/api/list?path=${enc(cwd)}&sort=${sort}&order=${order}` + (q?`&q=${enc(q)}${inhoud}`:'');
   const data = await (await api(url)).json();
   renderCrumbs();
+  loadDashboard();
   const rows = document.getElementById('rows');
+  rows.setAttribute('aria-label', 'Bestanden en mappen');
   rows.innerHTML = '';
   if (!data.items.length) rows.innerHTML = `<tr><td colspan="4" class="muted">${t('empty')}</td></tr>`;
   for (const it of data.items) {
     const tr = document.createElement('tr');
-    const icon = it.isDir ? '📂' : (isImg(it.name) ? `<img class="thumb" loading="lazy" src="/api/thumb?path=${enc(it.path)}&w=56">` : '📄');
+    const lowbw = localStorage.getItem('lowbw') === '1';
+    const icon = it.isDir ? '📂' : (isImg(it.name) && !lowbw ? `<img class="thumb" loading="lazy" alt="" src="/api/thumb?path=${enc(it.path)}&w=56">` : '📄');
     const nameCell = it.isDir
       ? `<div class="name" data-dir="${enc(it.path)}">${icon} ${esc(it.name)}</div>`
       : `<div class="name" data-open="${enc(it.path)}">${icon} ${esc(it.name)}</div>`;
     let a = '';
+    if (it.isDir) a += `<button class="ghost" data-pin="${enc(it.path)}" title="Vastzetten" aria-label="Map vastzetten">📌</button>`;
     if (it.isDir) a += `<button data-zip="${enc(it.path)}">ZIP</button>`;
     else a += `<button data-dl="${enc(it.path)}">⬇</button>`;
     if (!it.isDir && isText(it.name)) a += `<button class="ghost" data-edit="${enc(it.path)}">✎</button>`;
@@ -828,6 +851,41 @@ document.getElementById('adminBtn').onclick = () => window.location='/admin.html
 document.getElementById('themeBtn').onclick = () => { const order=['dark','light','auto']; const cur=localStorage.getItem('theme')||'dark'; const next=order[(order.indexOf(cur)+1)%order.length]; localStorage.setItem('theme',next); applyTheme(); document.getElementById('themeBtn').title='Thema: '+next; };
 const hcBtn = document.getElementById('hcBtn'); if (hcBtn) hcBtn.onclick = () => { localStorage.setItem('highContrast', localStorage.getItem('highContrast')==='1'?'0':'1'); applyTheme(); };
 document.getElementById('langBtn').onclick = () => { lang = LANGS[(LANGS.indexOf(lang)+1)%LANGS.length]; localStorage.setItem('lang',lang); applyI18n(); loadMe(); load(); };
+
+// --- Dashboard: vastgezette mappen + recente bestanden (feature 18) ---
+async function loadDashboard() {
+  const el = document.getElementById('dashboard'); if (!el || cwd !== '/') { if (el) el.innerHTML = ''; return; }
+  try {
+    const [pinsR, recR] = await Promise.all([api('/api/pins'), api('/api/recent')]);
+    const pins = (await pinsR.json()).pins || [];
+    const recent = ((await recR.json()).items || []).slice(0, 8);
+    if (!pins.length && !recent.length) { el.innerHTML = ''; return; }
+    const pinRows = pins.length ? pins.map(p=>`<a data-go="${enc(p)}">📌 ${esc(p)} <span style="color:var(--muted)" data-unpin="${enc(p)}" title="Losmaken">✕</span></a>`).join('') : '<span class="muted">Zet een map vast met 📌</span>';
+    const recRows = recent.length ? recent.map(r=>`<a data-open="${enc(r.path)}">🕘 ${esc(r.path.split('/').pop())}</a>`).join('') : '<span class="muted">Nog geen recente bestanden.</span>';
+    el.innerHTML = `<div class="panel"><h3>📌 Vastgezet</h3>${pinRows}</div><div class="panel"><h3>🕘 Recent</h3>${recRows}</div>`;
+  } catch { el.innerHTML = ''; }
+}
+// Pin / unpin
+document.addEventListener('click', async (e) => {
+  if (e.target.dataset && e.target.dataset.pin) { e.stopPropagation(); await api('/api/pins',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(e.target.dataset.pin)})}); loadDashboard(); }
+  if (e.target.dataset && e.target.dataset.unpin) { e.stopPropagation(); await api('/api/pins',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(e.target.dataset.unpin)})}); loadDashboard(); }
+});
+
+// --- Weergave / laagbandbreedte / kiosk (features 19, 23, 24) ---
+function applyUxPrefs() {
+  document.body.classList.toggle('view-grid', localStorage.getItem('view') === 'grid');
+  document.body.classList.toggle('lowbw', localStorage.getItem('lowbw') === '1');
+  document.body.classList.toggle('kiosk', sessionStorage.getItem('kiosk') === '1');
+}
+const viewBtn = document.getElementById('viewBtn'); if (viewBtn) viewBtn.onclick = () => { localStorage.setItem('view', localStorage.getItem('view')==='grid'?'list':'grid'); applyUxPrefs(); };
+const lowbwBtn = document.getElementById('lowbwBtn'); if (lowbwBtn) lowbwBtn.onclick = () => { localStorage.setItem('lowbw', localStorage.getItem('lowbw')==='1'?'0':'1'); applyUxPrefs(); load(); };
+const kioskBtn = document.getElementById('kioskBtn'); if (kioskBtn) kioskBtn.onclick = () => {
+  if (sessionStorage.getItem('kiosk') === '1') { const pin = prompt('Pincode om kioskmodus te verlaten:'); if (pin !== (sessionStorage.getItem('kioskPin')||'')) return alert('Onjuiste pincode.'); sessionStorage.removeItem('kiosk'); sessionStorage.removeItem('kioskPin'); }
+  else { const pin = prompt('Kies een pincode om de kioskmodus later te verlaten (leeg = geen):') || ''; sessionStorage.setItem('kioskPin', pin); sessionStorage.setItem('kiosk', '1'); }
+  applyUxPrefs();
+};
+if (new URLSearchParams(location.search).get('kiosk') === '1') sessionStorage.setItem('kiosk', '1');
+applyUxPrefs();
 
 const drop = document.getElementById('drop');
 ['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));

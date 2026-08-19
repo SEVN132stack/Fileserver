@@ -460,6 +460,10 @@ export const config = {
   // (Het eerste apparaat van een gebruiker wordt automatisch vertrouwd.)
   requireDeviceApproval: (process.env.REQUIRE_DEVICE_APPROVAL || 'false') === 'true',
 
+  // --- v3.31 (UX & toegankelijkheid) ---
+  // Vastgezette mappen per gebruiker (snelkoppelingen op het dashboard).
+  pinsFile: abs(process.env.PINS_FILE || 'pins.json'),
+
   // --- v3.30 (API & extensibiliteit) ---
   // Plugin-/extensiesysteem: admin koppelt events aan externe commando's.
   eventHooksFile: abs(process.env.EVENT_HOOKS_FILE || 'event-hooks.json'),
@@ -494,7 +498,7 @@ export const config = {
   digestPrefsFile: abs(process.env.DIGEST_PREFS_FILE || 'digest-prefs.json'),
   digestIntervalHours: parseInt(process.env.DIGEST_INTERVAL_HOURS || '24', 10),
 
-  version: '3.30.0',
+  version: '3.31.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

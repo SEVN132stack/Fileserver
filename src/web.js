@@ -115,6 +115,7 @@ import * as presence from './presence.js';
 import { findDuplicates, cleanupSuggestions } from './analysis.js';
 import { canConvert, convertImage, convertDocToPdf, transcodeAv } from './convert.js';
 import { recordRecent, listRecent } from './recent.js';
+import * as pins from './pins.js';
 import * as gdpr from './gdpr.js';
 import { requestLogger } from './log.js';
 import * as ocr from './ocr.js';
@@ -1692,6 +1693,11 @@ export function createWebServer() {
 
   // Recent geopende bestanden.
   app.get('/api/recent', (req, res) => res.json({ items: listRecent(req.user) }));
+
+  // Vastgezette mappen (dashboard-snelkoppelingen).
+  app.get('/api/pins', (req, res) => res.json({ pins: pins.listPins(req.user) }));
+  app.post('/api/pins', requireWrite, express.json(), (req, res) => res.json({ ok: true, pins: pins.addPin(req.user, req.body.path || '/') }));
+  app.delete('/api/pins', requireWrite, express.json(), (req, res) => res.json({ ok: pins.removePin(req.user, req.body.path || '') }));
 
   // Duplicaten & opschoon-suggesties.
   app.get('/api/duplicates', (req, res) => res.json(findDuplicates(req.home)));
