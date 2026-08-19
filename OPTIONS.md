@@ -323,6 +323,14 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Plugin-/extensiesysteem (event → extern commando, admin, standaard uit)
 - ✅ Fijnmazige uitgaande webhook-abonnementen (filters + payload-templates)
 
+## UX & toegankelijkheid: dashboard, weergaven, i18n, kiosk (v3.31)
+
+- ✅ Recent & vastgezette mappen (dashboard)
+- ✅ Meerdere weergaven (lijst/raster) + kolomzichtbaarheid
+- ✅ Uitgebreide i18n (ES/IT/PL) + RTL-ondersteuning
+- ✅ Toegankelijkheid: skip-link, focus, ARIA (WCAG-AA)
+- ✅ Laagbandbreedte-modus + kiosk-/gastmodus
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

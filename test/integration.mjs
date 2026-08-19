@@ -51,6 +51,7 @@ process.env.INBOUND_HOOKS_FILE = path.join(tmp, 'inbound-hooks.json');
 process.env.LABELS_FILE = path.join(tmp, 'labels.json');
 process.env.SERVER_SNAPSHOTS_DIR = path.join(tmp, 'server-snapshots');
 process.env.INCIDENTS_FILE = path.join(tmp, 'incidents.json');
+process.env.PINS_FILE = path.join(tmp, 'pins.json');
 process.env.EVENT_HOOKS_FILE = path.join(tmp, 'event-hooks.json');
 process.env.WEBHOOK_SUBS_FILE = path.join(tmp, 'webhook-subs.json');
 process.env.COLD_STORE_MIN_BYTES = '0';
@@ -1426,6 +1427,16 @@ try {
     const list = await (await fetch(H + '/api/admin/eventhooks', { headers: jar() })).json();
     ok('eventhooks: aanmaken + lijst + standaard uit',
       add.ok && list.hooks.some((h) => h.id === add.hook.id) && list.enabled === false && list.events.includes('upload'));
+  }
+
+  // 109. Vastgezette mappen (dashboard-snelkoppelingen).
+  {
+    const add = await (await fetch(H + '/api/pins', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/projectmap' }) })).json();
+    const list = await (await fetch(H + '/api/pins', { headers: jar() })).json();
+    const del = await (await fetch(H + '/api/pins', { method: 'DELETE', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/projectmap' }) })).json();
+    const after = await (await fetch(H + '/api/pins', { headers: jar() })).json();
+    ok('vastgezette mappen toevoegen/tonen/losmaken',
+      add.ok && list.pins.includes('/projectmap') && del.ok && !after.pins.includes('/projectmap'));
   }
 
   console.log(`\n${passed} tests geslaagd.`);

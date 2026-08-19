@@ -1,5 +1,21 @@
 # Changelog
 
+## [3.31.0] - 2026-08-14
+
+### Toegevoegd (Batch K — UX & toegankelijkheid)
+
+- **Recent & vastgezet**: een dashboard bovenaan met vastgezette mappen (server-side bewaard,
+  op elk apparaat) en recent geopende/gedownloade bestanden. Map vastzetten met 📌.
+- **Meerdere weergaven**: wissel tussen lijst- en rasterweergave (📊); kolommen (grootte) te
+  verbergen.
+- **Uitgebreide i18n**: talen NL/EN/DE/FR + **ES/IT/PL** en **RTL-ondersteuning** (o.a.
+  Arabisch); per-gebruiker taalkeuze.
+- **Toegankelijkheid (WCAG-AA)**: skip-link, zichtbare focus-indicatie, ARIA-labels op
+  icoonknoppen en tabellen, en `lang`/`dir` op het document.
+- **Laagbandbreedte-modus** (🐢): geen thumbnails en geen animaties voor trage verbindingen.
+- **Kiosk-/gastmodus** (🔒): een vergrendelde, uitgeklede weergave (geen upload/beheer/
+  muterende acties) voor gedeelde apparaten, te verlaten met een pincode; ook via `?kiosk=1`.
+
 ## [3.30.0] - 2026-08-14
 
 ### Toegevoegd (Batch J — API & extensibiliteit)

@@ -53,3 +53,4 @@ server-snapshots/
 incidents.json
 event-hooks.json
 webhook-subs.json
+pins.json
