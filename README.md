@@ -195,6 +195,12 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## API & extensibiliteit: OpenAPI, plugin-hooks & webhook-abonnementen (v3.30)
+
+- **OpenAPI-spec + API-docs** — `/api/openapi.json` (Swagger UI/Postman) en een documentatiepagina op `/docs`.
+- **Plugin-/extensiesysteem** — koppel events aan externe commando's (`EVENT_HOOKS_ENABLED=true`, admin-beheer).
+- **Fijnmazige webhook-abonnementen** — meerdere endpoints met event-/pad-filters en payload-templates (`{{velden}}`).
+
 ## Opslag & continuïteit: compressie, point-in-time, zelftest & status (v3.29)
 
 - **Compressie-at-rest** — koude bestanden worden gzip-gecomprimeerd (transparante download); `COLD_STORE_DAYS`.

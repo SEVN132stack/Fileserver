@@ -460,6 +460,13 @@ export const config = {
   // (Het eerste apparaat van een gebruiker wordt automatisch vertrouwd.)
   requireDeviceApproval: (process.env.REQUIRE_DEVICE_APPROVAL || 'false') === 'true',
 
+  // --- v3.30 (API & extensibiliteit) ---
+  // Plugin-/extensiesysteem: admin koppelt events aan externe commando's.
+  eventHooksFile: abs(process.env.EVENT_HOOKS_FILE || 'event-hooks.json'),
+  eventHooksEnabled: (process.env.EVENT_HOOKS_ENABLED || 'false') === 'true',
+  // Fijnmazige uitgaande webhook-abonnementen (filters + payload-templates).
+  webhookSubsFile: abs(process.env.WEBHOOK_SUBS_FILE || 'webhook-subs.json'),
+
   // --- v3.29 (opslag & continuïteit) ---
   // Compressie-at-rest: comprimeer bestanden die N dagen niet zijn gewijzigd.
   coldStoreDays: parseInt(process.env.COLD_STORE_DAYS || '0', 10), // 0 = handmatig/uit
@@ -487,7 +494,7 @@ export const config = {
   digestPrefsFile: abs(process.env.DIGEST_PREFS_FILE || 'digest-prefs.json'),
   digestIntervalHours: parseInt(process.env.DIGEST_INTERVAL_HOURS || '24', 10),
 
-  version: '3.29.0',
+  version: '3.30.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

@@ -67,6 +67,9 @@ import * as coldstore from './coldstore.js';
 import * as serverSnaps from './server-snapshots.js';
 import { runSelfTest } from './selftest.js';
 import * as incidents from './incidents.js';
+import { openapiSpec } from './openapi.js';
+import * as eventhooks from './eventhooks.js';
+import * as webhookSubs from './webhook-subs.js';
 import * as comments from './comments.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
@@ -153,6 +156,13 @@ function runPostUpload(filePath) {
   execFile(cmd, [...args, filePath], (err) => {
     if (err) console.error('[post-upload] mislukt:', err.message);
   });
+}
+
+// Centrale event-emitter: voedt zowel het plugin-/extensiesysteem (externe
+// commando's) als de fijnmazige uitgaande webhook-abonnementen.
+function emitEvent(event, detail = {}) {
+  try { eventhooks.fireEvent(event, detail); } catch { /* niet-fataal */ }
+  try { webhookSubs.deliver(event, detail); } catch { /* niet-fataal */ }
 }
 
 // Bepaal de geauthenticeerde gebruiker uit sessie-cookie of Basic Auth.
@@ -428,6 +438,7 @@ export function createWebServer() {
     recordSuccess('web:' + ip);
     recordLoginSuccess(username);
     recordLogin(username);
+    emitEvent('login', { user: username, ip });
     // Break-glass nood-account: elk gebruik is een luid alarm.
     if (isBreakglass(username)) {
       sysAlert(`breakglass-${Date.now()}`, '⚠ BREAK-GLASS nood-account gebruikt',
@@ -521,6 +532,13 @@ export function createWebServer() {
     audit('web', username, 'self_register', { role: inv.role });
     res.json({ ok: true });
   });
+
+  // OpenAPI-spec + eenvoudige, zelf-gehoste API-docs.
+  app.get('/api/openapi.json', (req, res) => {
+    const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+    res.json(openapiSpec(base));
+  });
+  app.get('/docs', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'docs.html')));
 
   // Publieke status (geen geheimen): voor een status-/uptime-pagina, incl.
   // incidenten en geplande onderhoudsvensters.
@@ -1381,6 +1399,7 @@ export function createWebServer() {
       runPostUpload(f.path);
     }
     audit('web', req.user, 'upload', { path: req.query.path || '/', files: names });
+    emitEvent('upload', { user: req.user, path: req.query.path || '/', files: names });
     notify('upload', { user: req.user, files: names });
     emitToUser(req.user, 'change', { action: 'upload' });
     metrics.inc('fileserver_uploads_total', names.length);
@@ -1513,6 +1532,7 @@ export function createWebServer() {
         labels.removePath(req.home, p);
         recordMutation(req.user, 'delete'); checkHoneypot(req.user, p, 'delete');
         audit('web', req.user, 'delete', { path: p });
+        emitEvent('delete', { user: req.user, path: p });
         notify('delete', { user: req.user, path: p });
         metrics.inc('fileserver_deletes_total');
       }
@@ -2080,6 +2100,22 @@ export function createWebServer() {
   });
   app.delete('/api/admin/hooks/:token', requireAdmin, (req, res) => res.json({ ok: inboundHooks.deleteHook(req.params.token) }));
 
+  // Plugin-/extensiesysteem: event -> extern commando (alleen admin; standaard uit).
+  app.get('/api/admin/eventhooks', requireAdmin, (req, res) => res.json({ hooks: eventhooks.listHooks(), events: eventhooks.EVENTS, enabled: config.eventHooksEnabled }));
+  app.post('/api/admin/eventhooks', requireAdmin, express.json(), (req, res) => {
+    try { res.json({ ok: true, hook: eventhooks.addHook(req.body || {}) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/admin/eventhooks/:id', requireAdmin, (req, res) => res.json({ ok: eventhooks.deleteHook(req.params.id) }));
+
+  // Fijnmazige uitgaande webhook-abonnementen (filters + payload-template).
+  app.get('/api/admin/webhook-subs', requireAdmin, (req, res) => res.json({ subs: webhookSubs.listSubs(), events: webhookSubs.EVENTS }));
+  app.post('/api/admin/webhook-subs', requireAdmin, express.json(), (req, res) => {
+    try { res.json({ ok: true, sub: webhookSubs.addSub(req.body || {}) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/admin/webhook-subs/:id', requireAdmin, (req, res) => res.json({ ok: webhookSubs.deleteSub(req.params.id) }));
+
   // Interactief analytics-overzicht (admin): actie-verdeling, top-gebruikers en
   // een dag-tijdlijn, afgeleid uit het audit-log.
   app.get('/api/admin/report/analytics', requireAdmin, (req, res) => {
@@ -2209,6 +2245,7 @@ export function createWebServer() {
       maxKbps: req.body.maxKbps ? Number(req.body.maxKbps) : 0,
     });
     audit('web', req.user, 'share_create', { path: req.body.path });
+    emitEvent('share_create', { user: req.user, path: req.body.path, token });
     notifyShare('share_create', req.user, { path: req.body.path, token });
     emitAdmin('activity', { kind: 'share', user: req.user });
     res.json({ token, url: `/s/${token}` });

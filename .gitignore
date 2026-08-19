@@ -51,3 +51,5 @@ subscriptions.json
 digest-prefs.json
 server-snapshots/
 incidents.json
+event-hooks.json
+webhook-subs.json
