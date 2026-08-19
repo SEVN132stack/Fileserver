@@ -1316,6 +1316,39 @@ try {
     ok('permalink respecteert classificatie (geheim = 403, openbaar = ok)', perma.status === 403 && permaOk.status === 200);
   }
 
+  // 99. Beeldbewerker: roteren via sharp levert een nieuw, geldig bestand.
+  {
+    const { default: sharp } = await import('sharp');
+    const png = await sharp({ create: { width: 40, height: 20, channels: 3, background: { r: 10, g: 20, b: 30 } } }).png().toBuffer();
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'foto.png'), png);
+    const r = await (await fetch(H + '/api/image/transform', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/foto.png', ops: { rotate: 90 } }) })).json();
+    const outAbs = path.join(config.storageDir, 'admin', 'foto-bewerkt.png');
+    const meta = fs.existsSync(outAbs) ? await sharp(outAbs).metadata() : {};
+    ok('beeldbewerker roteert (40x20 -> 20x40)', r.ok && meta.width === 20 && meta.height === 40);
+  }
+
+  // 100. PDF-bewerker: merge + split via pdf-lib.
+  {
+    const { PDFDocument } = await import('pdf-lib');
+    const mk = async (n) => { const d = await PDFDocument.create(); for (let i = 0; i < n; i++) d.addPage([200, 200]); return Buffer.from(await d.save()); };
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'p1.pdf'), await mk(2));
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'p2.pdf'), await mk(3));
+    const merged = await (await fetch(H + '/api/pdf/merge', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ paths: ['/p1.pdf', '/p2.pdf'], dest: '/merged.pdf' }) })).json();
+    const mAbs = path.join(config.storageDir, 'admin', 'merged.pdf');
+    const mCount = fs.existsSync(mAbs) ? (await PDFDocument.load(fs.readFileSync(mAbs))).getPageCount() : 0;
+    const split = await (await fetch(H + '/api/pdf/split', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/merged.pdf', ranges: '1-2', dest: '/sel.pdf' }) })).json();
+    const sAbs = path.join(config.storageDir, 'admin', 'sel.pdf');
+    const sCount = fs.existsSync(sAbs) ? (await PDFDocument.load(fs.readFileSync(sAbs))).getPageCount() : 0;
+    ok('PDF merge (2+3=5) + split (1-2=2)', merged.ok && mCount === 5 && split.ok && sCount === 2);
+  }
+
+  // 101. Transcode/transcriptie geven 501 als de externe tool uit staat.
+  {
+    const tc = await fetch(H + '/api/transcode', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/clip.mp4' }) });
+    const tr = await fetch(H + '/api/transcribe', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/clip.mp4' }) });
+    ok('transcode/transcriptie: nette 501 zonder ffmpeg/whisper', tc.status === 501 && tr.status === 501);
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

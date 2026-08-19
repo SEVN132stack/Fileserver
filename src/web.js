@@ -27,6 +27,10 @@ import { recordDownload } from './anomaly.js';
 import * as savedsearch from './savedsearch.js';
 import * as labels from './labels.js';
 import { suggestName } from './naming.js';
+import * as imgedit from './imgedit.js';
+import * as pdfedit from './pdfedit.js';
+import * as transcodeMod from './transcode.js';
+import * as transcribeMod from './transcribe.js';
 import * as rules from './rules.js';
 import * as subscriptions from './subscriptions.js';
 import * as digest from './digest.js';
@@ -1868,6 +1872,92 @@ export function createWebServer() {
     catch (err) { res.status(400).json({ error: err.message }); }
   });
   app.delete('/api/saved-searches/:id', requireWrite, (req, res) => res.json({ ok: savedsearch.deleteSaved(req.user, req.params.id) }));
+
+  // Hulp: schrijf bewerkte media-bytes weg als nieuw bestand binnen de home,
+  // met quotacontrole en versie-snapshot bij overschrijven.
+  const saveDerived = async (req, res, relPath, buf, auditAction) => {
+    const dest = resolveWithin(req.home, relPath);
+    const q = quota(req.user);
+    if (q > 0) {
+      const exists = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
+      if (dirSize(req.home) - exists + buf.length > q) return res.status(413).json({ error: 'Quota overschreden' });
+    }
+    if (fs.existsSync(dest)) snapshot(req.home, dest);
+    await fsp.mkdir(path.dirname(dest), { recursive: true });
+    await fsp.writeFile(dest, buf);
+    audit('web', req.user, auditAction, { path: relPath });
+    emitToUser(req.user, 'change', { action: auditAction });
+    res.json({ ok: true, path: relPath, size: buf.length });
+  };
+  const derivedName = (rel, suffix, ext) => {
+    const dir = path.posix.dirname(rel);
+    const base = path.basename(rel, path.extname(rel));
+    return path.posix.join(dir === '.' ? '/' : dir, `${base}${suffix}${ext || path.extname(rel)}`);
+  };
+
+  // In-browser beeldbewerker (roteren/spiegelen/bijsnijden/schalen via sharp).
+  app.post('/api/image/transform', requireWrite, express.json(), async (req, res) => {
+    try {
+      const rel = req.body.path || '';
+      if (!imgedit.canEdit(rel)) return res.status(400).json({ error: 'Geen bewerkbare afbeelding' });
+      const src = resolveWithin(req.home, rel);
+      const buf = await imgedit.transform(src, req.body.ops || {});
+      await saveDerived(req, res, req.body.dest || derivedName(rel, '-bewerkt'), buf, 'image_edit');
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // PDF-bewerker: samenvoegen / splitsen / roteren.
+  app.post('/api/pdf/merge', requireWrite, express.json(), async (req, res) => {
+    try {
+      const paths = (req.body.paths || []).map((p) => { if (!pdfedit.isPdf(p)) throw new Error('Alleen PDF-bestanden'); return resolveWithin(req.home, p); });
+      if (paths.length < 2) return res.status(400).json({ error: 'Minstens 2 PDF\'s nodig' });
+      const buf = await pdfedit.mergePdfs(paths);
+      await saveDerived(req, res, req.body.dest || '/samengevoegd.pdf', buf, 'pdf_merge');
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/pdf/split', requireWrite, express.json(), async (req, res) => {
+    try {
+      const rel = req.body.path || '';
+      if (!pdfedit.isPdf(rel)) return res.status(400).json({ error: 'Alleen PDF-bestanden' });
+      const buf = await pdfedit.splitPdf(resolveWithin(req.home, rel), req.body.ranges || '');
+      await saveDerived(req, res, req.body.dest || derivedName(rel, '-selectie'), buf, 'pdf_split');
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/pdf/rotate', requireWrite, express.json(), async (req, res) => {
+    try {
+      const rel = req.body.path || '';
+      if (!pdfedit.isPdf(rel)) return res.status(400).json({ error: 'Alleen PDF-bestanden' });
+      const buf = await pdfedit.rotatePdf(resolveWithin(req.home, rel), Number(req.body.degrees) || 90, req.body.ranges || '');
+      await saveDerived(req, res, req.body.dest || derivedName(rel, '-gedraaid'), buf, 'pdf_rotate');
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Transcoderen op verzoek (video -> mp4/webm via ffmpeg).
+  app.post('/api/transcode', requireWrite, express.json(), async (req, res) => {
+    if (!transcodeMod.hasFfmpeg()) return res.status(501).json({ error: 'Transcoderen staat uit (FFMPEG_CMD)' });
+    try {
+      const rel = req.body.path || '';
+      if (!transcodeMod.canTranscode(rel)) return res.status(400).json({ error: 'Geen ondersteund videobestand' });
+      const fmt = transcodeMod.FORMATS[req.body.format] ? req.body.format : 'mp4';
+      const destRel = derivedName(rel, '-web', transcodeMod.FORMATS[fmt].ext);
+      await transcodeMod.transcode(resolveWithin(req.home, rel), resolveWithin(req.home, destRel), fmt);
+      audit('web', req.user, 'transcode', { path: rel, format: fmt });
+      emitToUser(req.user, 'change', { action: 'transcode' });
+      res.json({ ok: true, path: destRel });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Automatische transcriptie (audio/video -> tekst via TRANSCRIBE_CMD).
+  app.post('/api/transcribe', requireWrite, express.json(), async (req, res) => {
+    if (!transcribeMod.hasTranscriber()) return res.status(501).json({ error: 'Transcriptie staat uit (TRANSCRIBE_CMD)' });
+    try {
+      const rel = req.body.path || '';
+      if (!transcribeMod.canTranscribe(rel)) return res.status(400).json({ error: 'Geen ondersteund mediabestand' });
+      const text = await transcribeMod.transcribe(resolveWithin(req.home, rel));
+      const destRel = derivedName(rel, '-transcript', '.txt');
+      await saveDerived(req, res, destRel, Buffer.from(text, 'utf8'), 'transcribe');
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
 
   // Slimme naamgeving-suggestie voor een bestand.
   app.get('/api/rename-suggestion', async (req, res) => {

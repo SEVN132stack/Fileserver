@@ -303,6 +303,13 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Map-abonnementen (melding bij wijzigingen)
 - ✅ Digest-notificaties (dagelijkse/wekelijkse samenvatting)
 
+## Media & bewerking: beeld, PDF, transcode & transcriptie (v3.28)
+
+- ✅ In-browser beeldbewerker (roteren/spiegelen/bijsnijden/schalen)
+- ✅ PDF-bewerker (samenvoegen/splitsen/roteren)
+- ✅ Transcoderen op verzoek (video → MP4/WebM via ffmpeg)
+- ✅ Automatische transcriptie (spraak → tekst via extern commando)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

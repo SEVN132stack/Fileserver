@@ -195,6 +195,13 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Media & bewerking: beeld, PDF, transcode & transcriptie (v3.28)
+
+- **In-browser beeldbewerker** — roteren/spiegelen/bijsnijden/schalen (sharp); resultaat als nieuw bestand.
+- **PDF-bewerker** — samenvoegen, pagina's selecteren (splitsen) en roteren (pdf-lib).
+- **Transcoderen op verzoek** — video → MP4/WebM (`FFMPEG_CMD`).
+- **Automatische transcriptie** — spraak → tekst voor audio/video (`TRANSCRIBE_CMD`, bijv. whisper).
+
 ## Automatisering & notificaties: naamsuggesties, regels, abonnementen & digests (v3.27)
 
 - **Slimme naamgeving-suggesties** — bij hernoemen een voorstel op basis van inhoud (eerste kop) of EXIF-datum.
