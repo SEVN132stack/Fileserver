@@ -21,6 +21,7 @@ import { startWebhookWorker } from './webhook-queue.js';
 import { startQuotaWarnScheduler } from './quota-warn.js';
 import { startCertMonitor } from './cert-monitor.js';
 import { startDigestScheduler } from './digest.js';
+import { startSelfTestScheduler } from './selftest.js';
 
 // Startpunt: bereidt opslag, host key en gebruikers voor en start beide servers.
 ensureStorage();
@@ -46,6 +47,7 @@ startWebhookWorker();
 startQuotaWarnScheduler();
 startCertMonitor();
 startDigestScheduler();
+startSelfTestScheduler();
 
 startWebServer();
 startSftpServer();

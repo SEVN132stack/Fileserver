@@ -5,27 +5,50 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Status — Fileserver</title>
   <style>
-    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; font-family:system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
-    .card { background:#1e293b; padding:2rem 2.5rem; border-radius:14px; text-align:center; min-width:280px; }
+    body { margin:0; min-height:100vh; font-family:system-ui,sans-serif; background:#0f172a; color:#e2e8f0; display:flex; justify-content:center; }
+    .wrap { width:100%; max-width:640px; padding:2rem 1.2rem; }
+    .card { background:#1e293b; padding:1.6rem 1.8rem; border-radius:14px; margin-bottom:1rem; }
     .dot { width:14px; height:14px; border-radius:50%; display:inline-block; margin-right:.5rem; vertical-align:middle; }
-    .up { background:#22c55e; box-shadow:0 0 10px #22c55e; } .down { background:#ef4444; }
-    h1 { font-size:1.4rem; margin:.3rem 0; } .muted { color:#94a3b8; font-size:.85rem; }
+    .up { background:#22c55e; box-shadow:0 0 10px #22c55e; } .warn { background:#f59e0b; } .down { background:#ef4444; }
+    h1 { font-size:1.4rem; margin:.3rem 0; } h2 { font-size:1rem; color:#94a3b8; margin:1rem 0 .4rem; }
+    .muted { color:#94a3b8; font-size:.85rem; }
+    ul { list-style:none; padding:0; margin:0; } li { padding:.5rem .6rem; border-radius:8px; background:#0f172a; margin:.35rem 0; }
+    .sev-critical,.sev-major { border-left:3px solid #ef4444; } .sev-minor { border-left:3px solid #f59e0b; } .sev-info { border-left:3px solid #38bdf8; }
+    .resolved { opacity:.6; } .tag { font-size:.7rem; text-transform:uppercase; color:#94a3b8; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1><span id="dot" class="dot"></span><span id="state">Controleren…</span></h1>
-    <div class="muted" id="detail"></div>
+  <div class="wrap">
+    <div class="card" style="text-align:center">
+      <h1><span id="dot" class="dot"></span><span id="state">Controleren…</span></h1>
+      <div class="muted" id="detail"></div>
+    </div>
+    <div id="maintenance"></div>
+    <div id="incidents"></div>
+    <div class="card"><h2>Geschiedenis</h2><ul id="history"><li class="muted">Laden…</li></ul></div>
   </div>
   <script>
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+    const fmt = t => new Date(t).toLocaleString();
+    const STATE = { operationeel:['up','Operationeel'], verstoord:['warn','Verstoord'], storing:['down','Storing'], onderhoud:['warn','Onderhoud'] };
     async function check() {
       try {
-        const r = await fetch('/api/status-public', { cache: 'no-store' });
-        const d = await r.json();
-        document.getElementById('dot').className = 'dot up';
-        document.getElementById('state').textContent = 'Operationeel';
+        const d = await (await fetch('/api/status-public', { cache: 'no-store' })).json();
+        const [cls, label] = STATE[d.state] || STATE.operationeel;
+        document.getElementById('dot').className = 'dot ' + cls;
+        document.getElementById('state').textContent = label;
         const u = d.uptime, days = Math.floor(u/86400), h = Math.floor(u%86400/3600), m = Math.floor(u%3600/60);
         document.getElementById('detail').textContent = `v${d.version} · uptime ${days}d ${h}u ${m}m`;
+        const maint = (d.maintenance || []);
+        document.getElementById('maintenance').innerHTML = maint.length
+          ? `<div class="card"><h2>Gepland onderhoud</h2><ul>${maint.map(m=>`<li>🛠️ <b>${esc(m.title)}</b><br><span class="muted">${fmt(m.start)} – ${fmt(m.end)}</span></li>`).join('')}</ul></div>` : '';
+        const open = (d.openIncidents || []);
+        document.getElementById('incidents').innerHTML = open.length
+          ? `<div class="card"><h2>Actieve incidenten</h2><ul>${open.map(i=>`<li class="sev-${esc(i.severity)}"><b>${esc(i.title)}</b><br><span class="muted">${fmt(i.created)}</span></li>`).join('')}</ul></div>` : '';
+        const hist = (d.recentIncidents || []);
+        document.getElementById('history').innerHTML = hist.length
+          ? hist.map(i=>`<li class="sev-${esc(i.severity)} ${i.status==='resolved'?'resolved':''}"><span class="tag">${esc(i.status)}</span> <b>${esc(i.title)}</b><br><span class="muted">${fmt(i.created)}${i.resolvedAt?(' → opgelost '+fmt(i.resolvedAt)):''}</span></li>`).join('')
+          : '<li class="muted">Geen incidenten geregistreerd.</li>';
       } catch {
         document.getElementById('dot').className = 'dot down';
         document.getElementById('state').textContent = 'Niet bereikbaar';

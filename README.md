@@ -195,6 +195,13 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Opslag & continuïteit: compressie, point-in-time, zelftest & status (v3.29)
+
+- **Compressie-at-rest** — koude bestanden worden gzip-gecomprimeerd (transparante download); `COLD_STORE_DAYS`.
+- **Point-in-time herstel** — server-brede snapshots van de hele opslag; herstel met veiligheids-snapshot.
+- **Zelftest-/chaos-knop** — back-up-geldigheid + herstel-test + integriteit in één rapport (`SELFTEST_INTERVAL_HOURS`).
+- **Statuspagina met incidenthistorie** — incidenten + onderhoudsvensters, publiek zichtbaar op `/status.html`.
+
 ## Media & bewerking: beeld, PDF, transcode & transcriptie (v3.28)
 
 - **In-browser beeldbewerker** — roteren/spiegelen/bijsnijden/schalen (sharp); resultaat als nieuw bestand.

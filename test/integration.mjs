@@ -49,6 +49,9 @@ process.env.REVIEWS_FILE = path.join(tmp, 'reviews.json');
 process.env.SAVED_SEARCHES_FILE = path.join(tmp, 'saved-searches.json');
 process.env.INBOUND_HOOKS_FILE = path.join(tmp, 'inbound-hooks.json');
 process.env.LABELS_FILE = path.join(tmp, 'labels.json');
+process.env.SERVER_SNAPSHOTS_DIR = path.join(tmp, 'server-snapshots');
+process.env.INCIDENTS_FILE = path.join(tmp, 'incidents.json');
+process.env.COLD_STORE_MIN_BYTES = '0';
 process.env.RULES_FILE = path.join(tmp, 'rules.json');
 process.env.SUBSCRIPTIONS_FILE = path.join(tmp, 'subscriptions.json');
 process.env.DIGEST_PREFS_FILE = path.join(tmp, 'digest-prefs.json');
@@ -1347,6 +1350,48 @@ try {
     const tc = await fetch(H + '/api/transcode', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/clip.mp4' }) });
     const tr = await fetch(H + '/api/transcribe', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/clip.mp4' }) });
     ok('transcode/transcriptie: nette 501 zonder ffmpeg/whisper', tc.status === 501 && tr.status === 501);
+  }
+
+  // 102. Compressie-at-rest: koud bestand wordt gecomprimeerd + transparant gedownload.
+  {
+    const cs = await import('../src/coldstore.js');
+    const coldAbs = path.join(config.storageDir, 'admin', 'koud.txt');
+    fs.writeFileSync(coldAbs, 'x'.repeat(5000));
+    const old = Date.now() / 1000 - 400 * 86400; // ~400 dagen oud
+    fs.utimesSync(coldAbs, old, old);
+    const r = cs.compressCold(path.join(config.storageDir, 'admin'), 30, 0);
+    const gzExists = fs.existsSync(coldAbs + '.gz') && !fs.existsSync(coldAbs);
+    const dl = await fetch(H + '/api/download?path=/koud.txt', { headers: jar() });
+    const body = await dl.text();
+    ok('compressie-at-rest: comprimeert + transparante download', r.compressed === 1 && gzExists && dl.status === 200 && body === 'x'.repeat(5000));
+  }
+
+  // 103. Server-brede point-in-time snapshot: herstel zet verwijderd bestand terug.
+  {
+    const snap = await (await fetch(H + '/api/admin/server-snapshots', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ label: 'test' }) })).json();
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'na-snapshot.txt'), 'nieuw'); // niet in snapshot
+    fs.rmSync(path.join(config.storageDir, 'admin', 'a.txt'), { force: true });          // wel in snapshot
+    const restore = await (await fetch(H + `/api/admin/server-snapshots/${snap.id}/restore`, { method: 'POST', headers: jar() })).json();
+    ok('point-in-time herstel zet de opslag terug',
+      snap.id && restore.ok && fs.existsSync(path.join(config.storageDir, 'admin', 'a.txt')));
+  }
+
+  // 104. Zelftest/chaos-knop levert een rapport.
+  {
+    const st = await (await fetch(H + '/api/admin/selftest', { method: 'POST', headers: jar() })).json();
+    ok('zelftest levert rapport (backup/restore/integriteit)',
+      'ok' in st && st.backup && st.restore && st.integrity);
+  }
+
+  // 105. Statuspagina: incident verschijnt publiek en verdwijnt na oplossen.
+  {
+    const inc = await (await fetch(H + '/api/admin/incidents', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ title: 'Testincident', severity: 'major' }) })).json();
+    const pub1 = await (await fetch(H + '/api/status-public')).json();
+    await fetch(H + `/api/admin/incidents/${inc.incident.id}/resolve`, { method: 'POST', headers: jar() });
+    const pub2 = await (await fetch(H + '/api/status-public')).json();
+    ok('statuspagina toont open incident en werkt bij na oplossen',
+      pub1.openIncidents.some((i) => i.id === inc.incident.id) && pub1.state === 'storing' &&
+      !pub2.openIncidents.some((i) => i.id === inc.incident.id));
   }
 
   console.log(`\n${passed} tests geslaagd.`);

@@ -153,6 +153,26 @@
       <details style="margin-top:.8rem"><summary class="l">Zapier/Make-recepten</summary><div id="recipes" class="l"></div></details>
     </div>
 
+    <h2>Continuïteit & status</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <button id="selftestBtn">Zelftest draaien</button>
+        <button id="coldRun">Koude bestanden comprimeren</button>
+        <button id="snapCreate">Server-snapshot maken</button>
+        <span class="l" id="contMsg"></span>
+      </div>
+      <h3 style="margin:.8rem 0 .2rem">Point-in-time snapshots</h3>
+      <table id="snapTable"></table>
+      <h3 style="margin:.8rem 0 .2rem">Incidenten & onderhoud</h3>
+      <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+        <input id="incTitle" placeholder="incident-titel" style="width:150px">
+        <select id="incSev"><option value="minor">minor</option><option value="major">major</option><option value="critical">critical</option><option value="info">info</option></select>
+        <button id="incAdd">Incident melden</button>
+        <input id="mntTitle" placeholder="onderhoud-titel" style="width:130px"><button id="mntAdd">Onderhoud (+1u) plannen</button>
+      </div>
+      <table id="incTable" style="margin-top:.6rem"></table>
+    </div>
+
     <h2>Just-in-time toegangsverzoeken</h2>
     <div class="card" style="margin-bottom:2rem">
       <p class="l" style="margin-top:0">Tijdelijke rol-verhogingen: keur goed of af. Goedgekeurde verhogingen vervallen automatisch.</p>
@@ -534,7 +554,33 @@
     };
     document.addEventListener('click', async e => { if (e.target.dataset.hookdel) { await j('/api/admin/hooks/'+encodeURIComponent(e.target.dataset.hookdel),{method:'DELETE'}); loadHooks(); } });
 
-    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit(); loadAnalytics(); loadHooks();
+    const cm = t => { document.getElementById('contMsg').textContent = t; };
+    async function loadSnaps() {
+      const { snapshots } = await (await j('/api/admin/server-snapshots')).json();
+      document.getElementById('snapTable').innerHTML = '<tr><th>Tijdstip</th><th>Bestanden</th><th>Grootte</th><th></th></tr>' +
+        (snapshots.length ? snapshots.map(s=>`<tr><td>${esc(s.created)}</td><td>${s.files}</td><td>${(s.bytes/1e6).toFixed(1)} MB</td><td><button data-snaprestore="${esc(s.id)}">herstel</button> <button class="danger" data-snapdel="${esc(s.id)}">×</button></td></tr>`).join('') : '<tr><td colspan="4" class="l">Geen snapshots.</td></tr>');
+    }
+    async function loadIncidents() {
+      const d = await (await j('/api/admin/incidents')).json();
+      const rows = (d.incidents||[]).map(i=>`<tr><td>${esc(i.title)}</td><td>${esc(i.severity)}</td><td>${esc(i.status)}</td><td>${i.status==='open'?`<button data-incres="${esc(i.id)}">oplossen</button> `:''}<button class="danger" data-incdel="${esc(i.id)}">×</button></td></tr>`).join('');
+      const mnt = (d.maintenance||[]).map(m=>`<tr><td>🛠️ ${esc(m.title)}</td><td colspan="2">${new Date(m.start).toLocaleString()} – ${new Date(m.end).toLocaleString()}</td><td><button class="danger" data-mntdel="${esc(m.id)}">×</button></td></tr>`).join('');
+      document.getElementById('incTable').innerHTML = '<tr><th>Item</th><th>Ernst</th><th>Status</th><th></th></tr>' + (rows||mnt ? rows+mnt : '<tr><td colspan="4" class="l">Geen.</td></tr>');
+    }
+    document.getElementById('selftestBtn').onclick = async () => { cm('Bezig…'); const r = await (await j('/api/admin/selftest',{method:'POST'})).json(); cm('Zelftest: '+(r.ok?'✅ geslaagd':'❌ gefaald')); };
+    document.getElementById('coldRun').onclick = async () => { cm('Bezig…'); const r = await (await j('/api/admin/coldstore/run',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json(); cm(`Gecomprimeerd: ${r.compressed} bestand(en), ${(r.saved/1e6).toFixed(1)} MB bespaard.`); };
+    document.getElementById('snapCreate').onclick = async () => { cm('Bezig…'); await j('/api/admin/server-snapshots',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); cm('Snapshot gemaakt.'); loadSnaps(); };
+    document.getElementById('incAdd').onclick = async () => { const title=document.getElementById('incTitle').value.trim(); if(!title)return; await j('/api/admin/incidents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,severity:document.getElementById('incSev').value})}); document.getElementById('incTitle').value=''; loadIncidents(); };
+    document.getElementById('mntAdd').onclick = async () => { const title=document.getElementById('mntTitle').value.trim()||'Onderhoud'; await j('/api/admin/maintenance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,start:Date.now(),end:Date.now()+3600000})}); document.getElementById('mntTitle').value=''; loadIncidents(); };
+    document.addEventListener('click', async e => {
+      const d = e.target.dataset;
+      if (d.snaprestore) { if(!confirm('De HELE opslag terugzetten naar deze snapshot?'))return; cm('Herstellen…'); await j('/api/admin/server-snapshots/'+encodeURIComponent(d.snaprestore)+'/restore',{method:'POST'}); cm('Hersteld.'); loadSnaps(); }
+      if (d.snapdel) { await j('/api/admin/server-snapshots/'+encodeURIComponent(d.snapdel),{method:'DELETE'}); loadSnaps(); }
+      if (d.incres) { await j('/api/admin/incidents/'+encodeURIComponent(d.incres)+'/resolve',{method:'POST'}); loadIncidents(); }
+      if (d.incdel) { await j('/api/admin/incidents/'+encodeURIComponent(d.incdel),{method:'DELETE'}); loadIncidents(); }
+      if (d.mntdel) { await j('/api/admin/maintenance/'+encodeURIComponent(d.mntdel),{method:'DELETE'}); loadIncidents(); }
+    });
+
+    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit(); loadAnalytics(); loadHooks(); loadSnaps(); loadIncidents();
 
     // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
     // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.
