@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.27.0] - 2026-08-14
+
+### Toegevoegd (Batch G — Automatisering & notificaties)
+
+- **Slimme naamgeving-suggesties**: bij hernoemen stelt de server een naam voor op basis van
+  de inhoud (eerste kop van tekst/office) of de EXIF-opnamedatum van foto's.
+- **Regelgebaseerde automatisering**: per gebruiker regels ("als upload in map X met extensie
+  Y → tag / verplaats / notificeer"), toegepast bij elke upload.
+- **Map-abonnementen**: volg een map en krijg een melding (in-app + digest) bij wijzigingen,
+  bijv. drop-link-aanleveringen of gedeelde uploads.
+- **Digest-notificaties**: verzamel meldingen en ontvang periodiek (dagelijks/wekelijks) één
+  samenvattings-e-mail in plaats van losse mailtjes.
+
 ## [3.26.0] - 2026-08-14
 
 ### Toegevoegd (Batch F — Delen & clients)

@@ -195,6 +195,13 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Automatisering & notificaties: naamsuggesties, regels, abonnementen & digests (v3.27)
+
+- **Slimme naamgeving-suggesties** — bij hernoemen een voorstel op basis van inhoud (eerste kop) of EXIF-datum.
+- **Regelgebaseerde automatisering** — regels per gebruiker: als upload in map X (ext Y) → tag/verplaats/notificeer.
+- **Map-abonnementen** — volg een map, krijg melding (in-app + digest) bij wijzigingen.
+- **Digest-notificaties** — periodieke (dagelijkse/wekelijkse) samenvattings-e-mail.
+
 ## Delen & clients: brievenbus, CLI & WebDAV-locks (v3.26)
 
 - **Brandbare brievenbus** — een drop-link die na de eerste aanlevering vervalt (`burn`); plus instelbaar `maxUploads`.

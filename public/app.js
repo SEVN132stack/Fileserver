@@ -555,7 +555,9 @@ document.addEventListener('click', async (e) => {
   }
   if (t2.dataset.ren) {
     const cur = decodeURIComponent(t2.dataset.ren), base = cur.substring(0,cur.lastIndexOf('/')+1);
-    const nn = prompt('Nieuwe naam of pad:', cur.split('/').pop()); if (!nn) return;
+    let suggestion = '';
+    try { suggestion = (await (await api('/api/rename-suggestion?path='+enc(cur))).json()).suggestion || ''; } catch {}
+    const nn = prompt(suggestion ? 'Nieuwe naam of pad (suggestie ingevuld):' : 'Nieuwe naam of pad:', suggestion || cur.split('/').pop()); if (!nn) return;
     await api('/api/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:cur,to:nn.startsWith('/')?nn:base+nn})}); load(); return;
   }
   if (t2.dataset.del) { if(!confirm('Naar prullenbak?'))return; await api('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t2.dataset.del)})}); load(); loadMe(); return; }
@@ -727,6 +729,36 @@ async function showSecurity() {
     <h4 style="margin-top:1rem">IP-historie</h4>
     <table><tr><th>IP</th><th>#</th><th>Land(en)</th><th>Laatst</th></tr>${(f.ipHistory||[]).map(iprow).join('')||'<tr><td colspan="4" class="muted">Geen data.</td></tr>'}</table>`);
 }
+async function showAutomation() {
+  const [rl, sub, dg] = await Promise.all([api('/api/rules'), api('/api/subscriptions'), api('/api/digest')]);
+  const rules = (await rl.json()).rules || [];
+  const subs = (await sub.json()).subscriptions || [];
+  const pref = (await dg.json()).frequency || 'off';
+  const rrow = r => `<tr><td>${esc(r.prefix)}${r.ext?' *'+esc(r.ext):''}</td><td>${esc(r.action)}${r.arg?' → '+esc(r.arg):''}</td><td><button class="danger" data-ruledel="${esc(r.id)}">×</button></td></tr>`;
+  const srow = s => `<li>${esc(s.prefix)} <button class="danger" data-subdel="${esc(s.id)}">×</button></li>`;
+  const opt = v => `<option value="${v}"${pref===v?' selected':''}>${v}</option>`;
+  openModal(`<h3>⚙️ Automatisering & notificaties</h3>
+    <h4>Regels (bij upload)</h4>
+    <table><tr><th>Als pad/ext</th><th>Actie</th><th></th></tr>${rules.map(rrow).join('')||'<tr><td colspan="3" class="muted">Geen regels.</td></tr>'}</table>
+    <div style="margin-top:.4rem;display:flex;gap:.3rem;flex-wrap:wrap;align-items:center">
+      <input id="rPrefix" placeholder="/map" style="width:90px"><input id="rExt" placeholder=".pdf" style="width:60px">
+      <select id="rAction"><option value="tag">tag</option><option value="move">verplaats</option><option value="notify">notificeer</option></select>
+      <input id="rArg" placeholder="tag of doelmap" style="width:110px"><button data-ruleadd>Regel toevoegen</button></div>
+    <h4 style="margin-top:1rem">Gevolgde mappen</h4>
+    <ul style="list-style:none;padding:0">${subs.map(srow).join('')||'<li class="muted">Geen abonnementen.</li>'}</ul>
+    <div><input id="subPrefix" placeholder="/map" style="width:110px"><button data-subadd>Map volgen</button></div>
+    <h4 style="margin-top:1rem">Digest-samenvatting</h4>
+    <select id="digestFreq">${opt('off')}${opt('daily')}${opt('weekly')}</select> <button data-digestsave>Opslaan</button>`);
+}
+const autoBtn = document.getElementById('autoBtn'); if (autoBtn) autoBtn.onclick = showAutomation;
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (t.hasAttribute && t.hasAttribute('data-ruleadd')) { await api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefix:document.getElementById('rPrefix').value||'/',ext:document.getElementById('rExt').value,action:document.getElementById('rAction').value,arg:document.getElementById('rArg').value})}); return showAutomation(); }
+  if (t.dataset.ruledel) { await api('/api/rules/'+encodeURIComponent(t.dataset.ruledel),{method:'DELETE'}); return showAutomation(); }
+  if (t.hasAttribute && t.hasAttribute('data-subadd')) { await api('/api/subscriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefix:document.getElementById('subPrefix').value||'/'})}); return showAutomation(); }
+  if (t.dataset.subdel) { await api('/api/subscriptions/'+encodeURIComponent(t.dataset.subdel),{method:'DELETE'}); return showAutomation(); }
+  if (t.hasAttribute && t.hasAttribute('data-digestsave')) { await api('/api/digest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({frequency:document.getElementById('digestFreq').value})}); alert('Opgeslagen.'); }
+});
 const secBtn = document.getElementById('secBtn'); if (secBtn) secBtn.onclick = showSecurity;
 document.addEventListener('click', async (e) => {
   if (e.target.dataset.devtrust) { await api('/api/devices/'+encodeURIComponent(e.target.dataset.devtrust)+'/trust',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); return showSecurity(); }

@@ -296,6 +296,13 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ CLI-client (`npm run cli`: ls/get/put/mkdir/rm/share via API-sleutel)
 - ✅ WebDAV LOCK/UNLOCK (class-2) + ETag/If-None-Match property-caching
 
+## Automatisering & notificaties: naamsuggesties, regels, abonnementen & digests (v3.27)
+
+- ✅ Slimme naamgeving-suggesties (inhoud/EXIF)
+- ✅ Regelgebaseerde automatisering (als upload → tag/verplaats/notificeer)
+- ✅ Map-abonnementen (melding bij wijzigingen)
+- ✅ Digest-notificaties (dagelijkse/wekelijkse samenvatting)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)
