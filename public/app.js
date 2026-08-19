@@ -268,8 +268,9 @@ function showLink(title, url) {
 async function makeDropLink() {
   const hrs = prompt('Drop-link vervalt na hoeveel uur? (leeg = nooit)', ''); if (hrs === null) return;
   const pw = prompt('Wachtwoord voor de drop-link? (leeg = geen)', '') || null;
-  const r = await (await api('/api/droplink',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:cwd,expiresInHours:hrs?Number(hrs):0,password:pw})})).json();
-  showLink('Drop-link (anderen kunnen hier uploaden)', location.origin + r.url);
+  const burn = confirm('Brandbare brievenbus? (OK = link vervalt na de eerste aanlevering)');
+  const r = await (await api('/api/droplink',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:cwd,expiresInHours:hrs?Number(hrs):0,password:pw,burn})})).json();
+  showLink(burn ? 'Brandbare brievenbus (eenmalig)' : 'Drop-link (anderen kunnen hier uploaden)', location.origin + r.url);
 }
 
 // Actieve sessies tonen + intrekken.

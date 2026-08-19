@@ -1237,6 +1237,34 @@ try {
       Array.isArray(fo.sessions) && Array.isArray(fo.ipHistory) && Array.isArray(fo.recent) && ('geoJump' in fo));
   }
 
+  // 91. Brandbare brievenbus: drop-link vervalt na de eerste aanlevering.
+  {
+    const box = await (await fetch(H + '/api/droplink', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/inbox', burn: true }) })).json();
+    const f1 = new FormData(); f1.append('files', new Blob(['eenmalig']), 'burn.txt');
+    const u1 = await fetch(H + box.url + '/upload', { method: 'POST', body: f1 });
+    const again = await fetch(H + box.url); // link is nu verbrand
+    ok('brandbare brievenbus vervalt na eerste upload', u1.status === 200 && again.status === 404);
+  }
+
+  // 92. WebDAV LOCK/UNLOCK werken (nodig voor Windows/macOS-mounts).
+  {
+    const davAuth2 = { Authorization: 'Basic ' + Buffer.from('admin:testpass123b').toString('base64') };
+    await fetch(H + '/webdav/lockme.txt', { method: 'PUT', headers: davAuth2, body: 'inhoud' });
+    const lock = await fetch(H + '/webdav/lockme.txt', { method: 'LOCK', headers: davAuth2 });
+    const lockTok = lock.headers.get('lock-token');
+    const unlock = await fetch(H + '/webdav/lockme.txt', { method: 'UNLOCK', headers: { ...davAuth2, 'Lock-Token': lockTok || '' } });
+    ok('WebDAV LOCK levert token + UNLOCK slaagt', lock.status === 200 && !!lockTok && unlock.status === 204);
+  }
+
+  // 93. WebDAV ETag + If-None-Match -> 304 (property-caching).
+  {
+    const davAuth3 = { Authorization: 'Basic ' + Buffer.from('admin:testpass123b').toString('base64') };
+    const g1 = await fetch(H + '/webdav/lockme.txt', { headers: davAuth3 });
+    const etag = g1.headers.get('etag');
+    const g2 = await fetch(H + '/webdav/lockme.txt', { headers: { ...davAuth3, 'If-None-Match': etag || '' } });
+    ok('WebDAV ETag + If-None-Match levert 304', !!etag && g2.status === 304);
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

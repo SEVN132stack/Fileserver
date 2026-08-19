@@ -290,6 +290,12 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Vertrouwde apparaten (apparaatlijst + goedkeuren; optioneel verplicht)
 - ✅ Sessie-forensics (IP-historie + geo-sprong-waarschuwing)
 
+## Delen & clients: brievenbus, CLI & WebDAV-locks (v3.26)
+
+- ✅ Brandbare brievenbus (eenmalige drop-link) + instelbaar max. aantal uploads
+- ✅ CLI-client (`npm run cli`: ls/get/put/mkdir/rm/share via API-sleutel)
+- ✅ WebDAV LOCK/UNLOCK (class-2) + ETag/If-None-Match property-caching
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

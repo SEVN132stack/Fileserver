@@ -2072,8 +2072,10 @@ export function createWebServer() {
       type: 'upload',
       expiresInHours: req.body.expiresInHours ? Number(req.body.expiresInHours) : 0,
       password: req.body.password || null,
+      // Brandbare brievenbus: burn=true -> vervalt na de eerste aanlevering.
+      maxUploads: req.body.burn ? 1 : (req.body.maxUploads ? Number(req.body.maxUploads) : 0),
     });
-    audit('web', req.user, 'droplink_create', { path: req.body.path });
+    audit('web', req.user, 'droplink_create', { path: req.body.path, burn: !!req.body.burn });
     res.json({ token, url: `/s/${token}` });
   });
 

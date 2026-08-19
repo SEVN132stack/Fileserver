@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { resolveWithin, dirSize } from './paths.js';
 import { config } from './config.js';
 import { quota } from './users.js';
@@ -10,6 +11,22 @@ import { audit } from './audit.js';
 import { retainedUntil } from './retention.js';
 import { lockOwner } from './locks.js';
 import { isE2ERequired } from './e2e-folders.js';
+
+// In-memory WebDAV-locks: token -> { home, path, user, expires }. Nodig omdat
+// Windows Verkenner en macOS Finder een LOCK sturen vóór een PUT; zonder LOCK-
+// ondersteuning weigeren die clients te schrijven.
+const davLocks = new Map();
+const LOCK_TTL = 3600000; // 1 uur
+function lockTokenFor(home, p) {
+  const now = Date.now();
+  for (const [tok, l] of davLocks) {
+    if (l.expires < now) { davLocks.delete(tok); continue; }
+    if (l.home === home && l.path === p) return tok;
+  }
+  return null;
+}
+// Zwakke ETag op basis van grootte + mtime (property-caching voor clients).
+function etagOf(stat) { return `W/"${stat.size}-${Math.floor(stat.mtimeMs)}"`; }
 
 // Minimale WebDAV-implementatie zodat je de opslag als netwerkschijf kunt
 // koppelen. Ondersteunt OPTIONS, PROPFIND, GET, PUT, DELETE, MKCOL en MOVE.
@@ -34,6 +51,8 @@ function xmlResponse(href, stat) {
       <D:resourcetype>${isDir ? '<D:collection/>' : ''}</D:resourcetype>
       <D:getcontentlength>${isDir ? 0 : stat.size}</D:getcontentlength>
       <D:getlastmodified>${new Date(stat.mtimeMs).toUTCString()}</D:getlastmodified>
+      <D:getetag>${etagOf(stat)}</D:getetag>
+      <D:supportedlock><D:lockentry><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockentry></D:supportedlock>
     </D:prop>
     <D:status>HTTP/1.1 200 OK</D:status>
   </D:propstat>
@@ -62,9 +81,40 @@ export async function handleWebdav(req, res) {
 
   try {
     if (method === 'OPTIONS') {
-      res.set('Allow', 'OPTIONS, PROPFIND, GET, PUT, DELETE, MKCOL, MOVE, HEAD');
-      res.set('DAV', '1');
+      res.set('Allow', 'OPTIONS, PROPFIND, GET, PUT, DELETE, MKCOL, MOVE, HEAD, LOCK, UNLOCK');
+      res.set('DAV', '1, 2'); // 2 = class-2 locking
       return res.status(200).end();
+    }
+
+    // LOCK/UNLOCK: minimale exclusieve write-lock zodat Windows/macOS-mounts
+    // kunnen schrijven. De lock wordt ook zichtbaar in de app (via locks.js).
+    if (method === 'LOCK') {
+      if (readonly) return res.status(403).end();
+      const blocked = blockMutation();
+      if (blocked) return res.status(423).end(blocked);
+      let token = lockTokenFor(req.home, relPath);
+      if (!token) {
+        token = 'opaquelocktoken:' + randomBytes(16).toString('hex');
+        davLocks.set(token, { home: req.home, path: relPath, user: req.user, expires: Date.now() + LOCK_TTL });
+      } else {
+        davLocks.get(token).expires = Date.now() + LOCK_TTL; // refresh
+      }
+      res.set('Lock-Token', `<${token}>`);
+      res.status(200).set('Content-Type', 'application/xml; charset=utf-8');
+      return res.end(`<?xml version="1.0" encoding="utf-8"?>
+<D:prop xmlns:D="DAV:"><D:lockdiscovery><D:activelock>
+  <D:locktype><D:write/></D:locktype>
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:depth>0</D:depth>
+  <D:timeout>Second-${LOCK_TTL / 1000}</D:timeout>
+  <D:locktoken><D:href>${token}</D:href></D:locktoken>
+</D:activelock></D:lockdiscovery></D:prop>`);
+    }
+
+    if (method === 'UNLOCK') {
+      const tok = (req.headers['lock-token'] || '').replace(/[<>]/g, '');
+      if (tok && davLocks.has(tok)) davLocks.delete(tok);
+      return res.status(204).end();
     }
 
     if (method === 'PROPFIND') {
@@ -84,6 +134,12 @@ export async function handleWebdav(req, res) {
 
     if (method === 'GET' || method === 'HEAD') {
       if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) return res.status(404).end();
+      const stat = fs.statSync(abs);
+      const etag = etagOf(stat);
+      res.set('ETag', etag);
+      res.set('Last-Modified', new Date(stat.mtimeMs).toUTCString());
+      // Property-caching: als de client een geldige ETag heeft, 304 teruggeven.
+      if (req.headers['if-none-match'] && req.headers['if-none-match'] === etag) return res.status(304).end();
       if (method === 'HEAD') return res.status(200).end();
       return res.sendFile(abs);
     }

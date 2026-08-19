@@ -195,6 +195,12 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Delen & clients: brievenbus, CLI & WebDAV-locks (v3.26)
+
+- **Brandbare brievenbus** — een drop-link die na de eerste aanlevering vervalt (`burn`); plus instelbaar `maxUploads`.
+- **CLI-client** — `npm run cli` (of `node bin/fs-cli.mjs`): `ls/get/put/mkdir/rm/share` via een API-sleutel (`FS_URL`/`FS_KEY`).
+- **WebDAV-verbeteringen** — `LOCK`/`UNLOCK` (class-2) voor Windows/macOS-mounts + `ETag`/`If-None-Match` (304) property-caching.
+
 ## Beveiliging & identiteit: classificatie, apparaten & forensics (v3.25)
 
 - **Data-classificatielabels** — label bestanden (openbaar/intern/vertrouwelijk/geheim); vertrouwelijk+ mag niet publiek gedeeld worden.
