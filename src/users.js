@@ -374,6 +374,61 @@ export function rememberDevice(username, deviceId) {
   }
 }
 
+// --- Vertrouwde apparaten (rijk model, met approve/forget) ---
+// deviceList = [{ id, ua, ip, firstSeen, lastSeen, trusted }]. Het eerste
+// apparaat van een gebruiker wordt automatisch vertrouwd (bootstrap), zodat
+// niemand zichzelf buitensluit.
+export function recordDevice(username, { id, ua = '', ip = '' }) {
+  const u = users.get(username);
+  if (!u) return { isNew: false, trusted: true };
+  u.deviceList = u.deviceList || [];
+  let d = u.deviceList.find((x) => x.id === id);
+  const now = Date.now();
+  let isNew = false;
+  if (!d) {
+    isNew = true;
+    const bootstrap = u.deviceList.length === 0; // eerste apparaat = vertrouwd
+    d = { id, ua: String(ua).slice(0, 300), ip, firstSeen: now, lastSeen: now, trusted: bootstrap };
+    u.deviceList.push(d);
+    if (u.deviceList.length > 50) u.deviceList = u.deviceList.slice(-50);
+  } else {
+    d.lastSeen = now; d.ip = ip; if (ua) d.ua = String(ua).slice(0, 300);
+  }
+  saveUsers();
+  return { isNew, trusted: !!d.trusted };
+}
+
+export function listDevices(username) {
+  const u = users.get(username);
+  return (u && u.deviceList) || [];
+}
+
+export function isTrustedDevice(username, id) {
+  const u = users.get(username);
+  const d = u && (u.deviceList || []).find((x) => x.id === id);
+  return !!(d && d.trusted);
+}
+
+export function trustDevice(username, id, trusted = true) {
+  const u = users.get(username);
+  if (!u || !u.deviceList) return false;
+  const d = u.deviceList.find((x) => x.id === id);
+  if (!d) return false;
+  d.trusted = !!trusted;
+  saveUsers();
+  return true;
+}
+
+export function forgetDevice(username, id) {
+  const u = users.get(username);
+  if (!u || !u.deviceList) return false;
+  const n = u.deviceList.length;
+  u.deviceList = u.deviceList.filter((x) => x.id !== id);
+  if (u.deviceList.length === n) return false;
+  saveUsers();
+  return true;
+}
+
 // --- Passkeys / WebAuthn-credentials ---
 export function getCredentials(username) {
   const u = users.get(username);

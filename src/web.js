@@ -25,6 +25,7 @@ import { blockReason } from './geoblock.js';
 import * as jit from './jit.js';
 import { recordDownload } from './anomaly.js';
 import * as savedsearch from './savedsearch.js';
+import * as labels from './labels.js';
 import * as inboundHooks from './inbound-hooks.js';
 import { recipes as integrationRecipes } from './recipes.js';
 import { getTags, setTags, findByTag } from './tags.js';
@@ -63,6 +64,7 @@ import { listSessions, revokeSession } from './sessions.js';
 import {
   validatePassword, isLocked, recordLoginFailure, recordLoginSuccess,
   isKnownDevice, rememberDevice, getCredentials,
+  recordDevice, listDevices, isTrustedDevice, trustDevice, forgetDevice,
 } from './users.js';
 import * as webauthn from './webauthn.js';
 import { createHash } from 'node:crypto';
@@ -420,12 +422,18 @@ export function createWebServer() {
         `Het break-glass nood-account '${username}' is ingelogd vanaf ${ip} (${req.headers['user-agent'] || 'onbekend'}). Controleer of dit legitiem is.`, { force: true });
       audit('web', username, 'breakglass_login', { ip });
     }
-    // Nieuw-apparaat-melding per e-mail.
+    // Nieuw/vertrouwd apparaat. Bij REQUIRE_DEVICE_APPROVAL mag een onvertrouwd
+    // apparaat niet inloggen (het eerste apparaat wordt automatisch vertrouwd).
     const deviceId = createHash('sha256').update((req.headers['user-agent'] || '') + '|' + ip).digest('hex').slice(0, 16);
-    if (!isKnownDevice(username, deviceId)) {
+    const dev = recordDevice(username, { id: deviceId, ua: req.headers['user-agent'] || '', ip });
+    if (dev.isNew) {
       rememberDevice(username, deviceId);
       const to = getEmail(username);
       if (to) sendMail({ to, subject: 'Nieuwe login op je account', text: `Er is ingelogd op je account vanaf een nieuw apparaat.\nIP: ${ip}\nBrowser: ${req.headers['user-agent'] || 'onbekend'}\nTijd: ${new Date().toISOString()}\n\nWas jij dit niet? Wijzig direct je wachtwoord.` }).catch((e) => console.error('[login-mail]', e.message));
+    }
+    if (config.requireDeviceApproval && !dev.trusted) {
+      audit('web', username, 'login_blocked', { ip, reason: 'apparaat niet vertrouwd', deviceId });
+      return res.status(403).json({ error: 'Dit apparaat is nog niet vertrouwd. Keur het goed vanaf een vertrouwd apparaat.' });
     }
     const sid = createSession(username, { ip, ua: req.headers['user-agent'] });
     res.set('Set-Cookie', `sid=${sid}; ${cookieAttrs('Strict')}`);
@@ -1434,6 +1442,7 @@ export function createWebServer() {
       ocr.movePath(req.home, req.body.from, req.body.to);
       folderInfo.movePath(req.home, req.body.from, req.body.to);
       reviews.movePath(req.home, req.body.from, req.body.to);
+      labels.movePath(req.home, req.body.from, req.body.to);
       recordMutation(req.user, 'rename'); checkHoneypot(req.user, req.body.from, 'rename');
       audit('web', req.user, 'rename', { from: req.body.from, to: req.body.to });
       emitToUser(req.user, 'change', { action: 'rename' });
@@ -1464,6 +1473,7 @@ export function createWebServer() {
         expiry.removePath(req.home, p);
         ocr.removePath(req.home, p);
         reviews.removePath(req.home, p);
+        labels.removePath(req.home, p);
         recordMutation(req.user, 'delete'); checkHoneypot(req.user, p, 'delete');
         audit('web', req.user, 'delete', { path: p });
         notify('delete', { user: req.user, path: p });
@@ -1842,6 +1852,53 @@ export function createWebServer() {
   });
   app.delete('/api/saved-searches/:id', requireWrite, (req, res) => res.json({ ok: savedsearch.deleteSaved(req.user, req.params.id) }));
 
+  // Data-classificatielabels per bestand.
+  app.get('/api/labels', (req, res) => res.json({ labels: labels.listLabels(req.home), options: labels.LABELS }));
+  app.get('/api/label', (req, res) => res.json({ label: labels.getLabel(req.home, req.query.path || '') || 'openbaar' }));
+  app.post('/api/label', requireWrite, express.json(), (req, res) => {
+    try {
+      resolveWithin(req.home, req.body.path || '');
+      res.json({ ok: true, label: labels.setLabel(req.home, req.body.path || '', req.body.label, req.user) });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Vertrouwde apparaten: lijst + vertrouwen/vergeten (eigen account).
+  app.get('/api/devices', (req, res) => res.json({ devices: listDevices(req.user) }));
+  app.post('/api/devices/:id/trust', requireWrite, express.json(), (req, res) =>
+    res.json({ ok: trustDevice(req.user, req.params.id, req.body && req.body.trusted !== false) }));
+  app.delete('/api/devices/:id', requireWrite, (req, res) => res.json({ ok: forgetDevice(req.user, req.params.id) }));
+  // Admin kan een apparaat voor een gebruiker vertrouwen (voorkomt uitsluiting).
+  app.post('/api/admin/devices/:user/:id/trust', requireAdmin, (req, res) =>
+    res.json({ ok: trustDevice(req.params.user, req.params.id, true) }));
+
+  // Sessie-forensics: per actieve sessie recente acties, IP-historie en of er
+  // sprake is van een geografische sprong (login vanuit meerdere landen).
+  app.get('/api/session-forensics', (req, res) => {
+    const sessions = listSessions(req.user, req.sid);
+    const ipHistory = new Map(); // ip -> {count, countries:Set, last}
+    const recent = [];
+    const countries = new Set();
+    for (const line of tailLines(config.auditLog, 20000)) {
+      let e; try { e = JSON.parse(line); } catch { continue; }
+      if (e.user !== req.user) continue;
+      if (e.ip) {
+        const h = ipHistory.get(e.ip) || { ip: e.ip, count: 0, countries: new Set(), last: e.ts };
+        h.count++; if (e.country) { h.countries.add(e.country); countries.add(e.country); } h.last = e.ts;
+        ipHistory.set(e.ip, h);
+      }
+      if (['login', 'login_blocked', 'download', 'upload', 'delete', 'share_create'].includes(e.action)) {
+        recent.push({ ts: e.ts, action: e.action, ip: e.ip || '', country: e.country || '' });
+      }
+    }
+    res.json({
+      sessions,
+      ipHistory: [...ipHistory.values()].map((h) => ({ ...h, countries: [...h.countries] })).sort((a, b) => (a.last < b.last ? 1 : -1)).slice(0, 50),
+      recent: recent.slice(-100).reverse(),
+      geoJump: countries.size > 1,
+      countries: [...countries],
+    });
+  });
+
   // Bulk-tagging: voeg een tag toe aan (of verwijder van) meerdere bestanden ineens.
   app.post('/api/bulk-tag', requireWrite, express.json(), (req, res) => {
     const { paths, tag, remove } = req.body || {};
@@ -1990,6 +2047,11 @@ export function createWebServer() {
 
   // --- Deel-links ---
   app.post('/api/share', requireWrite, express.json(), (req, res) => {
+    // Classificatiebeleid: vertrouwelijke/geheime bestanden mogen niet publiek.
+    if (!labels.mayShare(req.home, req.body.path || '')) {
+      audit('web', req.user, 'share_blocked', { path: req.body.path, reason: 'classificatie' });
+      return res.status(403).json({ error: 'Dit bestand is als vertrouwelijk/geheim gelabeld en mag niet publiek gedeeld worden.' });
+    }
     const token = createShare(req.user, req.body.path, {
       expiresInHours: req.body.expiresInHours ? Number(req.body.expiresInHours) : 0,
       password: req.body.password || null,

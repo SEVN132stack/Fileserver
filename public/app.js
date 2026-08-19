@@ -482,6 +482,7 @@ document.addEventListener('click', async (e) => {
     const pw = prompt('Wachtwoord voor de link? (leeg = geen)', '') || null;
     const max = prompt('Maximaal aantal downloads? (leeg = onbeperkt)', '') || 0;
     const r = await (await api('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,expiresInHours:hrs?Number(hrs):0,password:pw,maxDownloads:Number(max)||0})})).json();
+    if (r.error) return alert(r.error);
     showLink('Deel-link (download)', location.origin + r.url); return;
   }
   if (t2.dataset.meta) {
@@ -493,6 +494,9 @@ document.addEventListener('click', async (e) => {
     if (comment === null) return;
     const fav = confirm('Als favoriet markeren? (OK = ja)');
     await api('/api/meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,tags:tags.split(',').map(s=>s.trim()).filter(Boolean),comment,favorite:fav})});
+    const curLabel = (await (await api('/api/label?path='+enc(p))).json()).label;
+    const label = prompt('Classificatie (openbaar/intern/vertrouwelijk/geheim):', curLabel);
+    if (label !== null) await api('/api/label',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,label:label.trim()})});
     load(); return;
   }
   if (t2.dataset.grant) {
@@ -708,6 +712,24 @@ document.addEventListener('click', async (e) => {
     if (sEl) sEl.value = s.query; if (cEl) cEl.checked = !!s.content;
     load();
   }
+});
+async function showSecurity() {
+  const [devsR, forR] = await Promise.all([api('/api/devices'), api('/api/session-forensics')]);
+  const devs = (await devsR.json()).devices || [];
+  const f = await forR.json();
+  const drow = d => `<tr><td>${d.trusted?'✅':'⚠️'} ${esc((d.ua||'').slice(0,60)||'onbekend')}</td><td>${esc(d.ip||'')}</td><td>${new Date(d.lastSeen).toLocaleString()}</td><td>${d.trusted?'':`<button data-devtrust="${esc(d.id)}">vertrouw</button> `}<button class="danger" data-devforget="${esc(d.id)}">×</button></td></tr>`;
+  const iprow = h => `<tr><td>${esc(h.ip)}</td><td>${h.count}</td><td>${esc((h.countries||[]).join(', '))}</td><td>${new Date(h.last).toLocaleString()}</td></tr>`;
+  openModal(`<h3>🔒 Apparaten & beveiliging</h3>
+    <h4>Vertrouwde apparaten</h4>
+    <table><tr><th>Apparaat</th><th>IP</th><th>Laatst</th><th></th></tr>${devs.map(drow).join('')||'<tr><td colspan="4" class="muted">Geen apparaten.</td></tr>'}</table>
+    ${f.geoJump?`<p style="color:var(--danger)">⚠️ Logins vanuit meerdere landen: ${esc((f.countries||[]).join(', '))}</p>`:''}
+    <h4 style="margin-top:1rem">IP-historie</h4>
+    <table><tr><th>IP</th><th>#</th><th>Land(en)</th><th>Laatst</th></tr>${(f.ipHistory||[]).map(iprow).join('')||'<tr><td colspan="4" class="muted">Geen data.</td></tr>'}</table>`);
+}
+const secBtn = document.getElementById('secBtn'); if (secBtn) secBtn.onclick = showSecurity;
+document.addEventListener('click', async (e) => {
+  if (e.target.dataset.devtrust) { await api('/api/devices/'+encodeURIComponent(e.target.dataset.devtrust)+'/trust',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); return showSecurity(); }
+  if (e.target.dataset.devforget) { await api('/api/devices/'+encodeURIComponent(e.target.dataset.devforget),{method:'DELETE'}); return showSecurity(); }
 });
 const teamsBtn = document.getElementById('teamsBtn'); if (teamsBtn) teamsBtn.onclick = () => showTeams();
 document.addEventListener('click', async (e) => {
