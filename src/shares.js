@@ -24,7 +24,7 @@ function verify(pw, stored) {
   return calc.length === known.length && timingSafeEqual(calc, known);
 }
 
-export function createShare(user, path, { expiresInHours, password, maxDownloads, type, maxKbps } = {}) {
+export function createShare(user, path, { expiresInHours, password, maxDownloads, maxUploads, type, maxKbps } = {}) {
   const data = read();
   const token = randomBytes(12).toString('base64url');
   data[token] = {
@@ -34,6 +34,9 @@ export function createShare(user, path, { expiresInHours, password, maxDownloads
     expires: expiresInHours ? Date.now() + expiresInHours * 3600000 : 0,
     password: password ? hash(password) : null,
     maxDownloads: maxDownloads ? Number(maxDownloads) : 0,
+    // Maximaal aantal uploads voor een drop-/brievenbus-link (0 = onbeperkt).
+    // Een "brandbare" brievenbus zet dit op 1: na de eerste aanlevering vervalt hij.
+    maxUploads: maxUploads ? Number(maxUploads) : 0,
     maxKbps: maxKbps ? Number(maxKbps) : 0, // downloadsnelheidslimiet (KB/s), 0 = geen
     downloads: 0,
     uploads: 0,
@@ -43,13 +46,16 @@ export function createShare(user, path, { expiresInHours, password, maxDownloads
   return token;
 }
 
-// Registreer een upload op een drop-link.
+// Registreer een upload op een drop-link. Geeft true als de link daarna nog
+// bruikbaar is; bij het bereiken van maxUploads wordt de link verwijderd (burn).
 export function countUpload(token) {
   const data = read();
   const s = data[token];
-  if (!s) return;
+  if (!s) return false;
   s.uploads = (s.uploads || 0) + 1;
+  if (s.maxUploads && s.uploads >= s.maxUploads) { delete data[token]; write(data); return false; }
   write(data);
+  return true;
 }
 
 export function getShare(token) {
@@ -88,7 +94,7 @@ export function listShares(user) {
   const data = read();
   return Object.entries(data)
     .filter(([, s]) => s.user === user)
-    .map(([token, s]) => ({ token, path: s.path, type: s.type || 'download', expires: s.expires, hasPassword: !!s.password, maxDownloads: s.maxDownloads || 0, downloads: s.downloads || 0, uploads: s.uploads || 0 }));
+    .map(([token, s]) => ({ token, path: s.path, type: s.type || 'download', expires: s.expires, hasPassword: !!s.password, maxDownloads: s.maxDownloads || 0, maxUploads: s.maxUploads || 0, downloads: s.downloads || 0, uploads: s.uploads || 0 }));
 }
 
 // Alle deel-links (voor het admin-dashboard).

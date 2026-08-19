@@ -460,7 +460,7 @@ export const config = {
   // (Het eerste apparaat van een gebruiker wordt automatisch vertrouwd.)
   requireDeviceApproval: (process.env.REQUIRE_DEVICE_APPROVAL || 'false') === 'true',
 
-  version: '3.25.0',
+  version: '3.26.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

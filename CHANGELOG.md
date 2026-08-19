@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.26.0] - 2026-08-14
+
+### Toegevoegd (Batch F — Delen & clients)
+
+- **Brandbare brievenbus**: een drop-link die na de eerste aanlevering vervalt (`burn`),
+  voor eenmalige, veilige aanlevering door externe partijen. Ook een instelbaar
+  `maxUploads` op drop-links.
+- **CLI-client** (`bin/fs-cli.mjs`, `npm run cli`): `ls`, `get`, `put`, `mkdir`, `rm`, `share`
+  tegen de API met een API-sleutel — voor scripting en automatisering.
+- **WebDAV-verbeteringen**: `LOCK`/`UNLOCK` (class-2 locking) zodat Windows Verkenner en
+  macOS Finder betrouwbaar kunnen schrijven, plus `ETag`/`If-None-Match` (304) en
+  `getetag`/`supportedlock` in `PROPFIND` voor property-caching.
+
 ## [3.25.0] - 2026-08-14
 
 ### Toegevoegd (Batch E — Beveiliging & identiteit)
