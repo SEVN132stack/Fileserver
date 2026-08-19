@@ -54,7 +54,8 @@ export async function suggestName(home, relPath) {
   if (TEXT.test(relPath)) {
     try { if (fs.statSync(abs).size <= 1048576) text = fs.readFileSync(abs, 'utf8'); } catch { /* skip */ }
   } else if (canPreviewOffice(relPath)) {
-    try { const o = officePreview(abs); text = (o && o.text) || ''; } catch { /* skip */ }
+    // Groottelimiet: office-bestanden worden volledig in het geheugen geparseerd.
+    try { if (fs.statSync(abs).size <= 20 * 1024 * 1024) { const o = officePreview(abs); text = (o && o.text) || ''; } } catch { /* skip */ }
   }
   const heading = firstHeading(text);
   if (heading) {
