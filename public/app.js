@@ -143,6 +143,7 @@ async function load() {
     if (!it.isDir) a += `<button class="ghost" data-sync="${enc(it.path)}" title="Efficiënt bijwerken (delta-sync)">⟳</button>`;
     if (!it.isDir) a += `<button class="ghost" data-ver="${enc(it.path)}">🕘</button>`;
     if (!it.isDir) a += `<button class="ghost" data-lock="${enc(it.path)}" title="Vergrendelen/ontgrendelen">🔒</button>`;
+    if (!it.isDir && /\.(jpe?g|png|webp|gif|tiff?|avif|pdf|mp4|mkv|mov|webm|m4v|mp3|wav|m4a|aac|ogg|flac)$/i.test(it.name)) a += `<button class="ghost" data-media="${enc(it.path)}" title="Media bewerken">🛠</button>`;
     a += `<button class="ghost" data-meta="${enc(it.path)}">🏷</button>`;
     a += `<button class="ghost" data-perma="${enc(it.path)}" title="Vaste link (permalink)">∞</button>`;
     a += `<button class="ghost" data-share="${enc(it.path)}">🔗</button>`;
@@ -553,6 +554,7 @@ document.addEventListener('click', async (e) => {
     const [p, v] = t2.dataset.verdiff.split('|').map(decodeURIComponent);
     return showDiff(p, v);
   }
+  if (t2.dataset.media) { return showMediaTools(decodeURIComponent(t2.dataset.media)); }
   if (t2.dataset.ren) {
     const cur = decodeURIComponent(t2.dataset.ren), base = cur.substring(0,cur.lastIndexOf('/')+1);
     let suggestion = '';
@@ -764,6 +766,34 @@ document.addEventListener('click', async (e) => {
   if (e.target.dataset.devtrust) { await api('/api/devices/'+encodeURIComponent(e.target.dataset.devtrust)+'/trust',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); return showSecurity(); }
   if (e.target.dataset.devforget) { await api('/api/devices/'+encodeURIComponent(e.target.dataset.devforget),{method:'DELETE'}); return showSecurity(); }
 });
+// Media-bewerken: afbeelding (roteren/spiegelen), PDF (roteren/splitsen), video/audio (transcode/transcript).
+function showMediaTools(p) {
+  const isImg = /\.(jpe?g|png|webp|gif|tiff?|avif)$/i.test(p);
+  const isPdf = /\.pdf$/i.test(p);
+  const isVid = /\.(mp4|mkv|mov|webm|m4v)$/i.test(p);
+  const isAud = /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(p);
+  let body = `<h3>🛠 Media bewerken — ${esc(p.split('/').pop())}</h3>`;
+  if (isImg) body += `<div style="text-align:center"><img id="mediaPrev" src="/api/preview?path=${enc(p)}" style="max-width:70vw;max-height:50vh"></div>
+    <div style="margin-top:.6rem;display:flex;gap:.4rem;flex-wrap:wrap">
+      <button data-img="rot90">↻ 90°</button><button data-img="rot270">↺ 90°</button><button data-img="flip">⇅ spiegel</button><button data-img="flop">⇄ spiegel</button></div>`;
+  if (isPdf) body += `<div style="margin-top:.6rem;display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+      <button data-pdfrot>PDF 90° draaien</button>
+      <input id="pdfRanges" placeholder="pagina's bijv. 1-3,5" style="width:130px"><button data-pdfsplit>Splitsen</button></div>`;
+  if (isVid) body += `<div style="margin-top:.6rem"><button data-transcode="mp4">Transcodeer → MP4</button> <button data-transcode="webm">→ WebM</button></div>`;
+  if (isVid || isAud) body += `<div style="margin-top:.4rem"><button data-transcribe>Transcriptie (spraak→tekst)</button></div>`;
+  body += `<div class="muted" id="mediaMsg" style="margin-top:.6rem"></div>`;
+  openModal(body);
+  const msg = () => document.getElementById('mediaMsg');
+  const call = async (url, payload, okText) => { msg().textContent='Bezig…'; const r = await api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const d = await r.json().catch(()=>({})); if (r.ok && d.ok!==false && !d.error) { msg().style.color='#4ade80'; msg().textContent = okText + (d.path?(': '+d.path):''); load(); } else { msg().style.color='#f87171'; msg().textContent = d.error || ('Mislukt ('+r.status+')'); } };
+  document.querySelectorAll('#modal [data-img]').forEach(b => b.onclick = () => {
+    const op = b.dataset.img; const ops = op==='rot90'?{rotate:90}:op==='rot270'?{rotate:270}:op==='flip'?{flip:true}:{flop:true};
+    call('/api/image/transform', { path:p, ops }, 'Opgeslagen als nieuw bestand');
+  });
+  const pr = document.querySelector('#modal [data-pdfrot]'); if (pr) pr.onclick = () => call('/api/pdf/rotate', { path:p, degrees:90 }, 'PDF gedraaid');
+  const ps = document.querySelector('#modal [data-pdfsplit]'); if (ps) ps.onclick = () => call('/api/pdf/split', { path:p, ranges:document.getElementById('pdfRanges').value }, 'PDF-selectie opgeslagen');
+  document.querySelectorAll('#modal [data-transcode]').forEach(b => b.onclick = () => call('/api/transcode', { path:p, format:b.dataset.transcode }, 'Getranscodeerd'));
+  const tb = document.querySelector('#modal [data-transcribe]'); if (tb) tb.onclick = () => call('/api/transcribe', { path:p }, 'Transcript opgeslagen');
+}
 const teamsBtn = document.getElementById('teamsBtn'); if (teamsBtn) teamsBtn.onclick = () => showTeams();
 document.addEventListener('click', async (e) => {
   const t = e.target;

@@ -460,6 +460,12 @@ export const config = {
   // (Het eerste apparaat van een gebruiker wordt automatisch vertrouwd.)
   requireDeviceApproval: (process.env.REQUIRE_DEVICE_APPROVAL || 'false') === 'true',
 
+  // --- v3.28 (media & bewerking) ---
+  // Spraak-naar-tekst commando voor automatische transcriptie (bijv. whisper).
+  // Leeg = uit. Ontvangt het bronbestand; moet platte tekst naar stdout schrijven.
+  transcribeCmd: process.env.TRANSCRIBE_CMD || '',
+  // (Transcoderen hergebruikt FFMPEG_CMD.)
+
   // --- v3.27 (automatisering & notificaties) ---
   // Regelgebaseerde automatisering (als upload in map X -> tag/verplaats/notificeer).
   rulesFile: abs(process.env.RULES_FILE || 'rules.json'),
@@ -469,7 +475,7 @@ export const config = {
   digestPrefsFile: abs(process.env.DIGEST_PREFS_FILE || 'digest-prefs.json'),
   digestIntervalHours: parseInt(process.env.DIGEST_INTERVAL_HOURS || '24', 10),
 
-  version: '3.27.1',
+  version: '3.28.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

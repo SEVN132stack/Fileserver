@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.28.0] - 2026-08-14
+
+### Toegevoegd (Batch H — Media & bewerking)
+
+- **In-browser beeldbewerker**: roteren, spiegelen, bijsnijden en schalen (server-side via
+  sharp); het resultaat wordt als nieuw bestand opgeslagen (origineel blijft behouden).
+- **PDF-bewerker**: PDF's samenvoegen, pagina's selecteren (splitsen) en roteren (via pdf-lib).
+- **Transcoderen op verzoek**: video omzetten naar web-vriendelijk MP4/WebM (via `FFMPEG_CMD`;
+  nette 501 als het uit staat).
+- **Automatische transcriptie**: spraak-naar-tekst voor audio/video via een extern commando
+  (`TRANSCRIBE_CMD`, bijv. whisper); het transcript wordt als `.txt` opgeslagen.
+
 ## [3.27.1] - 2026-08-14
 
 ### Opgelost (security-review v3.25–v3.27)
