@@ -46,3 +46,6 @@ teamspaces/
 saved-searches.json
 inbound-hooks.json
 labels.json
+rules.json
+subscriptions.json
+digest-prefs.json

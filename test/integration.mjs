@@ -49,6 +49,9 @@ process.env.REVIEWS_FILE = path.join(tmp, 'reviews.json');
 process.env.SAVED_SEARCHES_FILE = path.join(tmp, 'saved-searches.json');
 process.env.INBOUND_HOOKS_FILE = path.join(tmp, 'inbound-hooks.json');
 process.env.LABELS_FILE = path.join(tmp, 'labels.json');
+process.env.RULES_FILE = path.join(tmp, 'rules.json');
+process.env.SUBSCRIPTIONS_FILE = path.join(tmp, 'subscriptions.json');
+process.env.DIGEST_PREFS_FILE = path.join(tmp, 'digest-prefs.json');
 process.env.ANOMALY_DL_COUNT = '3'; // lage drempel zodat de test snel triggert
 process.env.BLOCKED_CIDRS = '203.0.113.0/24'; // testblok (geen localhost)
 process.env.METRICS_TOKEN = 'test-metrics-token';
@@ -1263,6 +1266,45 @@ try {
     const etag = g1.headers.get('etag');
     const g2 = await fetch(H + '/webdav/lockme.txt', { headers: { ...davAuth3, 'If-None-Match': etag || '' } });
     ok('WebDAV ETag + If-None-Match levert 304', !!etag && g2.status === 304);
+  }
+
+  // 94. Slimme naamgeving-suggestie op basis van de eerste kop.
+  {
+    await fetch(H + '/api/save?path=/naamloos.md', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: '# Jaarverslag 2025\n\nInhoud...' });
+    const s = await (await fetch(H + '/api/rename-suggestion?path=/naamloos.md', { headers: jar() })).json();
+    ok('naamgeving-suggestie uit de eerste kop', s.suggestion === 'jaarverslag-2025.md');
+  }
+
+  // 95. Regelgebaseerde automatisering: tag-regel wordt bij upload toegepast.
+  {
+    await fetch(H + '/api/mkdir', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/', name: 'autorules' }) });
+    await fetch(H + '/api/rules', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ prefix: '/autorules', ext: '.txt', action: 'tag', arg: 'auto-regel' }) });
+    const rfd = new FormData(); rfd.append('files', new Blob(['x']), 'ruled.txt');
+    await fetch(H + '/api/upload?path=/autorules', { method: 'POST', headers: jar(), body: rfd });
+    const byTag = await (await fetch(H + '/api/by-tag?tag=auto-regel', { headers: jar() })).json();
+    ok('automatiseringsregel tagt geüpload bestand', (byTag.paths || []).includes('/autorules/ruled.txt'));
+  }
+
+  // 96. Map-abonnement: drop-upload in een gevolgde map levert een melding.
+  {
+    await fetch(H + '/api/subscriptions', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ prefix: '/inbox' }) });
+    const box = await (await fetch(H + '/api/droplink', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/inbox' }) })).json();
+    const bfd = new FormData(); bfd.append('files', new Blob(['sub']), 'sub.txt');
+    await fetch(H + box.url + '/upload', { method: 'POST', body: bfd });
+    const notifs = await (await fetch(H + '/api/notifications', { headers: jar() })).json();
+    ok('map-abonnement geeft melding bij wijziging',
+      (notifs.notifications || notifs.items || []).some((n) => (n.title || '').includes('gevolgde map')));
+  }
+
+  // 97. Digest-notificaties (module): verzamelen + verzenden.
+  {
+    const dg = await import('../src/digest.js');
+    const um2 = await import('../src/users.js');
+    um2.addUser({ username: 'digestuser', password: 'digestpw123', role: 'user' });
+    dg.setFrequency('digestuser', 'daily');
+    dg.recordForDigest('digestuser', 'test-gebeurtenis');
+    const sent = await dg.sendDueDigests();
+    ok('digest verzamelt en verstuurt een samenvatting', sent >= 1);
   }
 
   console.log(`\n${passed} tests geslaagd.`);

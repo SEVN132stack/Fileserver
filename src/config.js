@@ -460,7 +460,16 @@ export const config = {
   // (Het eerste apparaat van een gebruiker wordt automatisch vertrouwd.)
   requireDeviceApproval: (process.env.REQUIRE_DEVICE_APPROVAL || 'false') === 'true',
 
-  version: '3.26.0',
+  // --- v3.27 (automatisering & notificaties) ---
+  // Regelgebaseerde automatisering (als upload in map X -> tag/verplaats/notificeer).
+  rulesFile: abs(process.env.RULES_FILE || 'rules.json'),
+  // Map-abonnementen: mail/melding bij wijzigingen in een gevolgde map.
+  subscriptionsFile: abs(process.env.SUBSCRIPTIONS_FILE || 'subscriptions.json'),
+  // Digest-notificaties: verzamel meldingen en mail periodiek een samenvatting.
+  digestPrefsFile: abs(process.env.DIGEST_PREFS_FILE || 'digest-prefs.json'),
+  digestIntervalHours: parseInt(process.env.DIGEST_INTERVAL_HOURS || '24', 10),
+
+  version: '3.27.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

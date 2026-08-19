@@ -9,7 +9,7 @@ import https from 'node:https';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
-import { resolveWithin, dirSize } from './paths.js';
+import { resolveWithin, dirSize, toClientPath } from './paths.js';
 import {
   homeDir, verifyPassword, userExists, getUser, role, isAdmin, isReadonly,
   quota, sharedWith, listUsers, addUser, updateUser, deleteUser, listUsernames,
@@ -26,6 +26,10 @@ import * as jit from './jit.js';
 import { recordDownload } from './anomaly.js';
 import * as savedsearch from './savedsearch.js';
 import * as labels from './labels.js';
+import { suggestName } from './naming.js';
+import * as rules from './rules.js';
+import * as subscriptions from './subscriptions.js';
+import * as digest from './digest.js';
 import * as inboundHooks from './inbound-hooks.js';
 import { recipes as integrationRecipes } from './recipes.js';
 import { getTags, setTags, findByTag } from './tags.js';
@@ -789,6 +793,7 @@ export function createWebServer() {
     audit('web', share.user, 'drop_upload', { path: share.path, files: (req.files || []).map((f) => f.originalname), ip: clientIp(req) });
     notifyShare('drop_upload', share.user, { path: share.path, ip: clientIp(req) });
     notifications.notifyUser(share.user, 'Nieuwe upload via drop-link', `Er zijn bestanden aangeleverd in ${share.path}.`);
+    subscriptions.notifySubscribers(share.user, 'externe aanlevering', share.path, 'upload');
     emitToUser(share.user, 'change', { action: 'drop_upload' });
     // Token is een gevalideerde random string, maar escape defensief tegen reflectie.
     const safeToken = encodeURIComponent(req.params.token);
@@ -1341,6 +1346,18 @@ export function createWebServer() {
       }
       // OCR: tekst uit afbeeldingen/PDF's halen (asynchroon) voor doorzoekbaarheid.
       if (ocr.canOcr(f.originalname)) ocr.runOcr(req.home, relUp, f.path);
+      // Regelgebaseerde automatisering: tag/verplaats/notificeer op basis van pad+extensie.
+      try {
+        rules.applyRules(req.user, relUp, {
+          tag: (rel, tag) => { const cur = tags.getTags(req.user, rel); tags.setTags(req.user, rel, [...new Set([...cur, tag])]); },
+          move: (rel, destDir) => {
+            const from = resolveWithin(req.home, rel);
+            const to = resolveWithin(req.home, path.posix.join(destDir || '/', path.basename(rel)));
+            try { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.renameSync(from, to); tags.movePath(req.user, rel, toClientPath(req.home, to)); return toClientPath(req.home, to); } catch { return rel; }
+          },
+          notify: (rel) => notifications.notifyUser(req.user, 'Automatiseringsregel', `Regel toegepast op ${rel}`),
+        });
+      } catch { /* regels mogen upload niet breken */ }
       runPostUpload(f.path);
     }
     audit('web', req.user, 'upload', { path: req.query.path || '/', files: names });
@@ -1852,6 +1869,33 @@ export function createWebServer() {
   });
   app.delete('/api/saved-searches/:id', requireWrite, (req, res) => res.json({ ok: savedsearch.deleteSaved(req.user, req.params.id) }));
 
+  // Slimme naamgeving-suggestie voor een bestand.
+  app.get('/api/rename-suggestion', async (req, res) => {
+    try { res.json({ suggestion: await suggestName(req.home, req.query.path || '') }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Regelgebaseerde automatisering (per gebruiker).
+  app.get('/api/rules', (req, res) => res.json({ rules: rules.listRules(req.user) }));
+  app.post('/api/rules', requireWrite, express.json(), (req, res) => {
+    try { res.json({ ok: true, rule: rules.addRule(req.user, req.body || {}) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/rules/:id', requireWrite, (req, res) => res.json({ ok: rules.deleteRule(req.user, req.params.id) }));
+
+  // Map-abonnementen.
+  app.get('/api/subscriptions', (req, res) => res.json({ subscriptions: subscriptions.listSubscriptions(req.user) }));
+  app.post('/api/subscriptions', requireWrite, express.json(), (req, res) =>
+    res.json({ ok: true, subscriptions: subscriptions.subscribe(req.user, req.body.prefix || '/') }));
+  app.delete('/api/subscriptions/:id', requireWrite, (req, res) => res.json({ ok: subscriptions.unsubscribe(req.user, req.params.id) }));
+
+  // Digest-notificatievoorkeur.
+  app.get('/api/digest', (req, res) => res.json(digest.getPref(req.user)));
+  app.post('/api/digest', requireWrite, express.json(), (req, res) => {
+    try { res.json({ ok: true, ...digest.setFrequency(req.user, req.body.frequency) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
   // Data-classificatielabels per bestand.
   app.get('/api/labels', (req, res) => res.json({ labels: labels.listLabels(req.home), options: labels.LABELS }));
   app.get('/api/label', (req, res) => res.json({ label: labels.getLabel(req.home, req.query.path || '') || 'openbaar' }));
@@ -2168,6 +2212,7 @@ export function createWebServer() {
   });
   app.post('/api/shared/upload', sharedUpload.array('files'), (req, res) => {
     audit('web', req.user, 'shared_upload', { owner: req.query.owner, path: req.query.path });
+    subscriptions.notifySubscribers(req.query.owner, req.user, req.query.path || '/', 'upload');
     emitToUser(req.query.owner, 'change', { action: 'shared_upload' });
     res.json({ uploaded: (req.files || []).map((f) => f.originalname) });
   });
