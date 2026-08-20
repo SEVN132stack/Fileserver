@@ -508,7 +508,20 @@ export const config = {
   // Taken/actiepunten op bestanden.
   tasksFile: abs(process.env.TASKS_FILE || 'file-tasks.json'),
 
-  version: '3.32.0',
+  // --- v3.33 (AI & slimme organisatie) ---
+  // AI-assistent: extern commando dat een prompt op stdin krijgt en antwoord naar
+  // stdout schrijft (bijv. een lokale LLM-CLI). Leeg = uit (nette 501).
+  aiCmd: process.env.AI_CMD || '',
+  aiMaxContext: parseInt(process.env.AI_MAX_CONTEXT || '8000', 10), // tekens context
+  // Beeldherkenning (gezichten/objecten): extern commando dat een afbeeldingspad
+  // krijgt en JSON met labels naar stdout schrijft, bijv. {"labels":["kat","gras"]}
+  // of een array van strings. Leeg = uit (nette 501). Resultaat in visionFile.
+  visionCmd: process.env.VISION_CMD || '',
+  visionFile: abs(process.env.VISION_FILE || 'vision-index.json'),
+  visionMaxBytes: parseInt(process.env.VISION_MAX_BYTES || '10485760', 10), // 10MB
+  // Automatische mapstructuur-suggesties werken volledig lokaal (geen commando).
+
+  version: '3.33.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

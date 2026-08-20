@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.33.0] - 2026-08-20
+
+### Toegevoegd (Batch M — AI & slimme organisatie)
+
+- **AI-assistent**: stel een vraag (optioneel met de inhoud van een bestand als context)
+  aan een extern commando (`AI_CMD`, bv. een lokale LLM-CLI die de prompt op stdin krijgt).
+  Endpoint `POST /api/ai/ask`; nette 501 als er geen commando is ingesteld.
+- **Gezichts-/objectherkenning**: laat een extern commando (`VISION_CMD`) labels uit
+  afbeeldingen halen; labels worden opgeslagen en meegenomen bij het zoeken. Analyseer
+  handmatig via `POST /api/vision/detect` en zoek met `GET /api/vision/search?label=`.
+- **Automatische mapstructuur-suggesties** (volledig lokaal, geen AI nodig): stelt een nette
+  indeling voor per type, extensie of jaar en past de verplaatsingen na bevestiging toe
+  (`GET /api/organize/suggest`, `POST /api/organize/apply`).
+
 ## [3.32.0] - 2026-08-14
 
 ### Toegevoegd (Batch L — Vertrouwen & workflow)

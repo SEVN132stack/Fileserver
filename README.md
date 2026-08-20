@@ -195,6 +195,12 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## AI & slimme organisatie (v3.33)
+
+- **AI-assistent** — stel een vraag (optioneel met een bestand als context) via een extern commando (`AI_CMD`). Endpoint `POST /api/ai/ask`; nette 501 als niet ingesteld.
+- **Gezichts-/objectherkenning** — labels uit afbeeldingen via `VISION_CMD`; opgeslagen en doorzoekbaar (`GET /api/vision/search?label=`).
+- **Automatische mapstructuur-suggesties** — lokaal: groepeer losse bestanden per type/extensie/jaar en pas de verplaatsingen na bevestiging toe.
+
 ## Vertrouwen & workflow: ondertekening, shredder, @-vermeldingen & taken (v3.32)
 
 - **Digitale ondertekening & verificatie** — teken bestanden (Ed25519); verificatie detecteert wijzigingen. Publieke sleutel: `/api/signing/pubkey`.

@@ -55,6 +55,11 @@ process.env.PINS_FILE = path.join(tmp, 'pins.json');
 process.env.SIGNING_KEY_FILE = path.join(tmp, 'signing-key.json');
 process.env.SIGNATURES_FILE = path.join(tmp, 'signatures.json');
 process.env.TASKS_FILE = path.join(tmp, 'file-tasks.json');
+process.env.VISION_FILE = path.join(tmp, 'vision-index.json');
+// AI_CMD/VISION_CMD: 'cat' echoot stdin (AI) resp. negeert input; voor de vision-test
+// zetten we een klein node-commando dat vaste labels als JSON teruggeeft.
+process.env.AI_CMD = 'cat';
+process.env.VISION_CMD = 'node ' + path.join(process.cwd(), 'test', 'fake-vision.mjs');
 process.env.EVENT_HOOKS_FILE = path.join(tmp, 'event-hooks.json');
 process.env.WEBHOOK_SUBS_FILE = path.join(tmp, 'webhook-subs.json');
 process.env.COLD_STORE_MIN_BYTES = '0';
@@ -1483,6 +1488,35 @@ try {
     const list = await (await fetch(H + '/api/file-tasks', { headers: jar() })).json();
     ok('taken op bestanden: aanmaken + status wijzigen',
       t.ok && st.task.status === 'klaar' && list.tasks.some((x) => x.id === t.task.id));
+  }
+
+  // 114. AI-assistent: vraag gaat naar AI_CMD ('cat') dat de prompt echoot.
+  {
+    const r = await (await fetch(H + '/api/ai/ask', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ question: 'Wat is dit?' }) })).json();
+    ok('AI-assistent geeft antwoord via extern commando',
+      typeof r.answer === 'string' && r.answer.includes('Wat is dit?'));
+  }
+
+  // 115. Beeldherkenning: analyseer een afbeelding en zoek erop via de labels.
+  {
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'foto.jpg'), 'nep-jpg');
+    const det = await (await fetch(H + '/api/vision/detect', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/foto.jpg' }) })).json();
+    const found = await (await fetch(H + '/api/vision/search?label=kat', { headers: jar() })).json();
+    ok('beeldherkenning: labels toekennen + erop zoeken',
+      det.ok && det.labels.includes('kat') && (found.files || []).includes('/foto.jpg'));
+  }
+
+  // 116. Mapstructuur-suggestie: groepeer per type en pas de verplaatsingen toe.
+  {
+    const od = path.join(config.storageDir, 'admin', 'rommel');
+    fs.mkdirSync(od, { recursive: true });
+    for (const n of ['a.pdf', 'b.pdf', 'c.jpg', 'd.jpg']) fs.writeFileSync(path.join(od, n), 'x');
+    const sug = await (await fetch(H + '/api/organize/suggest?path=/rommel&mode=type', { headers: jar() })).json();
+    const ap = await (await fetch(H + '/api/organize/apply', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ moves: sug.moves }) })).json();
+    const movedPdf = fs.existsSync(path.join(od, 'Documenten', 'a.pdf'));
+    const movedImg = fs.existsSync(path.join(od, 'Afbeeldingen', 'c.jpg'));
+    ok('mapstructuur-suggestie: groeperen per type + toepassen',
+      sug.moves.length === 4 && ap.moved === 4 && movedPdf && movedImg);
   }
 
   console.log(`\n${passed} tests geslaagd.`);

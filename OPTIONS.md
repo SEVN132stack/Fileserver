@@ -338,6 +338,12 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ @-vermeldingen in reacties met notificatie
 - ✅ Taken/actiepunten op bestanden (toewijzen, status)
 
+## AI & slimme organisatie (v3.33)
+
+- ✅ AI-assistent via extern commando (`AI_CMD`), optioneel met bestandscontext
+- ✅ Gezichts-/objectherkenning via extern commando (`VISION_CMD`), zoekbaar op labels
+- ✅ Automatische mapstructuur-suggesties (lokaal: per type/extensie/jaar) + toepassen
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

@@ -74,6 +74,9 @@ import * as comments from './comments.js';
 import * as signing from './signing.js';
 import { shred } from './shredder.js';
 import * as fileTasks from './file-tasks.js';
+import * as vision from './vision.js';
+import * as aiAssistant from './ai-assistant.js';
+import * as organizeSuggest from './organize-suggest.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
 import { passwordPwnedCount, isExpired } from './users.js';
@@ -1143,6 +1146,55 @@ export function createWebServer() {
   });
   app.delete('/api/file-tasks/:id', requireWrite, (req, res) => res.json({ ok: fileTasks.deleteTask(req.params.id, req.user) }));
 
+  // --- v3.33: AI & slimme organisatie ---
+  // AI-assistent: stuur een vraag (optioneel met de inhoud van een bestand als
+  // context) naar een extern commando. Uit = nette 501.
+  app.post('/api/ai/ask', requireWrite, express.json(), async (req, res) => {
+    if (!aiAssistant.hasAi()) return res.status(501).json({ error: 'AI-assistent staat uit (AI_CMD)' });
+    try {
+      let context = '';
+      if (req.body.path) {
+        try {
+          const abs = resolveWithin(req.home, req.body.path);
+          if (fs.existsSync(abs) && !fs.statSync(abs).isDirectory()) context = fs.readFileSync(abs, 'utf8');
+        } catch { /* geen leesbare context */ }
+      }
+      const answer = await aiAssistant.ask(req.body.question || '', context);
+      audit('web', req.user, 'ai-ask', { path: req.body.path || null });
+      res.json({ answer });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Beeldherkenning: analyseer een afbeelding nu en geef de labels terug; en
+  // haal opgeslagen labels op of zoek bestanden op label.
+  app.get('/api/vision/labels', (req, res) => res.json({ labels: vision.getLabels(req.home, req.query.path || '') }));
+  app.get('/api/vision/search', (req, res) => res.json({ files: vision.findByLabel(req.home, req.query.label || '') }));
+  app.post('/api/vision/detect', requireWrite, express.json(), (req, res) => {
+    if (!vision.hasVision()) return res.status(501).json({ error: 'Beeldherkenning staat uit (VISION_CMD)' });
+    try {
+      const rel = req.body.path || '';
+      const abs = resolveWithin(req.home, rel);
+      if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) return res.status(404).json({ error: 'Bestand niet gevonden' });
+      const labels = vision.detectSync(req.home, rel, abs);
+      audit('web', req.user, 'vision-detect', { path: rel, labels: labels.length });
+      res.json({ ok: true, labels });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Mapstructuur-suggesties (lokaal): stel een indeling voor en pas hem toe.
+  app.get('/api/organize/suggest', (req, res) => {
+    try { res.json(organizeSuggest.suggest(req.home, req.query.path || '/', req.query.mode || 'type')); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/organize/apply', requireWrite, express.json(), (req, res) => {
+    try {
+      const result = organizeSuggest.apply(req.home, req.body.moves || []);
+      audit('web', req.user, 'organize-apply', { moved: result.moved });
+      emitToUser(req.user, 'change', { action: 'organize' });
+      res.json({ ok: true, ...result });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
   // --- Versiegeschiedenis ---
   app.get('/api/versions', (req, res) => {
     res.json({ versions: listVersions(req.home, req.query.path || '') });
@@ -1430,6 +1482,8 @@ export function createWebServer() {
       }
       // OCR: tekst uit afbeeldingen/PDF's halen (asynchroon) voor doorzoekbaarheid.
       if (ocr.canOcr(f.originalname)) ocr.runOcr(req.home, relUp, f.path);
+      // Beeldherkenning: labels uit afbeeldingen halen (asynchroon) voor zoeken.
+      if (vision.canDetect(f.originalname)) vision.runVision(req.home, relUp, f.path);
       // Regelgebaseerde automatisering: tag/verplaats/notificeer op basis van pad+extensie.
       try {
         rules.applyRules(req.user, relUp, {
@@ -1542,6 +1596,7 @@ export function createWebServer() {
       locks.movePath(req.home, req.body.from, req.body.to);
       expiry.movePath(req.home, req.body.from, req.body.to);
       ocr.movePath(req.home, req.body.from, req.body.to);
+      vision.movePath(req.home, req.body.from, req.body.to);
       folderInfo.movePath(req.home, req.body.from, req.body.to);
       reviews.movePath(req.home, req.body.from, req.body.to);
       labels.movePath(req.home, req.body.from, req.body.to);
@@ -1580,6 +1635,7 @@ export function createWebServer() {
         locks.removePath(req.home, p);
         expiry.removePath(req.home, p);
         ocr.removePath(req.home, p);
+        vision.removePath(req.home, p);
         reviews.removePath(req.home, p);
         labels.removePath(req.home, p);
         recordMutation(req.user, 'delete'); checkHoneypot(req.user, p, 'delete');
@@ -1614,6 +1670,7 @@ export function createWebServer() {
         locks.movePath(req.home, p, destRel);
         expiry.movePath(req.home, p, destRel);
         ocr.movePath(req.home, p, destRel);
+        vision.movePath(req.home, p, destRel);
         moved++;
       }
       recordMutation(req.user, 'rename');
@@ -2851,6 +2908,11 @@ async function searchRecursive(home, dir, query, depth = 6, inContent = false) {
       if (!match && inContent && !e.isDirectory()) {
         const rel = '/' + path.relative(home, full).split(path.sep).join('/');
         if (ocr.ocrMatches(home, rel, query)) match = true;
+      }
+      // En de herkende beeldlabels (gezichten/objecten) meenemen bij zoeken.
+      if (!match && !e.isDirectory()) {
+        const rel = '/' + path.relative(home, full).split(path.sep).join('/');
+        if (vision.labelMatches(home, rel, query)) match = true;
       }
       if (match) {
         const stat = await fsp.stat(full).catch(() => null);
