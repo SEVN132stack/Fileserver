@@ -543,7 +543,7 @@ export const config = {
   // begrenst hoeveel bestanden per verzoek worden doorlopen (geheugen/CPU).
   insightsMaxScan: parseInt(process.env.INSIGHTS_MAX_SCAN || '5000', 10),
 
-  version: '3.35.0',
+  version: '3.35.1',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
