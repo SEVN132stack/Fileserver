@@ -1,8 +1,9 @@
 services:
   fileserver:
-    # Gebruik het kant-en-klare image (aanbevolen); vervang door `build: .` om
-    # lokaal te bouwen.
-    image: ghcr.io/sevn132stack/fileserver:latest
+    # Lokaal gebouwd door docker/auto-deploy.sh. Er staat geen image meer in een
+    # registry: bouwen en pushen vroeg een GitHub-hosted runner, en dat verbruik
+    # was precies wat we kwijt wilden. De bron blijft GitHub (git).
+    image: fileserver:lokaal
     build: .
     ports:
       - "8080:8080"   # web UI
@@ -18,18 +19,6 @@ services:
       TLS_ENABLED: "false"
     volumes:
       - fileserver-data:/data
-    restart: unless-stopped
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
-
-  # Automatische container-updates: Watchtower checkt periodiek op een nieuwer
-  # image en herstart de fileserver. Verwijder deze service als je handmatig
-  # wilt updaten.
-  watchtower:
-    image: containrrr/watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: --label-enable --cleanup --interval 86400
     restart: unless-stopped
 
 volumes:
