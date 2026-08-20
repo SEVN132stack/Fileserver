@@ -12,6 +12,13 @@ updates:
         dependency-type: production
       development:
         dependency-type: development
+    ignore:
+      # archiver 8.0.0 is een ESM-migratie zonder default-export, waar
+      # src/backup.js op stukloopt (`import archiver from 'archiver'`). Zolang
+      # die import niet is omgezet, sleept de major de hele production-groep
+      # mee de rode CI in. Minor/patch blijven gewoon komen.
+      - dependency-name: archiver
+        update-types: [version-update:semver-major]
   # GitHub Actions zelf ook up-to-date houden.
   - package-ecosystem: github-actions
     directory: /
