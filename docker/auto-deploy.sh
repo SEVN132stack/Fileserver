@@ -73,29 +73,29 @@ fi
 #   geen   niets gevonden                 → zie CI_POORT (soepel|streng)
 #
 # Twee bronnen, in deze volgorde:
-#   1. de Checks-API   (fine-grained token met Checks: read)
-#   2. de Actions-API  (fine-grained token met Actions: read)
-# Welke van de twee je token mag, hangt af van wat GitHub in jouw
-# tokeninstellingen aanbiedt; de eerste die antwoordt wint. Geeft de ene een
-# 403, dan wordt de andere geprobeerd in plaats van meteen op te geven.
-API_CODE=0
+#   1. de Checks-API   (token met Checks: read)
+#   2. de Actions-API  (token met Actions: read)
+# Welke van de twee je token mag verschilt per token; de eerste die antwoordt
+# wint. Een 403 op de ene is dus geen stille uitschakeling van de poort.
+#
+# _api schrijft het antwoord naar een bestand en geeft de HTTP-code terug via
+# stdout. Niet via een globale variabele: de aanroep gebeurt in $( ), dus in
+# een subshell, en een toekenning daarbinnen bereikt de aanroeper nooit.
 _api() {
-    local pad="$1" tmp code
-    tmp="$(mktemp)"
-    code=$(curl -s -o "$tmp" -w '%{http_code}' --max-time 20 \
+    local pad="$1" doel="$2"
+    curl -s -o "$doel" -w '%{http_code}' --max-time 20 \
         -H "Authorization: Bearer ${CI_TOKEN}" \
         -H "Accept: application/vnd.github+json" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
-        "https://api.github.com/repos/${CI_REPO}/${pad}")
-    API_CODE="$code"
-    cat "$tmp"; rm -f "$tmp"
+        "https://api.github.com/repos/${CI_REPO}/${pad}"
 }
 
 _classificeer() {
     python3 - "$1" <<'PYEOF'
 import json, sys
 try:
-    d = json.loads(sys.argv[1])
+    with open(sys.argv[1]) as f:
+        d = json.load(f)
 except Exception:
     print("geen"); raise SystemExit
 
@@ -115,7 +115,7 @@ PYEOF
 }
 
 ci_stand() {
-    local sha="$1" uit stand
+    local sha="$1" tmp code stand
     CI_TOKEN=$(grep -E '^\s*DEPLOY_GITHUB_TOKEN\s*=' "${APP_ROOT}/.env" 2>/dev/null |
                head -1 | cut -d= -f2- | tr -d ' "'"'"'')
     [ -z "$CI_TOKEN" ] && { echo "geen"; return; }
@@ -124,15 +124,18 @@ ci_stand() {
               sed -E 's#^.*github\.com[:/]##; s#\.git$##')
     [ -z "$CI_REPO" ] && { echo "geen"; return; }
 
-    uit=$(_api "commits/${sha}/check-runs?per_page=100")
-    if [ "$API_CODE" = "200" ]; then
-        stand=$(_classificeer "$uit")
+    tmp="$(mktemp)"
+    trap 'rm -f "$tmp"' RETURN
+
+    code=$(_api "commits/${sha}/check-runs?per_page=100" "$tmp")
+    if [ "$code" = "200" ]; then
+        stand=$(_classificeer "$tmp")
         [ "$stand" != "geen" ] && { echo "$stand"; return; }
     fi
 
-    uit=$(_api "actions/runs?head_sha=${sha}&per_page=100")
-    if [ "$API_CODE" = "200" ]; then
-        _classificeer "$uit"; return
+    code=$(_api "actions/runs?head_sha=${sha}&per_page=100" "$tmp")
+    if [ "$code" = "200" ]; then
+        _classificeer "$tmp"; return
     fi
 
     echo "geen"
