@@ -71,6 +71,16 @@ import { openapiSpec } from './openapi.js';
 import * as eventhooks from './eventhooks.js';
 import * as webhookSubs from './webhook-subs.js';
 import * as comments from './comments.js';
+import * as signing from './signing.js';
+import { shred } from './shredder.js';
+import * as fileTasks from './file-tasks.js';
+import * as vision from './vision.js';
+import * as aiAssistant from './ai-assistant.js';
+import * as organizeSuggest from './organize-suggest.js';
+import * as emailUpload from './email-upload.js';
+import * as hotfolder from './hotfolder.js';
+import * as chatbot from './chatbot.js';
+import * as insights from './insights.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
 import { passwordPwnedCount, isExpired } from './users.js';
@@ -550,6 +560,25 @@ export function createWebServer() {
     const result = await inboundHooks.fireHook(req.params.token, req.body || {});
     if (result === null) return res.status(404).json({ error: 'Onbekende hook' });
     res.json(result);
+  });
+
+  // Upload via e-mail (publiek, token-beschermd): een mailprovider POST't een
+  // geparste e-mail met bijlagen; die worden in de inbox van de gebruiker geplaatst.
+  app.post('/api/email-inbox/:token', express.json({ limit: '30mb' }), async (req, res) => {
+    if (!rateHit(`eml:${clientIp(req)}`, 30, 60000).allowed) return res.status(429).json({ error: 'Te veel verzoeken' });
+    const result = await emailUpload.deliver(req.params.token, req.body || {});
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    emitToUser(result.user, 'change', { action: 'email-upload' });
+    res.json(result);
+  });
+
+  // Chat-bot (publiek, token-beschermd): inkomend commando -> tekstantwoord.
+  app.post('/api/chat/command', express.json({ limit: '16kb' }), (req, res) => {
+    if (!rateHit(`chat:${clientIp(req)}`, 60, 60000).allowed) return res.status(429).json({ error: 'Te veel verzoeken' });
+    const token = req.get('X-Bot-Token') || (req.body && req.body.token) || '';
+    if (!chatbot.checkToken(token)) return res.status(401).json({ error: 'Ongeldige of ontbrekende token' });
+    const reply = chatbot.handle((req.body && req.body.text) || '');
+    res.json({ text: reply, response_type: 'ephemeral' });
   });
 
   // Publieke read-only galerij van een gedeelde afbeeldingsmap.
@@ -1093,12 +1122,135 @@ export function createWebServer() {
       const owner = commentOwner(req, req.body.path || '');
       const list = comments.addComment(owner, req.body.path || '', req.user, req.body.text);
       emitToUser(owner, 'change', { action: 'comment' });
+      // @-vermeldingen: meld genoemde, bestaande gebruikers.
+      const mentioned = new Set((String(req.body.text).match(/@([a-zA-Z0-9_.-]{2,32})/g) || []).map((m) => m.slice(1)));
+      for (const u of mentioned) {
+        if (u !== req.user && userExists(u)) {
+          try { notifications.notifyUser(u, 'Je bent genoemd in een reactie', `${req.user} noemde je bij ${req.body.path || 'een bestand'}: ${String(req.body.text).slice(0, 140)}`); } catch { /* niet-fataal */ }
+        }
+      }
       res.json({ comments: list });
     } catch (err) { res.status(403).json({ error: err.message }); }
   });
   app.delete('/api/comments', express.json(), (req, res) => {
     const ok = comments.deleteComment(req.user, req.body.path || '', req.body.index, req.user, isAdmin(req.user));
     res.json({ ok });
+  });
+
+  // Digitale ondertekening & verificatie.
+  app.get('/api/signing/pubkey', (req, res) => res.type('text/plain').send(signing.publicKeyPem()));
+  app.get('/api/signatures', (req, res) => res.json({ signatures: signing.listSignatures(req.home, req.query.path || '') }));
+  app.post('/api/sign', requireWrite, express.json(), (req, res) => {
+    try {
+      const rel = req.body.path || '';
+      const abs = resolveWithin(req.home, rel);
+      if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) return res.status(404).json({ error: 'Bestand niet gevonden' });
+      res.json({ ok: true, signature: signing.signFile(req.home, rel, abs, req.user) });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.get('/api/verify', (req, res) => {
+    try {
+      const rel = req.query.path || '';
+      const abs = resolveWithin(req.home, rel);
+      if (!fs.existsSync(abs)) return res.status(404).json({ error: 'Bestand niet gevonden' });
+      res.json({ results: signing.verifyFile(req.home, rel, abs) });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Taken/actiepunten op bestanden (los van de geplande gebruikerstaken op /api/tasks).
+  app.get('/api/file-tasks', (req, res) => res.json({ tasks: fileTasks.tasksFor(req.user) }));
+  app.post('/api/file-tasks', requireWrite, express.json(), (req, res) => {
+    try { res.json({ ok: true, task: fileTasks.createTask(req.body || {}, req.user) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/file-tasks/:id/status', requireWrite, express.json(), (req, res) => {
+    try { const t = fileTasks.setStatus(req.params.id, req.body.status, req.user); if (!t) return res.status(404).json({ error: 'Taak niet gevonden' }); res.json({ ok: true, task: t }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/file-tasks/:id', requireWrite, (req, res) => res.json({ ok: fileTasks.deleteTask(req.params.id, req.user) }));
+
+  // --- v3.33: AI & slimme organisatie ---
+  // AI-assistent: stuur een vraag (optioneel met de inhoud van een bestand als
+  // context) naar een extern commando. Uit = nette 501.
+  app.post('/api/ai/ask', requireWrite, express.json(), async (req, res) => {
+    if (!aiAssistant.hasAi()) return res.status(501).json({ error: 'AI-assistent staat uit (AI_CMD)' });
+    try {
+      let context = '';
+      if (req.body.path) {
+        try {
+          const abs = resolveWithin(req.home, req.body.path);
+          if (fs.existsSync(abs) && !fs.statSync(abs).isDirectory()) context = fs.readFileSync(abs, 'utf8');
+        } catch { /* geen leesbare context */ }
+      }
+      const answer = await aiAssistant.ask(req.body.question || '', context);
+      audit('web', req.user, 'ai-ask', { path: req.body.path || null });
+      res.json({ answer });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Beeldherkenning: analyseer een afbeelding nu en geef de labels terug; en
+  // haal opgeslagen labels op of zoek bestanden op label.
+  app.get('/api/vision/labels', (req, res) => res.json({ labels: vision.getLabels(req.home, req.query.path || '') }));
+  app.get('/api/vision/search', (req, res) => res.json({ files: vision.findByLabel(req.home, req.query.label || '') }));
+  app.post('/api/vision/detect', requireWrite, express.json(), (req, res) => {
+    if (!vision.hasVision()) return res.status(501).json({ error: 'Beeldherkenning staat uit (VISION_CMD)' });
+    try {
+      const rel = req.body.path || '';
+      const abs = resolveWithin(req.home, rel);
+      if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) return res.status(404).json({ error: 'Bestand niet gevonden' });
+      const labels = vision.detectSync(req.home, rel, abs);
+      audit('web', req.user, 'vision-detect', { path: rel, labels: labels.length });
+      res.json({ ok: true, labels });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Mapstructuur-suggesties (lokaal): stel een indeling voor en pas hem toe.
+  app.get('/api/organize/suggest', (req, res) => {
+    try { res.json(organizeSuggest.suggest(req.home, req.query.path || '/', req.query.mode || 'type')); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/organize/apply', requireWrite, express.json(), (req, res) => {
+    try {
+      const result = organizeSuggest.apply(req.home, req.body.moves || []);
+      audit('web', req.user, 'organize-apply', { moved: result.moved });
+      emitToUser(req.user, 'change', { action: 'organize' });
+      res.json({ ok: true, ...result });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // --- v3.34: invoer & integraties ---
+  // Upload via e-mail: token voor de eigen inbox ophalen/aanmaken/intrekken.
+  app.get('/api/email/token', (req, res) => res.json({ token: emailUpload.tokenFor(req.user) }));
+  app.post('/api/email/token', requireWrite, (req, res) => res.json({ token: emailUpload.ensureToken(req.user) }));
+  app.delete('/api/email/token', requireWrite, (req, res) => res.json({ ok: emailUpload.revokeToken(req.user) }));
+
+  // Chat-bot: token-status (admin ziet of de bot is ingesteld).
+  app.get('/api/chat/status', (req, res) => res.json({ enabled: chatbot.enabled(), user: config.chatBotUser || null }));
+
+  // Hot-folder: status + handmatige scan (admin).
+  app.get('/api/hotfolder/status', requireAdmin, (req, res) => res.json({ enabled: hotfolder.enabled(), dir: config.hotfolderDir || null, user: config.hotfolderUser || null, target: config.hotfolderTarget }));
+  app.post('/api/hotfolder/scan', requireAdmin, async (req, res) => {
+    const r = await hotfolder.scanOnce();
+    if (r.error) return res.status(r.status || 400).json({ error: r.error });
+    if (r.imported.length && config.hotfolderUser) emitToUser(config.hotfolderUser, 'change', { action: 'hotfolder' });
+    res.json(r);
+  });
+
+  // --- v3.35: weergave & inzicht ---
+  // Kaartweergave: foto's met GPS-coördinaten.
+  app.get('/api/geo/photos', async (req, res) => {
+    try { res.json({ photos: await insights.geoPhotos(req.home, req.query.path || '/') }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  // Tijdlijnweergave: bestanden gesorteerd op datum, gebucket per maand.
+  app.get('/api/timeline', async (req, res) => {
+    try { res.json(await insights.timeline(req.home, req.query.path || '/')); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  // Relatiegrafiek: bestanden verbonden via gedeelde tags.
+  app.get('/api/graph/tags', (req, res) => {
+    try { res.json(insights.tagGraph(req.user)); }
+    catch (err) { res.status(400).json({ error: err.message }); }
   });
 
   // --- Versiegeschiedenis ---
@@ -1388,6 +1540,8 @@ export function createWebServer() {
       }
       // OCR: tekst uit afbeeldingen/PDF's halen (asynchroon) voor doorzoekbaarheid.
       if (ocr.canOcr(f.originalname)) ocr.runOcr(req.home, relUp, f.path);
+      // Beeldherkenning: labels uit afbeeldingen halen (asynchroon) voor zoeken.
+      if (vision.canDetect(f.originalname)) vision.runVision(req.home, relUp, f.path);
       // Regelgebaseerde automatisering: tag/verplaats/notificeer op basis van pad+extensie.
       try {
         rules.applyRules(req.user, relUp, {
@@ -1500,6 +1654,7 @@ export function createWebServer() {
       locks.movePath(req.home, req.body.from, req.body.to);
       expiry.movePath(req.home, req.body.from, req.body.to);
       ocr.movePath(req.home, req.body.from, req.body.to);
+      vision.movePath(req.home, req.body.from, req.body.to);
       folderInfo.movePath(req.home, req.body.from, req.body.to);
       reviews.movePath(req.home, req.body.from, req.body.to);
       labels.movePath(req.home, req.body.from, req.body.to);
@@ -1523,15 +1678,22 @@ export function createWebServer() {
         if (retention.retainedUntil(req.home, p)) continue; // bewaarplicht: niet verwijderen
         const abs = resolveWithin(req.home, p);
         if (path.resolve(abs) === path.resolve(req.home)) continue;
-        const dest = path.join(trash, Date.now() + '_' + path.basename(abs));
-        await fsp.rename(abs, dest).catch(async () => {
-          await fsp.rm(abs, { recursive: true, force: true });
-        });
+        // Veilig verwijderen ("shredder"): overschrijf de inhoud en sla de
+        // prullenbak over, zodat de data niet terug te halen is.
+        if (req.body.shred && config.shredPasses > 0) {
+          try { shred(abs, config.shredPasses); audit('web', req.user, 'shred', { path: p }); } catch { await fsp.rm(abs, { recursive: true, force: true }); }
+        } else {
+          const dest = path.join(trash, Date.now() + '_' + path.basename(abs));
+          await fsp.rename(abs, dest).catch(async () => {
+            await fsp.rm(abs, { recursive: true, force: true });
+          });
+        }
         permalinks.removeForPath(req.user, p);
         tags.removePath(req.user, p);
         locks.removePath(req.home, p);
         expiry.removePath(req.home, p);
         ocr.removePath(req.home, p);
+        vision.removePath(req.home, p);
         reviews.removePath(req.home, p);
         labels.removePath(req.home, p);
         recordMutation(req.user, 'delete'); checkHoneypot(req.user, p, 'delete');
@@ -1566,6 +1728,7 @@ export function createWebServer() {
         locks.movePath(req.home, p, destRel);
         expiry.movePath(req.home, p, destRel);
         ocr.movePath(req.home, p, destRel);
+        vision.movePath(req.home, p, destRel);
         moved++;
       }
       recordMutation(req.user, 'rename');
@@ -2803,6 +2966,11 @@ async function searchRecursive(home, dir, query, depth = 6, inContent = false) {
       if (!match && inContent && !e.isDirectory()) {
         const rel = '/' + path.relative(home, full).split(path.sep).join('/');
         if (ocr.ocrMatches(home, rel, query)) match = true;
+      }
+      // En de herkende beeldlabels (gezichten/objecten) meenemen bij zoeken.
+      if (!match && !e.isDirectory()) {
+        const rel = '/' + path.relative(home, full).split(path.sep).join('/');
+        if (vision.labelMatches(home, rel, query)) match = true;
       }
       if (match) {
         const stat = await fsp.stat(full).catch(() => null);

@@ -331,6 +331,31 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Toegankelijkheid: skip-link, focus, ARIA (WCAG-AA)
 - ✅ Laagbandbreedte-modus + kiosk-/gastmodus
 
+## Vertrouwen & workflow: ondertekening, shredder, @-vermeldingen & taken (v3.32)
+
+- ✅ Digitale ondertekening & verificatie (Ed25519, wijzigingsdetectie)
+- ✅ Veilig verwijderen (shredder: overschrijven vóór verwijdering)
+- ✅ @-vermeldingen in reacties met notificatie
+- ✅ Taken/actiepunten op bestanden (toewijzen, status)
+
+## AI & slimme organisatie (v3.33)
+
+- ✅ AI-assistent via extern commando (`AI_CMD`), optioneel met bestandscontext
+- ✅ Gezichts-/objectherkenning via extern commando (`VISION_CMD`), zoekbaar op labels
+- ✅ Automatische mapstructuur-suggesties (lokaal: per type/extensie/jaar) + toepassen
+
+## Invoer & integraties (v3.34)
+
+- ✅ Upload via e-mail (geheim inbox-adres, bijlagen na virusscan naar `Inbox-mail`)
+- ✅ Scan-naar-map / hot-folder (periodieke import van een host-map, na virusscan)
+- ✅ Chat-bot (Slack/Teams/Discord): inkomende `list`/`search`/`help`-commando's
+
+## Weergave & inzicht (v3.35)
+
+- ✅ Kaartweergave (GPS uit foto-EXIF, ingebouwde parser, inline-SVG)
+- ✅ Tijdlijnweergave (per maand, op opnamedatum/wijzigingsdatum)
+- ✅ Relatiegrafiek (bestanden verbonden via gedeelde tags)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

@@ -195,6 +195,31 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Weergave & inzicht (v3.35)
+
+- **Kaartweergave** — GPS uit foto-EXIF (ingebouwde parser) op een kaart (`GET /api/geo/photos`).
+- **Tijdlijnweergave** — bestanden per maand gebucket op opnamedatum/wijzigingsdatum (`GET /api/timeline`).
+- **Relatiegrafiek** — bestanden verbonden via gedeelde tags (`GET /api/graph/tags`). Alles rendert offline met inline-SVG.
+
+## Invoer & integraties (v3.34)
+
+- **Upload via e-mail** — geheim inbox-adres per gebruiker; bijlagen belanden na virusscan in `Inbox-mail` (`POST /api/email-inbox/<token>`).
+- **Scan-naar-map (hot-folder)** — een host-map wordt periodiek geïmporteerd naar een gebruiker (`HOTFOLDER_DIR`), na virusscan; handmatige scan via de admin-UI.
+- **Chat-bot** — inkomende `list`/`search`/`help`-commando's via `POST /api/chat/command` (gedeelde token); uitgaande meldingen via `WEBHOOK_URL`.
+
+## AI & slimme organisatie (v3.33)
+
+- **AI-assistent** — stel een vraag (optioneel met een bestand als context) via een extern commando (`AI_CMD`). Endpoint `POST /api/ai/ask`; nette 501 als niet ingesteld.
+- **Gezichts-/objectherkenning** — labels uit afbeeldingen via `VISION_CMD`; opgeslagen en doorzoekbaar (`GET /api/vision/search?label=`).
+- **Automatische mapstructuur-suggesties** — lokaal: groepeer losse bestanden per type/extensie/jaar en pas de verplaatsingen na bevestiging toe.
+
+## Vertrouwen & workflow: ondertekening, shredder, @-vermeldingen & taken (v3.32)
+
+- **Digitale ondertekening & verificatie** — teken bestanden (Ed25519); verificatie detecteert wijzigingen. Publieke sleutel: `/api/signing/pubkey`.
+- **Veilig verwijderen (shredder)** — overschrijf de inhoud (`SHRED_PASSES`) en sla de prullenbak over (best-effort).
+- **@-vermeldingen in reacties** — noem `@gebruiker`, die krijgt een melding.
+- **Taken op bestanden** — titel, toegewezene, status (open/bezig/klaar) per bestand.
+
 ## UX & toegankelijkheid: dashboard, weergaven, i18n, kiosk (v3.31)
 
 - **Recent & vastgezet** — dashboard met vastgezette mappen (server-side) + recente bestanden.

@@ -2,10 +2,21 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    # Alleen de langlevende branches; feature-branches worden al door
+    # pull_request gedekt. Voorheen ('**') draaide elke commit de CI twee keer.
+    branches:
+      - main
+      - claude/sftp-server-web-ui-ptwzzo
   pull_request:
 
+# Een nieuwe push annuleert de nog lopende run op dezelfde ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # test en audit deelden dezelfde checkout + npm ci; als aparte jobs betaalden
+  # we die installatie (en de afronding naar een hele minuut) dubbel.
   test:
     runs-on: ubuntu-latest
     steps:
@@ -13,17 +24,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: npm
       - run: npm ci
       - run: npm test
-
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-      - run: npm ci
       # Faal de build bij bekende kwetsbaarheden (hoog/kritiek) in dependencies.
       - run: npm audit --omit=dev --audit-level=high
 
@@ -34,6 +37,22 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+
+      - name: Cache Playwright-browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Installeer Playwright (browser + systeemdeps)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Installeer alleen systeemdeps (browser uit cache)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
       - run: npm run test:e2e

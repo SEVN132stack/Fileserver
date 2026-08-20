@@ -54,3 +54,8 @@ incidents.json
 event-hooks.json
 webhook-subs.json
 pins.json
+signing-key.json
+signatures.json
+file-tasks.json
+vision-index.json
+email-inbox.json

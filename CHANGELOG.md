@@ -1,5 +1,60 @@
 # Changelog
 
+## [3.35.0] - 2026-08-20
+
+### Toegevoegd (Batch O — Weergave & inzicht)
+
+- **Kaartweergave**: leest GPS-coördinaten uit de EXIF van foto's (ingebouwde parser, geen
+  externe dienst) en toont ze op een kaart (`GET /api/geo/photos`).
+- **Tijdlijnweergave**: bestanden gesorteerd op datum (EXIF-opnamedatum voor foto's, anders
+  wijzigingsdatum), gebucket per maand (`GET /api/timeline`).
+- **Relatiegrafiek**: toont bestanden die via gedeelde tags met elkaar verbonden zijn als een
+  knopen-en-verbindingen-grafiek (`GET /api/graph/tags`).
+- Alle drie de weergaven renderen client-side met inline-SVG (geen externe bibliotheken of
+  kaarttegels; werkt offline en binnen een strikte CSP).
+
+## [3.34.0] - 2026-08-20
+
+### Toegevoegd (Batch N — Invoer & integraties)
+
+- **Upload via e-mail**: elke gebruiker kan een geheim inbox-adres aanmaken; een mailprovider
+  (of script) POST't een geparste e-mail met bijlagen naar `/api/email-inbox/<token>` en die
+  bijlagen komen — na een virusscan — in de `Inbox-mail`-map. Beheer via `/api/email/token`.
+- **Scan-naar-map (hot-folder)**: een host-map (`HOTFOLDER_DIR`) wordt periodiek geleegd naar
+  de opslag van een gebruiker (na virusscan). Handmatige scan via `POST /api/hotfolder/scan`.
+- **Chat-bot (Slack/Teams/Discord)**: inkomend commando-endpoint `POST /api/chat/command`
+  (gedeelde `CHAT_BOT_TOKEN`) met `list`/`search`/`help`; uitgaande meldingen lopen al via
+  `WEBHOOK_URL`.
+
+## [3.33.0] - 2026-08-20
+
+### Toegevoegd (Batch M — AI & slimme organisatie)
+
+- **AI-assistent**: stel een vraag (optioneel met de inhoud van een bestand als context)
+  aan een extern commando (`AI_CMD`, bv. een lokale LLM-CLI die de prompt op stdin krijgt).
+  Endpoint `POST /api/ai/ask`; nette 501 als er geen commando is ingesteld.
+- **Gezichts-/objectherkenning**: laat een extern commando (`VISION_CMD`) labels uit
+  afbeeldingen halen; labels worden opgeslagen en meegenomen bij het zoeken. Analyseer
+  handmatig via `POST /api/vision/detect` en zoek met `GET /api/vision/search?label=`.
+- **Automatische mapstructuur-suggesties** (volledig lokaal, geen AI nodig): stelt een nette
+  indeling voor per type, extensie of jaar en past de verplaatsingen na bevestiging toe
+  (`GET /api/organize/suggest`, `POST /api/organize/apply`).
+
+## [3.32.0] - 2026-08-14
+
+### Toegevoegd (Batch L — Vertrouwen & workflow)
+
+- **Digitale ondertekening & verificatie**: onderteken een bestand met de server-sleutel
+  (Ed25519); verificatie toont per handtekening of hij geldig is én of het bestand sinds
+  ondertekening ongewijzigd is. Publieke sleutel op `/api/signing/pubkey`.
+- **Veilig verwijderen ("shredder")**: overschrijf de bestandsinhoud (`SHRED_PASSES`) en sla
+  de prullenbak over, zodat de data niet triviaal terug te halen is (best-effort; op
+  CoW/SSD niet gegarandeerd).
+- **@-vermeldingen in reacties**: noem `@gebruiker` in een bestandsreactie en die persoon
+  krijgt een melding.
+- **Taken/actiepunten op bestanden**: koppel een taak (titel, toegewezene, status
+  open/bezig/klaar) aan een bestand; de toegewezene krijgt een melding.
+
 ## [3.31.1] - 2026-08-14
 
 ### Opgelost (security-review v3.28–v3.31)

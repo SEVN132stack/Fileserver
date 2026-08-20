@@ -22,6 +22,8 @@ import { startQuotaWarnScheduler } from './quota-warn.js';
 import { startCertMonitor } from './cert-monitor.js';
 import { startDigestScheduler } from './digest.js';
 import { startSelfTestScheduler } from './selftest.js';
+import { startScheduler as startHotfolderScheduler } from './hotfolder.js';
+import { emitToUser } from './events.js';
 
 // Startpunt: bereidt opslag, host key en gebruikers voor en start beide servers.
 ensureStorage();
@@ -48,6 +50,7 @@ startQuotaWarnScheduler();
 startCertMonitor();
 startDigestScheduler();
 startSelfTestScheduler();
+startHotfolderScheduler((user) => emitToUser(user, 'change', { action: 'hotfolder' }));
 
 startWebServer();
 startSftpServer();

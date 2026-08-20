@@ -167,6 +167,8 @@ async function load() {
     if (!it.isDir) a += `<button class="ghost" data-ver="${enc(it.path)}">🕘</button>`;
     if (!it.isDir) a += `<button class="ghost" data-lock="${enc(it.path)}" title="Vergrendelen/ontgrendelen">🔒</button>`;
     if (!it.isDir && /\.(jpe?g|png|webp|gif|tiff?|avif|pdf|mp4|mkv|mov|webm|m4v|mp3|wav|m4a|aac|ogg|flac)$/i.test(it.name)) a += `<button class="ghost" data-media="${enc(it.path)}" title="Media bewerken">🛠</button>`;
+    if (!it.isDir) a += `<button class="ghost" data-sign="${enc(it.path)}" title="Ondertekenen/verifiëren" aria-label="Ondertekenen">✍️</button>`;
+    if (!it.isDir && /\.(jpe?g|png|gif|webp|bmp|tiff?)$/i.test(it.name)) a += `<button class="ghost" data-vision="${enc(it.path)}" title="Beeldherkenning (labels)">🔍</button>`;
     a += `<button class="ghost" data-meta="${enc(it.path)}">🏷</button>`;
     a += `<button class="ghost" data-perma="${enc(it.path)}" title="Vaste link (permalink)">∞</button>`;
     a += `<button class="ghost" data-share="${enc(it.path)}">🔗</button>`;
@@ -578,6 +580,8 @@ document.addEventListener('click', async (e) => {
     return showDiff(p, v);
   }
   if (t2.dataset.media) { return showMediaTools(decodeURIComponent(t2.dataset.media)); }
+  if (t2.dataset.sign) { return showSigning(decodeURIComponent(t2.dataset.sign)); }
+  if (t2.dataset.vision) { return showVision(decodeURIComponent(t2.dataset.vision)); }
   if (t2.dataset.ren) {
     const cur = decodeURIComponent(t2.dataset.ren), base = cur.substring(0,cur.lastIndexOf('/')+1);
     let suggestion = '';
@@ -585,7 +589,7 @@ document.addEventListener('click', async (e) => {
     const nn = prompt(suggestion ? 'Nieuwe naam of pad (suggestie ingevuld):' : 'Nieuwe naam of pad:', suggestion || cur.split('/').pop()); if (!nn) return;
     await api('/api/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:cur,to:nn.startsWith('/')?nn:base+nn})}); load(); return;
   }
-  if (t2.dataset.del) { if(!confirm('Naar prullenbak?'))return; await api('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t2.dataset.del)})}); load(); loadMe(); return; }
+  if (t2.dataset.del) { if(!confirm('Naar prullenbak?'))return; const shred=confirm('Veilig wissen (shredder)? OK = onherstelbaar overschrijven, Annuleer = gewone prullenbak.'); await api('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t2.dataset.del),shred})}); load(); loadMe(); return; }
 });
 document.addEventListener('change', (e) => {
   if (e.target.dataset.sel) { const p=decodeURIComponent(e.target.dataset.sel); e.target.checked?selected.add(p):selected.delete(p); }
@@ -817,6 +821,147 @@ function showMediaTools(p) {
   document.querySelectorAll('#modal [data-transcode]').forEach(b => b.onclick = () => call('/api/transcode', { path:p, format:b.dataset.transcode }, 'Getranscodeerd'));
   const tb = document.querySelector('#modal [data-transcribe]'); if (tb) tb.onclick = () => call('/api/transcribe', { path:p }, 'Transcript opgeslagen');
 }
+// Digitale ondertekening & verificatie (feature 1).
+async function showSigning(p) {
+  const v = await (await api('/api/verify?path='+enc(p))).json();
+  const rows = (v.results||[]).map(r=>`<li>${r.valid&&r.unchanged?'✅':'⚠️'} ${esc(r.by)} · ${new Date(r.ts).toLocaleString()} — ${r.valid?'geldig':'ongeldig'}, ${r.unchanged?'ongewijzigd':'GEWIJZIGD sinds tekenen'}</li>`).join('');
+  openModal(`<h3>✍️ Ondertekening — ${esc(p.split('/').pop())}</h3>
+    <ul>${rows||'<li class="muted">Nog niet ondertekend.</li>'}</ul>
+    <button data-dosign="${enc(p)}">Onderteken dit bestand</button>
+    <a href="/api/signing/pubkey" target="_blank" style="margin-left:.5rem;color:var(--accent)">publieke sleutel</a>`);
+}
+// Mijn taken (feature 7).
+async function showTasks() {
+  const { tasks } = await (await api('/api/file-tasks')).json();
+  const rows = (tasks||[]).map(t=>`<tr><td>${t.status==='klaar'?'✅':'⬜'} ${esc(t.title)}</td><td>${esc(t.path||'')}</td><td>${esc(t.assignee)}</td><td>
+    <select data-taskstatus="${esc(t.id)}"><option${t.status==='open'?' selected':''}>open</option><option${t.status==='bezig'?' selected':''}>bezig</option><option${t.status==='klaar'?' selected':''}>klaar</option></select>
+    <button class="danger" data-taskdel="${esc(t.id)}">×</button></td></tr>`).join('');
+  openModal(`<h3>✅ Mijn taken</h3><table style="width:70vw"><tr><th>Taak</th><th>Bestand</th><th>Voor</th><th></th></tr>${rows||'<tr><td colspan="4" class="muted">Geen taken.</td></tr>'}</table>
+    <div style="margin-top:.6rem;display:flex;gap:.3rem;flex-wrap:wrap"><input id="taskTitle" placeholder="titel" style="width:150px"><input id="taskPath" placeholder="/pad (optioneel)" style="width:120px"><input id="taskAssignee" placeholder="voor wie" style="width:90px"><button data-taskadd>Taak toevoegen</button></div>`);
+}
+// AI-assistent (feature 9): stel een vraag, optioneel over een bestand.
+async function showAi(pathHint) {
+  openModal(`<h3>🤖 AI-assistent</h3>
+    <input id="aiPath" placeholder="/pad naar bestand (optioneel, als context)" value="${esc(pathHint||'')}" style="width:100%">
+    <textarea id="aiQ" placeholder="Stel je vraag..." style="width:100%;height:5rem;margin-top:.4rem"></textarea>
+    <button data-aiask style="margin-top:.4rem">Vraag stellen</button>
+    <pre id="aiOut" class="muted" style="white-space:pre-wrap;margin-top:.6rem"></pre>`);
+}
+// Beeldherkenning (feature 10): analyseer nu + toon/zoek labels.
+async function showVision(p) {
+  const cur = await (await api('/api/vision/labels?path='+enc(p))).json();
+  const chips = (cur.labels||[]).map(l=>`<a href="#" data-vsearch="${esc(l)}" style="color:var(--accent);margin-right:.4rem">#${esc(l)}</a>`).join('');
+  openModal(`<h3>🔍 Beeldherkenning — ${esc(p.split('/').pop())}</h3>
+    <div>${chips||'<span class="muted">Nog geen labels.</span>'}</div>
+    <button data-vdetect="${enc(p)}" style="margin-top:.5rem">Analyseer nu</button>
+    <pre id="visionOut" class="muted" style="white-space:pre-wrap;margin-top:.5rem"></pre>`);
+}
+// Mapstructuur-suggestie (feature 11): voorstel per type/extensie/datum + toepassen.
+async function showOrganize(mode) {
+  mode = mode || 'type';
+  const s = await (await api('/api/organize/suggest?path='+enc(cwd||'/')+'&mode='+mode)).json();
+  const folders = (s.folders||[]).map(f=>`<li>${esc(f.folder)}/ — ${f.count} bestanden</li>`).join('');
+  openModal(`<h3>🗂️ Mapstructuur-suggestie</h3>
+    <div>Map: <code>${esc(s.base||'/')}</code> · groeperen per
+      <select id="orgMode"><option value="type"${mode==='type'?' selected':''}>type</option><option value="ext"${mode==='ext'?' selected':''}>extensie</option><option value="date"${mode==='date'?' selected':''}>jaar</option></select></div>
+    <ul>${folders||'<li class="muted">Geen groepen van 2+ bestanden gevonden.</li>'}</ul>
+    ${(s.moves||[]).length?`<button data-orgapply>Verplaats ${s.moves.length} bestanden</button>`:''}`);
+  window.__orgMoves = s.moves||[];
+}
+// Invoer & integraties (features 13-15): e-mail-upload, hot-folder, chat-bot.
+async function showInbound() {
+  const et = await (await api('/api/email/token')).json();
+  const cb = await (await api('/api/chat/status')).json();
+  let hf = { enabled:false };
+  if (me.role === 'admin') { try { hf = await (await api('/api/hotfolder/status')).json(); } catch {} }
+  const addr = et.token ? `<code style="word-break:break-all">POST /api/email-inbox/${esc(et.token)}</code>` : '<span class="muted">nog geen adres</span>';
+  openModal(`<h3>📥 Invoer & integraties</h3>
+    <h4>📧 Upload via e-mail</h4>
+    <p class="muted">Laat je mailprovider geparste e-mails met bijlagen naar dit adres POST'en; bijlagen komen in <code>${esc('/'+'Inbox-mail')}</code>.</p>
+    <div>${addr}</div>
+    <button data-emltoken="new">${et.token?'Vernieuw adres':'Maak adres aan'}</button>
+    ${et.token?'<button class="danger" data-emltoken="revoke">Intrekken</button>':''}
+    <h4 style="margin-top:1rem">💬 Chat-bot</h4>
+    <p class="muted">Status: ${cb.enabled?`✅ actief (werkt in home van <code>${esc(cb.user)}</code>)`:'⚪ uit — stel <code>CHAT_BOT_TOKEN</code> en <code>CHAT_BOT_USER</code> in'}. Commando's: <code>list</code>, <code>search</code>, <code>help</code>.</p>
+    ${me.role==='admin'?`<h4 style="margin-top:1rem">🗂️ Scan-naar-map (hot-folder)</h4>
+    <p class="muted">${hf.enabled?`✅ actief: <code>${esc(hf.dir||'')}</code> → <code>${esc('/'+(hf.target||''))}</code>`:'⚪ uit — stel <code>HOTFOLDER_DIR</code> en <code>HOTFOLDER_USER</code> in'}</p>
+    ${hf.enabled?'<button data-hfscan>Nu scannen</button>':''}<pre id="inboundOut" class="muted" style="white-space:pre-wrap"></pre>`:''}`);
+}
+// Weergave & inzicht (features 17-19): kaart, tijdlijn, relatiegrafiek.
+async function showInsights(tab) {
+  tab = tab || 'kaart';
+  const nav = `<div style="display:flex;gap:.3rem;margin-bottom:.6rem">
+    <button data-insight="kaart"${tab==='kaart'?' class="primary"':''}>🗺️ Kaart</button>
+    <button data-insight="tijdlijn"${tab==='tijdlijn'?' class="primary"':''}>🕰️ Tijdlijn</button>
+    <button data-insight="grafiek"${tab==='grafiek'?' class="primary"':''}>🕸️ Grafiek</button></div>`;
+  openModal(`<h3>📈 Weergave & inzicht</h3>${nav}<div id="insightBody" class="muted">Laden…</div>`);
+  const body = document.getElementById('insightBody');
+  try {
+    if (tab === 'kaart') {
+      const { photos } = await (await api('/api/geo/photos?path=' + enc(cwd || '/'))).json();
+      body.innerHTML = renderMap(photos || []);
+    } else if (tab === 'tijdlijn') {
+      const tl = await (await api('/api/timeline?path=' + enc(cwd || '/'))).json();
+      const months = (tl.months || []).map(m => `<li><b>${esc(m.month)}</b> — ${m.count}</li>`).join('');
+      const items = (tl.items || []).slice(0, 60).map(i => `<li>${new Date(i.ts).toLocaleDateString()} — ${esc(i.path)}</li>`).join('');
+      body.innerHTML = `<div style="display:flex;gap:1rem;flex-wrap:wrap"><div><h4>Per maand</h4><ul>${months||'<li>geen</li>'}</ul></div><div style="flex:1;min-width:220px"><h4>Recent</h4><ul style="max-height:50vh;overflow:auto">${items||'<li>geen</li>'}</ul></div></div>`;
+    } else {
+      const g = await (await api('/api/graph/tags')).json();
+      body.innerHTML = renderGraph(g.nodes || [], g.edges || []);
+    }
+  } catch (err) { body.textContent = 'Fout: ' + err.message; }
+}
+function renderMap(photos) {
+  if (!photos.length) return '<p>Geen foto\'s met GPS-gegevens gevonden in deze map.</p>';
+  const W = 640, H = 320;
+  const pts = photos.map(p => {
+    const x = ((p.lng + 180) / 360) * W, y = ((90 - p.lat) / 180) * H;
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" fill="var(--accent)" opacity=".8"><title>${esc(p.path)} (${p.lat}, ${p.lng})</title></circle>`;
+  }).join('');
+  return `<p>${photos.length} foto('s) met locatie:</p><svg viewBox="0 0 ${W} ${H}" style="width:100%;border:1px solid var(--border);background:var(--bg-alt)">
+    <rect width="${W}" height="${H}" fill="none"/>
+    <line x1="0" y1="${H/2}" x2="${W}" y2="${H/2}" stroke="var(--border)"/><line x1="${W/2}" y1="0" x2="${W/2}" y2="${H}" stroke="var(--border)"/>
+    ${pts}</svg><ul style="max-height:30vh;overflow:auto">${photos.map(p=>`<li>${esc(p.path)} — ${p.lat}, ${p.lng}</li>`).join('')}</ul>`;
+}
+function renderGraph(nodes, edges) {
+  if (!nodes.length) return '<p>Nog geen getagde bestanden — voeg tags toe om verbindingen te zien.</p>';
+  const n = nodes.slice(0, 40), R = 150, cx = 180, cy = 180;
+  const pos = {}; n.forEach((nd, i) => { const a = (i / n.length) * 2 * Math.PI; pos[nd.id] = { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) }; });
+  const lines = edges.filter(e => pos[e.source] && pos[e.target]).map(e => `<line x1="${pos[e.source].x.toFixed(0)}" y1="${pos[e.source].y.toFixed(0)}" x2="${pos[e.target].x.toFixed(0)}" y2="${pos[e.target].y.toFixed(0)}" stroke="var(--accent)" stroke-width="${Math.min(4,e.weight)}" opacity=".4"><title>${esc(e.tags.join(', '))}</title></line>`).join('');
+  const dots = n.map(nd => `<g><circle cx="${pos[nd.id].x.toFixed(0)}" cy="${pos[nd.id].y.toFixed(0)}" r="6" fill="var(--accent)"><title>${esc(nd.id)} [${esc((nd.tags||[]).join(', '))}]</title></circle><text x="${(pos[nd.id].x+8).toFixed(0)}" y="${pos[nd.id].y.toFixed(0)}" font-size="10" fill="var(--fg)">${esc(nd.name.slice(0,16))}</text></g>`).join('');
+  return `<p>${nodes.length} bestand(en), ${edges.length} verbinding(en) via gedeelde tags:</p><svg viewBox="0 0 380 360" style="width:100%;border:1px solid var(--border);background:var(--bg-alt)">${lines}${dots}</svg>`;
+}
+const insightsBtn = document.getElementById('insightsBtn'); if (insightsBtn) insightsBtn.onclick = () => showInsights('kaart');
+const inboundBtn = document.getElementById('inboundBtn'); if (inboundBtn) inboundBtn.onclick = showInbound;
+const aiBtn = document.getElementById('aiBtn'); if (aiBtn) aiBtn.onclick = () => showAi('');
+const organizeBtn = document.getElementById('organizeBtn'); if (organizeBtn) organizeBtn.onclick = () => showOrganize('type');
+const tasksBtn = document.getElementById('tasksBtn'); if (tasksBtn) tasksBtn.onclick = showTasks;
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (t.dataset.dosign) { const r = await api('/api/sign',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t.dataset.dosign)})}); if(r.ok) showSigning(decodeURIComponent(t.dataset.dosign)); else alert('Tekenen mislukt'); }
+  if (t.hasAttribute && t.hasAttribute('data-taskadd')) { const title=document.getElementById('taskTitle').value.trim(); if(!title)return; await api('/api/file-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,path:document.getElementById('taskPath').value,assignee:document.getElementById('taskAssignee').value})}); showTasks(); }
+  if (t.dataset.taskdel) { await api('/api/file-tasks/'+encodeURIComponent(t.dataset.taskdel),{method:'DELETE'}); showTasks(); }
+  if (t.hasAttribute && t.hasAttribute('data-aiask')) {
+    const out=document.getElementById('aiOut'); out.textContent='Bezig...';
+    const r=await api('/api/ai/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:document.getElementById('aiQ').value,path:document.getElementById('aiPath').value})});
+    const j=await r.json(); out.textContent = r.ok ? (j.answer||'(leeg)') : ('Fout: '+(j.error||r.status));
+  }
+  if (t.dataset.vdetect) {
+    const out=document.getElementById('visionOut'); out.textContent='Analyseren...';
+    const r=await api('/api/vision/detect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t.dataset.vdetect)})});
+    const j=await r.json(); if(r.ok) showVision(decodeURIComponent(t.dataset.vdetect)); else out.textContent='Fout: '+(j.error||r.status);
+  }
+  if (t.dataset.vsearch) { e.preventDefault(); const j=await (await api('/api/vision/search?label='+enc(t.dataset.vsearch))).json(); alert('Bestanden met #'+t.dataset.vsearch+':\n'+((j.files||[]).join('\n')||'geen')); }
+  if (t.hasAttribute && t.hasAttribute('data-orgapply')) { const j=await (await api('/api/organize/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({moves:window.__orgMoves||[]})})).json(); alert('Verplaatst: '+(j.moved||0)+', overgeslagen: '+((j.skipped||[]).length)); closeModal(); load(cwd); }
+  if (t.dataset.emltoken==='new') { await api('/api/email/token',{method:'POST'}); showInbound(); }
+  if (t.dataset.emltoken==='revoke') { if(confirm('Adres intrekken?')){ await api('/api/email/token',{method:'DELETE'}); showInbound(); } }
+  if (t.hasAttribute && t.hasAttribute('data-hfscan')) { const out=document.getElementById('inboundOut'); out.textContent='Scannen...'; const j=await (await api('/api/hotfolder/scan',{method:'POST'})).json(); out.textContent = j.ok ? ('Geïmporteerd: '+(j.imported||[]).length+', afgekeurd: '+(j.rejected||[]).length) : ('Fout: '+(j.error||'')); }
+  if (t.dataset.insight) { showInsights(t.dataset.insight); }
+});
+document.addEventListener('change', async (e) => {
+  if (e.target.dataset && e.target.dataset.taskstatus) { await api('/api/file-tasks/'+encodeURIComponent(e.target.dataset.taskstatus)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:e.target.value})}); }
+  if (e.target.id === 'orgMode') { showOrganize(e.target.value); }
+});
 const teamsBtn = document.getElementById('teamsBtn'); if (teamsBtn) teamsBtn.onclick = () => showTeams();
 document.addEventListener('click', async (e) => {
   const t = e.target;

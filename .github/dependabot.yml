@@ -1,11 +1,12 @@
 version: 2
 updates:
-  # npm-afhankelijkheden wekelijks bijwerken via PR's.
+  # npm-afhankelijkheden maandelijks bijwerken via PR's. Wekelijks met een
+  # limiet van 10 leverde tientallen CI-runs per batch op.
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 10
+      interval: monthly
+    open-pull-requests-limit: 3
     groups:
       production:
         dependency-type: production
@@ -15,4 +16,5 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 3

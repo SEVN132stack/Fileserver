@@ -498,7 +498,52 @@ export const config = {
   digestPrefsFile: abs(process.env.DIGEST_PREFS_FILE || 'digest-prefs.json'),
   digestIntervalHours: parseInt(process.env.DIGEST_INTERVAL_HOURS || '24', 10),
 
-  version: '3.31.1',
+  // --- v3.32 (vertrouwen & workflow) ---
+  // Digitale ondertekening: server-sleutelpaar (Ed25519) + handtekening-register.
+  signingKeyFile: abs(process.env.SIGNING_KEY_FILE || 'signing-key.json'),
+  signaturesFile: abs(process.env.SIGNATURES_FILE || 'signatures.json'),
+  // Veilig verwijderen: aantal overschrijf-passes (0 = uit; bestand gaat normaal
+  // naar de prullenbak). Bij >0 wordt de inhoud overschreven vóór verwijdering.
+  shredPasses: parseInt(process.env.SHRED_PASSES || '1', 10),
+  // Taken/actiepunten op bestanden.
+  tasksFile: abs(process.env.TASKS_FILE || 'file-tasks.json'),
+
+  // --- v3.33 (AI & slimme organisatie) ---
+  // AI-assistent: extern commando dat een prompt op stdin krijgt en antwoord naar
+  // stdout schrijft (bijv. een lokale LLM-CLI). Leeg = uit (nette 501).
+  aiCmd: process.env.AI_CMD || '',
+  aiMaxContext: parseInt(process.env.AI_MAX_CONTEXT || '8000', 10), // tekens context
+  // Beeldherkenning (gezichten/objecten): extern commando dat een afbeeldingspad
+  // krijgt en JSON met labels naar stdout schrijft, bijv. {"labels":["kat","gras"]}
+  // of een array van strings. Leeg = uit (nette 501). Resultaat in visionFile.
+  visionCmd: process.env.VISION_CMD || '',
+  visionFile: abs(process.env.VISION_FILE || 'vision-index.json'),
+  visionMaxBytes: parseInt(process.env.VISION_MAX_BYTES || '10485760', 10), // 10MB
+  // Automatische mapstructuur-suggesties werken volledig lokaal (geen commando).
+
+  // --- v3.34 (invoer & integraties) ---
+  // Upload via e-mail: per-gebruiker geheime inbox-token(s). Een mailprovider (of
+  // script) POST't een geparste e-mail met bijlagen naar /api/email-inbox/<token>.
+  emailInboxFile: abs(process.env.EMAIL_INBOX_FILE || 'email-inbox.json'),
+  emailInboxDir: process.env.EMAIL_INBOX_DIR || 'Inbox-mail', // submap in home
+  emailInboxMaxBytes: parseInt(process.env.EMAIL_INBOX_MAX_BYTES || '26214400', 10), // 25MB per bijlage
+  // Scan-naar-map (hot-folder): een host-map wordt periodiek geleegd naar een
+  // gebruiker. Leeg = uit.
+  hotfolderDir: process.env.HOTFOLDER_DIR || '',
+  hotfolderUser: process.env.HOTFOLDER_USER || '',
+  hotfolderTarget: process.env.HOTFOLDER_TARGET || 'Ingescand', // submap in home
+  hotfolderIntervalSec: parseInt(process.env.HOTFOLDER_INTERVAL_SEC || '60', 10),
+  // Chat-bot (Slack/Teams/Discord): inkomende commando's via een gedeelde token.
+  // Uitgaande meldingen lopen al via WEBHOOK_URL (zie notify.js).
+  chatBotToken: process.env.CHAT_BOT_TOKEN || '',
+  chatBotUser: process.env.CHAT_BOT_USER || '', // in wiens home de bot zoekt/lijst
+
+  // --- v3.35 (weergave & inzicht) ---
+  // Kaart-/tijdlijn-/grafiekweergaven werken op de bestaande opslag; deze limiet
+  // begrenst hoeveel bestanden per verzoek worden doorlopen (geheugen/CPU).
+  insightsMaxScan: parseInt(process.env.INSIGHTS_MAX_SCAN || '5000', 10),
+
+  version: '3.35.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

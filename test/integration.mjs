@@ -52,6 +52,20 @@ process.env.LABELS_FILE = path.join(tmp, 'labels.json');
 process.env.SERVER_SNAPSHOTS_DIR = path.join(tmp, 'server-snapshots');
 process.env.INCIDENTS_FILE = path.join(tmp, 'incidents.json');
 process.env.PINS_FILE = path.join(tmp, 'pins.json');
+process.env.SIGNING_KEY_FILE = path.join(tmp, 'signing-key.json');
+process.env.SIGNATURES_FILE = path.join(tmp, 'signatures.json');
+process.env.TASKS_FILE = path.join(tmp, 'file-tasks.json');
+process.env.VISION_FILE = path.join(tmp, 'vision-index.json');
+// AI_CMD/VISION_CMD: 'cat' echoot stdin (AI) resp. negeert input; voor de vision-test
+// zetten we een klein node-commando dat vaste labels als JSON teruggeeft.
+process.env.AI_CMD = 'cat';
+process.env.VISION_CMD = 'node ' + path.join(process.cwd(), 'test', 'fake-vision.mjs');
+process.env.EMAIL_INBOX_FILE = path.join(tmp, 'email-inbox.json');
+process.env.HOTFOLDER_DIR = path.join(tmp, 'hotfolder');
+process.env.HOTFOLDER_USER = 'admin';
+process.env.HOTFOLDER_INTERVAL_SEC = '3600'; // scheduler slaapt; test roept scanOnce handmatig
+process.env.CHAT_BOT_TOKEN = 'testbottoken';
+process.env.CHAT_BOT_USER = 'admin';
 process.env.EVENT_HOOKS_FILE = path.join(tmp, 'event-hooks.json');
 process.env.WEBHOOK_SUBS_FILE = path.join(tmp, 'webhook-subs.json');
 process.env.COLD_STORE_MIN_BYTES = '0';
@@ -1438,6 +1452,148 @@ try {
     const after = await (await fetch(H + '/api/pins', { headers: jar() })).json();
     ok('vastgezette mappen toevoegen/tonen/losmaken',
       add.ok && list.pins.includes('/projectmap') && del.ok && !after.pins.includes('/projectmap'));
+  }
+
+  // 110. Digitale ondertekening: teken -> geldig+ongewijzigd; na wijziging -> ongewijzigd=false.
+  {
+    await fetch(H + '/api/save?path=/contract.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'akkoord' });
+    const sign = await (await fetch(H + '/api/sign', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/contract.txt' }) })).json();
+    const v1 = await (await fetch(H + '/api/verify?path=/contract.txt', { headers: jar() })).json();
+    await fetch(H + '/api/save?path=/contract.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'GEWIJZIGD' });
+    const v2 = await (await fetch(H + '/api/verify?path=/contract.txt', { headers: jar() })).json();
+    ok('digitale ondertekening: geldig + wijziging gedetecteerd',
+      sign.ok && v1.results[0].valid === true && v1.results[0].unchanged === true && v2.results[0].valid === true && v2.results[0].unchanged === false);
+  }
+
+  // 111. Shredder: veilig verwijderen slaat de prullenbak over en wist het bestand.
+  {
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'geheim.txt'), 'wis mij');
+    await fetch(H + '/api/delete', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/geheim.txt', shred: true }) });
+    const gone = !fs.existsSync(path.join(config.storageDir, 'admin', 'geheim.txt'));
+    const trash = await (await fetch(H + '/api/trash', { headers: jar() })).json();
+    ok('shredder verwijdert veilig (weg + niet in prullenbak)',
+      gone && !(trash.items || []).some((i) => i.path.includes('geheim.txt')));
+  }
+
+  // 112. @-vermelding in een reactie levert een notificatie bij de genoemde gebruiker.
+  {
+    const adminCookie = cookie;
+    addUser({ username: 'mentionee', password: 'mentionpw123', role: 'user' }); // verse gebruiker, geen 2FA
+    await fetch(H + '/api/comments', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/a.txt', text: 'kijk hier @mentionee even naar' }) });
+    cookie = ''; await login('mentionee', 'mentionpw123');
+    const notifs = await (await fetch(H + '/api/notifications', { headers: jar() })).json();
+    ok('@-vermelding notificeert de genoemde gebruiker',
+      (notifs.notifications || notifs.items || []).some((n) => (n.title || '').includes('genoemd')));
+    cookie = adminCookie; // admin-sessie herstellen
+  }
+
+  // 113. Taken op bestanden: aanmaken, toewijzen, status wijzigen.
+  {
+    const t = await (await fetch(H + '/api/file-tasks', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/a.txt', title: 'Controleer dit', assignee: 'admin' }) })).json();
+    const st = await (await fetch(H + `/api/file-tasks/${t.task.id}/status`, { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ status: 'klaar' }) })).json();
+    const list = await (await fetch(H + '/api/file-tasks', { headers: jar() })).json();
+    ok('taken op bestanden: aanmaken + status wijzigen',
+      t.ok && st.task.status === 'klaar' && list.tasks.some((x) => x.id === t.task.id));
+  }
+
+  // 114. AI-assistent: vraag gaat naar AI_CMD ('cat') dat de prompt echoot.
+  {
+    const r = await (await fetch(H + '/api/ai/ask', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ question: 'Wat is dit?' }) })).json();
+    ok('AI-assistent geeft antwoord via extern commando',
+      typeof r.answer === 'string' && r.answer.includes('Wat is dit?'));
+  }
+
+  // 115. Beeldherkenning: analyseer een afbeelding en zoek erop via de labels.
+  {
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'foto.jpg'), 'nep-jpg');
+    const det = await (await fetch(H + '/api/vision/detect', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/foto.jpg' }) })).json();
+    const found = await (await fetch(H + '/api/vision/search?label=kat', { headers: jar() })).json();
+    ok('beeldherkenning: labels toekennen + erop zoeken',
+      det.ok && det.labels.includes('kat') && (found.files || []).includes('/foto.jpg'));
+  }
+
+  // 116. Mapstructuur-suggestie: groepeer per type en pas de verplaatsingen toe.
+  {
+    const od = path.join(config.storageDir, 'admin', 'rommel');
+    fs.mkdirSync(od, { recursive: true });
+    for (const n of ['a.pdf', 'b.pdf', 'c.jpg', 'd.jpg']) fs.writeFileSync(path.join(od, n), 'x');
+    const sug = await (await fetch(H + '/api/organize/suggest?path=/rommel&mode=type', { headers: jar() })).json();
+    const ap = await (await fetch(H + '/api/organize/apply', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ moves: sug.moves }) })).json();
+    const movedPdf = fs.existsSync(path.join(od, 'Documenten', 'a.pdf'));
+    const movedImg = fs.existsSync(path.join(od, 'Afbeeldingen', 'c.jpg'));
+    ok('mapstructuur-suggestie: groeperen per type + toepassen',
+      sug.moves.length === 4 && ap.moved === 4 && movedPdf && movedImg);
+  }
+
+  // 117. Upload via e-mail: token aanmaken en een geparste mail met bijlage afleveren.
+  {
+    const tok = (await (await fetch(H + '/api/email/token', { method: 'POST', headers: jar() })).json()).token;
+    const b64 = Buffer.from('hallo per mail').toString('base64');
+    const del = await (await fetch(H + '/api/email-inbox/' + tok, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: 'test', attachments: [{ filename: 'brief.txt', contentBase64: b64 }] }) })).json();
+    const landed = fs.existsSync(path.join(config.storageDir, 'admin', config.emailInboxDir, 'brief.txt'));
+    ok('upload via e-mail: bijlage belandt in de inbox',
+      !!tok && del.ok && del.saved.includes('brief.txt') && landed);
+  }
+
+  // 118. Hot-folder: leg een bestand in de host-map en importeer het via een scan.
+  {
+    fs.mkdirSync(process.env.HOTFOLDER_DIR, { recursive: true });
+    const f = path.join(process.env.HOTFOLDER_DIR, 'scan001.txt');
+    fs.writeFileSync(f, 'ingescand document');
+    fs.utimesSync(f, new Date(Date.now() - 5000), new Date(Date.now() - 5000)); // ouder dan 2s
+    const r = await (await fetch(H + '/api/hotfolder/scan', { method: 'POST', headers: jar() })).json();
+    const imported = fs.existsSync(path.join(config.storageDir, 'admin', config.hotfolderTarget, 'scan001.txt'));
+    const gone = !fs.existsSync(f);
+    ok('hot-folder: bestand geïmporteerd en uit de bronmap gehaald',
+      r.ok && r.imported.includes('scan001.txt') && imported && gone);
+  }
+
+  // 119. Chat-bot: commando met token levert een tekstantwoord (list).
+  {
+    const bad = await fetch(H + '/api/chat/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'list /' }) });
+    const good = await (await fetch(H + '/api/chat/command', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Bot-Token': 'testbottoken' }, body: JSON.stringify({ text: 'list /' }) })).json();
+    ok('chat-bot: token vereist + list-commando geeft antwoord',
+      bad.status === 401 && typeof good.text === 'string' && good.text.includes('Inhoud van'));
+  }
+
+  // 120. Kaartweergave: EXIF-GPS-parser decodeert coördinaten + endpoint geeft een lijst.
+  {
+    const { parseGps } = await import('../src/insights.js');
+    const buf = Buffer.alloc(128);
+    buf.write('II', 0, 'latin1'); buf.writeUInt16LE(0x2A, 2); buf.writeUInt32LE(8, 4);
+    buf.writeUInt16LE(1, 8);
+    buf.writeUInt16LE(0x8825, 10); buf.writeUInt16LE(4, 12); buf.writeUInt32LE(1, 14); buf.writeUInt32LE(26, 18); buf.writeUInt32LE(0, 22);
+    buf.writeUInt16LE(4, 26); let e = 28;
+    buf.writeUInt16LE(0x0001, e); buf.writeUInt16LE(2, e+2); buf.writeUInt32LE(2, e+4); buf.write('N\0', e+8, 'latin1'); e+=12;
+    buf.writeUInt16LE(0x0002, e); buf.writeUInt16LE(5, e+2); buf.writeUInt32LE(3, e+4); buf.writeUInt32LE(80, e+8); e+=12;
+    buf.writeUInt16LE(0x0003, e); buf.writeUInt16LE(2, e+2); buf.writeUInt32LE(2, e+4); buf.write('E\0', e+8, 'latin1'); e+=12;
+    buf.writeUInt16LE(0x0004, e); buf.writeUInt16LE(5, e+2); buf.writeUInt32LE(3, e+4); buf.writeUInt32LE(104, e+8); e+=12;
+    buf.writeUInt32LE(0, e);
+    buf.writeUInt32LE(52,80);buf.writeUInt32LE(1,84);buf.writeUInt32LE(22,88);buf.writeUInt32LE(1,92);buf.writeUInt32LE(30,96);buf.writeUInt32LE(1,100);
+    buf.writeUInt32LE(4,104);buf.writeUInt32LE(1,108);buf.writeUInt32LE(54,112);buf.writeUInt32LE(1,116);buf.writeUInt32LE(0,120);buf.writeUInt32LE(1,124);
+    const gps = parseGps(buf);
+    const geo = await (await fetch(H + '/api/geo/photos', { headers: jar() })).json();
+    ok('kaartweergave: EXIF-GPS-parser + endpoint',
+      gps && gps.lat === 52.375 && gps.lng === 4.9 && Array.isArray(geo.photos));
+  }
+
+  // 121. Tijdlijnweergave: bestanden gebucket per maand.
+  {
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'tijdlijn1.txt'), 'x');
+    const tl = await (await fetch(H + '/api/timeline?path=/', { headers: jar() })).json();
+    ok('tijdlijnweergave: items + maandbuckets',
+      Array.isArray(tl.items) && Array.isArray(tl.months) && tl.items.some((i) => i.path.includes('tijdlijn1.txt')));
+  }
+
+  // 122. Relatiegrafiek: twee bestanden met een gedeelde tag geven een verbinding.
+  {
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'graafA.txt'), 'a');
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'graafB.txt'), 'b');
+    await fetch(H + '/api/tags', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/graafA.txt', tags: ['project-x'] }) });
+    await fetch(H + '/api/tags', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/graafB.txt', tags: ['project-x'] }) });
+    const g = await (await fetch(H + '/api/graph/tags', { headers: jar() })).json();
+    ok('relatiegrafiek: gedeelde tag verbindt twee bestanden',
+      g.nodes.some((n) => n.id === '/graafA.txt') && g.edges.some((ed) => ed.tags.includes('project-x') && ((ed.source === '/graafA.txt' && ed.target === '/graafB.txt') || (ed.source === '/graafB.txt' && ed.target === '/graafA.txt'))));
   }
 
   console.log(`\n${passed} tests geslaagd.`);
