@@ -65,47 +65,77 @@ if [ "$(git rev-list --count "origin/${TAK}"..HEAD)" -gt 0 ]; then
 fi
 
 # ── CI-poort ───────────────────────────────────────────────────────────────
-# Rolt alleen uit wat de CI groen heeft bevonden. De CI draait op de
-# self-hosted runner, dus dat kost geen Actions-minuten.
+# Rolt alleen uit wat de CI groen heeft bevonden.
 #
-#   groen  alle check-runs klaar en geslaagd  → uitrollen
-#   rood   minstens één failure/cancelled     → afbreken
-#   bezig  checks lopen nog                   → stil overslaan, volgende tick
-#   geen   geen check-run gevonden            → zie CI_POORT (soepel|streng)
+#   groen  alles klaar en geslaagd        → uitrollen
+#   rood   minstens één failure/cancelled → afbreken
+#   bezig  loopt nog                      → stil overslaan, volgende tick
+#   geen   niets gevonden                 → zie CI_POORT (soepel|streng)
 #
-# Token uit .env: DEPLOY_GITHUB_TOKEN, fine-grained met Contents + Checks: read.
-ci_stand() {
-    local sha="$1" token uit repo
-    token=$(grep -E '^\s*DEPLOY_GITHUB_TOKEN\s*=' "${APP_ROOT}/.env" 2>/dev/null |
-            head -1 | cut -d= -f2- | tr -d ' "'"'"'')
-    [ -z "$token" ] && { echo "geen"; return; }
-
-    repo=$(git config --get remote.origin.url |
-           sed -E 's#^.*github\.com[:/]##; s#\.git$##')
-    [ -z "$repo" ] && { echo "geen"; return; }
-
-    uit=$(curl -fsS --max-time 20 \
-        -H "Authorization: Bearer ${token}" \
+# Twee bronnen, in deze volgorde:
+#   1. de Checks-API   (fine-grained token met Checks: read)
+#   2. de Actions-API  (fine-grained token met Actions: read)
+# Welke van de twee je token mag, hangt af van wat GitHub in jouw
+# tokeninstellingen aanbiedt; de eerste die antwoordt wint. Geeft de ene een
+# 403, dan wordt de andere geprobeerd in plaats van meteen op te geven.
+API_CODE=0
+_api() {
+    local pad="$1" tmp code
+    tmp="$(mktemp)"
+    code=$(curl -s -o "$tmp" -w '%{http_code}' --max-time 20 \
+        -H "Authorization: Bearer ${CI_TOKEN}" \
         -H "Accept: application/vnd.github+json" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
-        "https://api.github.com/repos/${repo}/commits/${sha}/check-runs?per_page=100" 2>/dev/null) \
-        || { echo "geen"; return; }
+        "https://api.github.com/repos/${CI_REPO}/${pad}")
+    API_CODE="$code"
+    cat "$tmp"; rm -f "$tmp"
+}
 
-    python3 - "$uit" <<'PYEOF'
+_classificeer() {
+    python3 - "$1" <<'PYEOF'
 import json, sys
 try:
-    runs = json.loads(sys.argv[1]).get("check_runs", [])
+    d = json.loads(sys.argv[1])
 except Exception:
     print("geen"); raise SystemExit
-if not runs:
+
+items = d.get("check_runs")
+if items is None:
+    items = d.get("workflow_runs") or []
+
+if not items:
     print("geen")
-elif any(r.get("status") != "completed" for r in runs):
+elif any(i.get("status") != "completed" for i in items):
     print("bezig")
-elif any(r.get("conclusion") not in ("success", "neutral", "skipped") for r in runs):
+elif any(i.get("conclusion") not in ("success", "neutral", "skipped") for i in items):
     print("rood")
 else:
     print("groen")
 PYEOF
+}
+
+ci_stand() {
+    local sha="$1" uit stand
+    CI_TOKEN=$(grep -E '^\s*DEPLOY_GITHUB_TOKEN\s*=' "${APP_ROOT}/.env" 2>/dev/null |
+               head -1 | cut -d= -f2- | tr -d ' "'"'"'')
+    [ -z "$CI_TOKEN" ] && { echo "geen"; return; }
+
+    CI_REPO=$(git config --get remote.origin.url |
+              sed -E 's#^.*github\.com[:/]##; s#\.git$##')
+    [ -z "$CI_REPO" ] && { echo "geen"; return; }
+
+    uit=$(_api "commits/${sha}/check-runs?per_page=100")
+    if [ "$API_CODE" = "200" ]; then
+        stand=$(_classificeer "$uit")
+        [ "$stand" != "geen" ] && { echo "$stand"; return; }
+    fi
+
+    uit=$(_api "actions/runs?head_sha=${sha}&per_page=100")
+    if [ "$API_CODE" = "200" ]; then
+        _classificeer "$uit"; return
+    fi
+
+    echo "geen"
 }
 
 DOEL_SHA=$(git rev-parse "origin/${TAK}")
