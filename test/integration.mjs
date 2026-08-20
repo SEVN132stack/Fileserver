@@ -1403,12 +1403,13 @@ try {
       !pub2.openIncidents.some((i) => i.id === inc.incident.id));
   }
 
-  // 106. OpenAPI-spec + API-docs.
+  // 106. OpenAPI-spec (achter auth) + API-docs-schil.
   {
-    const spec = await (await fetch(H + '/api/openapi.json')).json();
+    const anon = await fetch(H + '/api/openapi.json'); // zonder auth -> geweigerd
+    const spec = await (await fetch(H + '/api/openapi.json', { headers: jar() })).json();
     const docs = await fetch(H + '/docs');
-    ok('OpenAPI-spec + /docs beschikbaar',
-      spec.openapi === '3.0.3' && spec.paths['/api/list'] && spec.info.title.includes('Fileserver') && docs.status === 200);
+    ok('OpenAPI-spec achter auth + /docs beschikbaar',
+      anon.status === 401 && spec.openapi === '3.0.3' && spec.paths['/api/list'] && spec.info.title.includes('Fileserver') && docs.status === 200);
   }
 
   // 107. Fijnmazige webhook-abonnement met filter + payload-template.

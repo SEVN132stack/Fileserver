@@ -534,11 +534,7 @@ export function createWebServer() {
     res.json({ ok: true });
   });
 
-  // OpenAPI-spec + eenvoudige, zelf-gehoste API-docs.
-  app.get('/api/openapi.json', (req, res) => {
-    const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
-    res.json(openapiSpec(base));
-  });
+  // Zelf-gehoste API-docs-schil (publiek; de spec zelf zit achter auth, zie hieronder).
   app.get('/docs', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'docs.html')));
 
   // Publieke status (geen geheimen): voor een status-/uptime-pagina, incl.
@@ -831,6 +827,13 @@ export function createWebServer() {
   // --- Alles hieronder vereist authenticatie ---
   app.use('/api', (req, res, next) => (req.path === '/events' ? next() : apiLimiter(req, res, next)));
   app.use('/api', authenticate);
+
+  // OpenAPI-spec (achter auth: geen onnodige API-map voor anonieme bezoekers;
+  // tooling authenticeert met een API-sleutel of sessie).
+  app.get('/api/openapi.json', (req, res) => {
+    const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+    res.json(openapiSpec(base));
+  });
 
   // Onderhoudsmodus: alleen admins mogen erdoor.
   app.use('/api', (req, res, next) => {

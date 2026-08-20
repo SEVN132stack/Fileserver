@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.31.1] - 2026-08-14
+
+### Opgelost (security-review v3.28–v3.31)
+
+- **OpenAPI-spec achter authenticatie**: `/api/openapi.json` stond vóór de auth-middleware en
+  was dus publiek — op een internet-facing deploy een onnodige API-map voor anonieme
+  bezoekers. De spec vereist nu een geldige sessie of API-sleutel (Swagger UI/Postman
+  authenticeren met een `fsk_`-sleutel). De `/docs`-schil blijft bereikbaar maar toont niets
+  zonder geldige spec.
+
+### Bekende beperking (gedocumenteerd)
+
+- **Kiosk-/gastmodus is een UI-vergrendeling, geen toegangscontrole**: het verbergt
+  muterende/beheer-knoppen en wordt met een client-side pincode verlaten, maar de gebruiker
+  blijft met het eigen account ingelogd. Wil je échte beperking op een gedeeld apparaat,
+  gebruik dan een apart `readonly`-account. Server-side controles (rollen, `requireWrite`/
+  `requireAdmin`) blijven altijd van kracht, onafhankelijk van de kioskmodus.
+
 ## [3.31.0] - 2026-08-14
 
 ### Toegevoegd (Batch K — UX & toegankelijkheid)

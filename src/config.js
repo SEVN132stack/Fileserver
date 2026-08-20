@@ -498,7 +498,7 @@ export const config = {
   digestPrefsFile: abs(process.env.DIGEST_PREFS_FILE || 'digest-prefs.json'),
   digestIntervalHours: parseInt(process.env.DIGEST_INTERVAL_HOURS || '24', 10),
 
-  version: '3.31.0',
+  version: '3.31.1',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
