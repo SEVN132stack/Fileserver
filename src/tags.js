@@ -51,6 +51,17 @@ export function listTags(user) {
   return counts;
 }
 
+// Alle getagde bestanden van een gebruiker met hun tags ({ pad: [tags] }).
+export function allForUser(user) {
+  const all = readAll();
+  const prefix = user + '|';
+  const out = {};
+  for (const [k, tags] of Object.entries(all)) {
+    if (k.startsWith(prefix) && tags.length) out[k.slice(prefix.length)] = tags;
+  }
+  return out;
+}
+
 // Verplaats de tags mee als een bestand hernoemd/verplaatst wordt.
 export function movePath(user, from, to) {
   const all = readAll();

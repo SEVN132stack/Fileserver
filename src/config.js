@@ -538,7 +538,12 @@ export const config = {
   chatBotToken: process.env.CHAT_BOT_TOKEN || '',
   chatBotUser: process.env.CHAT_BOT_USER || '', // in wiens home de bot zoekt/lijst
 
-  version: '3.34.0',
+  // --- v3.35 (weergave & inzicht) ---
+  // Kaart-/tijdlijn-/grafiekweergaven werken op de bestaande opslag; deze limiet
+  // begrenst hoeveel bestanden per verzoek worden doorlopen (geheugen/CPU).
+  insightsMaxScan: parseInt(process.env.INSIGHTS_MAX_SCAN || '5000', 10),
+
+  version: '3.35.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

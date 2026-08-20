@@ -350,6 +350,12 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Scan-naar-map / hot-folder (periodieke import van een host-map, na virusscan)
 - ✅ Chat-bot (Slack/Teams/Discord): inkomende `list`/`search`/`help`-commando's
 
+## Weergave & inzicht (v3.35)
+
+- ✅ Kaartweergave (GPS uit foto-EXIF, ingebouwde parser, inline-SVG)
+- ✅ Tijdlijnweergave (per maand, op opnamedatum/wijzigingsdatum)
+- ✅ Relatiegrafiek (bestanden verbonden via gedeelde tags)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

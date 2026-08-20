@@ -887,6 +887,51 @@ async function showInbound() {
     <p class="muted">${hf.enabled?`✅ actief: <code>${esc(hf.dir||'')}</code> → <code>${esc('/'+(hf.target||''))}</code>`:'⚪ uit — stel <code>HOTFOLDER_DIR</code> en <code>HOTFOLDER_USER</code> in'}</p>
     ${hf.enabled?'<button data-hfscan>Nu scannen</button>':''}<pre id="inboundOut" class="muted" style="white-space:pre-wrap"></pre>`:''}`);
 }
+// Weergave & inzicht (features 17-19): kaart, tijdlijn, relatiegrafiek.
+async function showInsights(tab) {
+  tab = tab || 'kaart';
+  const nav = `<div style="display:flex;gap:.3rem;margin-bottom:.6rem">
+    <button data-insight="kaart"${tab==='kaart'?' class="primary"':''}>🗺️ Kaart</button>
+    <button data-insight="tijdlijn"${tab==='tijdlijn'?' class="primary"':''}>🕰️ Tijdlijn</button>
+    <button data-insight="grafiek"${tab==='grafiek'?' class="primary"':''}>🕸️ Grafiek</button></div>`;
+  openModal(`<h3>📈 Weergave & inzicht</h3>${nav}<div id="insightBody" class="muted">Laden…</div>`);
+  const body = document.getElementById('insightBody');
+  try {
+    if (tab === 'kaart') {
+      const { photos } = await (await api('/api/geo/photos?path=' + enc(cwd || '/'))).json();
+      body.innerHTML = renderMap(photos || []);
+    } else if (tab === 'tijdlijn') {
+      const tl = await (await api('/api/timeline?path=' + enc(cwd || '/'))).json();
+      const months = (tl.months || []).map(m => `<li><b>${esc(m.month)}</b> — ${m.count}</li>`).join('');
+      const items = (tl.items || []).slice(0, 60).map(i => `<li>${new Date(i.ts).toLocaleDateString()} — ${esc(i.path)}</li>`).join('');
+      body.innerHTML = `<div style="display:flex;gap:1rem;flex-wrap:wrap"><div><h4>Per maand</h4><ul>${months||'<li>geen</li>'}</ul></div><div style="flex:1;min-width:220px"><h4>Recent</h4><ul style="max-height:50vh;overflow:auto">${items||'<li>geen</li>'}</ul></div></div>`;
+    } else {
+      const g = await (await api('/api/graph/tags')).json();
+      body.innerHTML = renderGraph(g.nodes || [], g.edges || []);
+    }
+  } catch (err) { body.textContent = 'Fout: ' + err.message; }
+}
+function renderMap(photos) {
+  if (!photos.length) return '<p>Geen foto\'s met GPS-gegevens gevonden in deze map.</p>';
+  const W = 640, H = 320;
+  const pts = photos.map(p => {
+    const x = ((p.lng + 180) / 360) * W, y = ((90 - p.lat) / 180) * H;
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" fill="var(--accent)" opacity=".8"><title>${esc(p.path)} (${p.lat}, ${p.lng})</title></circle>`;
+  }).join('');
+  return `<p>${photos.length} foto('s) met locatie:</p><svg viewBox="0 0 ${W} ${H}" style="width:100%;border:1px solid var(--border);background:var(--bg-alt)">
+    <rect width="${W}" height="${H}" fill="none"/>
+    <line x1="0" y1="${H/2}" x2="${W}" y2="${H/2}" stroke="var(--border)"/><line x1="${W/2}" y1="0" x2="${W/2}" y2="${H}" stroke="var(--border)"/>
+    ${pts}</svg><ul style="max-height:30vh;overflow:auto">${photos.map(p=>`<li>${esc(p.path)} — ${p.lat}, ${p.lng}</li>`).join('')}</ul>`;
+}
+function renderGraph(nodes, edges) {
+  if (!nodes.length) return '<p>Nog geen getagde bestanden — voeg tags toe om verbindingen te zien.</p>';
+  const n = nodes.slice(0, 40), R = 150, cx = 180, cy = 180;
+  const pos = {}; n.forEach((nd, i) => { const a = (i / n.length) * 2 * Math.PI; pos[nd.id] = { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) }; });
+  const lines = edges.filter(e => pos[e.source] && pos[e.target]).map(e => `<line x1="${pos[e.source].x.toFixed(0)}" y1="${pos[e.source].y.toFixed(0)}" x2="${pos[e.target].x.toFixed(0)}" y2="${pos[e.target].y.toFixed(0)}" stroke="var(--accent)" stroke-width="${Math.min(4,e.weight)}" opacity=".4"><title>${esc(e.tags.join(', '))}</title></line>`).join('');
+  const dots = n.map(nd => `<g><circle cx="${pos[nd.id].x.toFixed(0)}" cy="${pos[nd.id].y.toFixed(0)}" r="6" fill="var(--accent)"><title>${esc(nd.id)} [${esc((nd.tags||[]).join(', '))}]</title></circle><text x="${(pos[nd.id].x+8).toFixed(0)}" y="${pos[nd.id].y.toFixed(0)}" font-size="10" fill="var(--fg)">${esc(nd.name.slice(0,16))}</text></g>`).join('');
+  return `<p>${nodes.length} bestand(en), ${edges.length} verbinding(en) via gedeelde tags:</p><svg viewBox="0 0 380 360" style="width:100%;border:1px solid var(--border);background:var(--bg-alt)">${lines}${dots}</svg>`;
+}
+const insightsBtn = document.getElementById('insightsBtn'); if (insightsBtn) insightsBtn.onclick = () => showInsights('kaart');
 const inboundBtn = document.getElementById('inboundBtn'); if (inboundBtn) inboundBtn.onclick = showInbound;
 const aiBtn = document.getElementById('aiBtn'); if (aiBtn) aiBtn.onclick = () => showAi('');
 const organizeBtn = document.getElementById('organizeBtn'); if (organizeBtn) organizeBtn.onclick = () => showOrganize('type');
@@ -911,6 +956,7 @@ document.addEventListener('click', async (e) => {
   if (t.dataset.emltoken==='new') { await api('/api/email/token',{method:'POST'}); showInbound(); }
   if (t.dataset.emltoken==='revoke') { if(confirm('Adres intrekken?')){ await api('/api/email/token',{method:'DELETE'}); showInbound(); } }
   if (t.hasAttribute && t.hasAttribute('data-hfscan')) { const out=document.getElementById('inboundOut'); out.textContent='Scannen...'; const j=await (await api('/api/hotfolder/scan',{method:'POST'})).json(); out.textContent = j.ok ? ('Geïmporteerd: '+(j.imported||[]).length+', afgekeurd: '+(j.rejected||[]).length) : ('Fout: '+(j.error||'')); }
+  if (t.dataset.insight) { showInsights(t.dataset.insight); }
 });
 document.addEventListener('change', async (e) => {
   if (e.target.dataset && e.target.dataset.taskstatus) { await api('/api/file-tasks/'+encodeURIComponent(e.target.dataset.taskstatus)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:e.target.value})}); }

@@ -80,6 +80,7 @@ import * as organizeSuggest from './organize-suggest.js';
 import * as emailUpload from './email-upload.js';
 import * as hotfolder from './hotfolder.js';
 import * as chatbot from './chatbot.js';
+import * as insights from './insights.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
 import { passwordPwnedCount, isExpired } from './users.js';
@@ -1233,6 +1234,23 @@ export function createWebServer() {
     if (r.error) return res.status(r.status || 400).json({ error: r.error });
     if (r.imported.length && config.hotfolderUser) emitToUser(config.hotfolderUser, 'change', { action: 'hotfolder' });
     res.json(r);
+  });
+
+  // --- v3.35: weergave & inzicht ---
+  // Kaartweergave: foto's met GPS-coördinaten.
+  app.get('/api/geo/photos', async (req, res) => {
+    try { res.json({ photos: await insights.geoPhotos(req.home, req.query.path || '/') }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  // Tijdlijnweergave: bestanden gesorteerd op datum, gebucket per maand.
+  app.get('/api/timeline', async (req, res) => {
+    try { res.json(await insights.timeline(req.home, req.query.path || '/')); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  // Relatiegrafiek: bestanden verbonden via gedeelde tags.
+  app.get('/api/graph/tags', (req, res) => {
+    try { res.json(insights.tagGraph(req.user)); }
+    catch (err) { res.status(400).json({ error: err.message }); }
   });
 
   // --- Versiegeschiedenis ---

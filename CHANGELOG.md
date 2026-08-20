@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.35.0] - 2026-08-20
+
+### Toegevoegd (Batch O — Weergave & inzicht)
+
+- **Kaartweergave**: leest GPS-coördinaten uit de EXIF van foto's (ingebouwde parser, geen
+  externe dienst) en toont ze op een kaart (`GET /api/geo/photos`).
+- **Tijdlijnweergave**: bestanden gesorteerd op datum (EXIF-opnamedatum voor foto's, anders
+  wijzigingsdatum), gebucket per maand (`GET /api/timeline`).
+- **Relatiegrafiek**: toont bestanden die via gedeelde tags met elkaar verbonden zijn als een
+  knopen-en-verbindingen-grafiek (`GET /api/graph/tags`).
+- Alle drie de weergaven renderen client-side met inline-SVG (geen externe bibliotheken of
+  kaarttegels; werkt offline en binnen een strikte CSP).
+
 ## [3.34.0] - 2026-08-20
 
 ### Toegevoegd (Batch N — Invoer & integraties)

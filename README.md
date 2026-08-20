@@ -195,6 +195,12 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Weergave & inzicht (v3.35)
+
+- **Kaartweergave** — GPS uit foto-EXIF (ingebouwde parser) op een kaart (`GET /api/geo/photos`).
+- **Tijdlijnweergave** — bestanden per maand gebucket op opnamedatum/wijzigingsdatum (`GET /api/timeline`).
+- **Relatiegrafiek** — bestanden verbonden via gedeelde tags (`GET /api/graph/tags`). Alles rendert offline met inline-SVG.
+
 ## Invoer & integraties (v3.34)
 
 - **Upload via e-mail** — geheim inbox-adres per gebruiker; bijlagen belanden na virusscan in `Inbox-mail` (`POST /api/email-inbox/<token>`).

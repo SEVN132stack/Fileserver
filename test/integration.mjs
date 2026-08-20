@@ -1556,6 +1556,46 @@ try {
       bad.status === 401 && typeof good.text === 'string' && good.text.includes('Inhoud van'));
   }
 
+  // 120. Kaartweergave: EXIF-GPS-parser decodeert coördinaten + endpoint geeft een lijst.
+  {
+    const { parseGps } = await import('../src/insights.js');
+    const buf = Buffer.alloc(128);
+    buf.write('II', 0, 'latin1'); buf.writeUInt16LE(0x2A, 2); buf.writeUInt32LE(8, 4);
+    buf.writeUInt16LE(1, 8);
+    buf.writeUInt16LE(0x8825, 10); buf.writeUInt16LE(4, 12); buf.writeUInt32LE(1, 14); buf.writeUInt32LE(26, 18); buf.writeUInt32LE(0, 22);
+    buf.writeUInt16LE(4, 26); let e = 28;
+    buf.writeUInt16LE(0x0001, e); buf.writeUInt16LE(2, e+2); buf.writeUInt32LE(2, e+4); buf.write('N\0', e+8, 'latin1'); e+=12;
+    buf.writeUInt16LE(0x0002, e); buf.writeUInt16LE(5, e+2); buf.writeUInt32LE(3, e+4); buf.writeUInt32LE(80, e+8); e+=12;
+    buf.writeUInt16LE(0x0003, e); buf.writeUInt16LE(2, e+2); buf.writeUInt32LE(2, e+4); buf.write('E\0', e+8, 'latin1'); e+=12;
+    buf.writeUInt16LE(0x0004, e); buf.writeUInt16LE(5, e+2); buf.writeUInt32LE(3, e+4); buf.writeUInt32LE(104, e+8); e+=12;
+    buf.writeUInt32LE(0, e);
+    buf.writeUInt32LE(52,80);buf.writeUInt32LE(1,84);buf.writeUInt32LE(22,88);buf.writeUInt32LE(1,92);buf.writeUInt32LE(30,96);buf.writeUInt32LE(1,100);
+    buf.writeUInt32LE(4,104);buf.writeUInt32LE(1,108);buf.writeUInt32LE(54,112);buf.writeUInt32LE(1,116);buf.writeUInt32LE(0,120);buf.writeUInt32LE(1,124);
+    const gps = parseGps(buf);
+    const geo = await (await fetch(H + '/api/geo/photos', { headers: jar() })).json();
+    ok('kaartweergave: EXIF-GPS-parser + endpoint',
+      gps && gps.lat === 52.375 && gps.lng === 4.9 && Array.isArray(geo.photos));
+  }
+
+  // 121. Tijdlijnweergave: bestanden gebucket per maand.
+  {
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'tijdlijn1.txt'), 'x');
+    const tl = await (await fetch(H + '/api/timeline?path=/', { headers: jar() })).json();
+    ok('tijdlijnweergave: items + maandbuckets',
+      Array.isArray(tl.items) && Array.isArray(tl.months) && tl.items.some((i) => i.path.includes('tijdlijn1.txt')));
+  }
+
+  // 122. Relatiegrafiek: twee bestanden met een gedeelde tag geven een verbinding.
+  {
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'graafA.txt'), 'a');
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'graafB.txt'), 'b');
+    await fetch(H + '/api/tags', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/graafA.txt', tags: ['project-x'] }) });
+    await fetch(H + '/api/tags', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/graafB.txt', tags: ['project-x'] }) });
+    const g = await (await fetch(H + '/api/graph/tags', { headers: jar() })).json();
+    ok('relatiegrafiek: gedeelde tag verbindt twee bestanden',
+      g.nodes.some((n) => n.id === '/graafA.txt') && g.edges.some((ed) => ed.tags.includes('project-x') && ((ed.source === '/graafA.txt' && ed.target === '/graafB.txt') || (ed.source === '/graafB.txt' && ed.target === '/graafA.txt'))));
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);
