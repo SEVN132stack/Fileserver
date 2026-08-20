@@ -167,6 +167,7 @@ async function load() {
     if (!it.isDir) a += `<button class="ghost" data-ver="${enc(it.path)}">🕘</button>`;
     if (!it.isDir) a += `<button class="ghost" data-lock="${enc(it.path)}" title="Vergrendelen/ontgrendelen">🔒</button>`;
     if (!it.isDir && /\.(jpe?g|png|webp|gif|tiff?|avif|pdf|mp4|mkv|mov|webm|m4v|mp3|wav|m4a|aac|ogg|flac)$/i.test(it.name)) a += `<button class="ghost" data-media="${enc(it.path)}" title="Media bewerken">🛠</button>`;
+    if (!it.isDir) a += `<button class="ghost" data-sign="${enc(it.path)}" title="Ondertekenen/verifiëren" aria-label="Ondertekenen">✍️</button>`;
     a += `<button class="ghost" data-meta="${enc(it.path)}">🏷</button>`;
     a += `<button class="ghost" data-perma="${enc(it.path)}" title="Vaste link (permalink)">∞</button>`;
     a += `<button class="ghost" data-share="${enc(it.path)}">🔗</button>`;
@@ -578,6 +579,7 @@ document.addEventListener('click', async (e) => {
     return showDiff(p, v);
   }
   if (t2.dataset.media) { return showMediaTools(decodeURIComponent(t2.dataset.media)); }
+  if (t2.dataset.sign) { return showSigning(decodeURIComponent(t2.dataset.sign)); }
   if (t2.dataset.ren) {
     const cur = decodeURIComponent(t2.dataset.ren), base = cur.substring(0,cur.lastIndexOf('/')+1);
     let suggestion = '';
@@ -585,7 +587,7 @@ document.addEventListener('click', async (e) => {
     const nn = prompt(suggestion ? 'Nieuwe naam of pad (suggestie ingevuld):' : 'Nieuwe naam of pad:', suggestion || cur.split('/').pop()); if (!nn) return;
     await api('/api/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:cur,to:nn.startsWith('/')?nn:base+nn})}); load(); return;
   }
-  if (t2.dataset.del) { if(!confirm('Naar prullenbak?'))return; await api('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t2.dataset.del)})}); load(); loadMe(); return; }
+  if (t2.dataset.del) { if(!confirm('Naar prullenbak?'))return; const shred=confirm('Veilig wissen (shredder)? OK = onherstelbaar overschrijven, Annuleer = gewone prullenbak.'); await api('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t2.dataset.del),shred})}); load(); loadMe(); return; }
 });
 document.addEventListener('change', (e) => {
   if (e.target.dataset.sel) { const p=decodeURIComponent(e.target.dataset.sel); e.target.checked?selected.add(p):selected.delete(p); }
@@ -817,6 +819,34 @@ function showMediaTools(p) {
   document.querySelectorAll('#modal [data-transcode]').forEach(b => b.onclick = () => call('/api/transcode', { path:p, format:b.dataset.transcode }, 'Getranscodeerd'));
   const tb = document.querySelector('#modal [data-transcribe]'); if (tb) tb.onclick = () => call('/api/transcribe', { path:p }, 'Transcript opgeslagen');
 }
+// Digitale ondertekening & verificatie (feature 1).
+async function showSigning(p) {
+  const v = await (await api('/api/verify?path='+enc(p))).json();
+  const rows = (v.results||[]).map(r=>`<li>${r.valid&&r.unchanged?'✅':'⚠️'} ${esc(r.by)} · ${new Date(r.ts).toLocaleString()} — ${r.valid?'geldig':'ongeldig'}, ${r.unchanged?'ongewijzigd':'GEWIJZIGD sinds tekenen'}</li>`).join('');
+  openModal(`<h3>✍️ Ondertekening — ${esc(p.split('/').pop())}</h3>
+    <ul>${rows||'<li class="muted">Nog niet ondertekend.</li>'}</ul>
+    <button data-dosign="${enc(p)}">Onderteken dit bestand</button>
+    <a href="/api/signing/pubkey" target="_blank" style="margin-left:.5rem;color:var(--accent)">publieke sleutel</a>`);
+}
+// Mijn taken (feature 7).
+async function showTasks() {
+  const { tasks } = await (await api('/api/file-tasks')).json();
+  const rows = (tasks||[]).map(t=>`<tr><td>${t.status==='klaar'?'✅':'⬜'} ${esc(t.title)}</td><td>${esc(t.path||'')}</td><td>${esc(t.assignee)}</td><td>
+    <select data-taskstatus="${esc(t.id)}"><option${t.status==='open'?' selected':''}>open</option><option${t.status==='bezig'?' selected':''}>bezig</option><option${t.status==='klaar'?' selected':''}>klaar</option></select>
+    <button class="danger" data-taskdel="${esc(t.id)}">×</button></td></tr>`).join('');
+  openModal(`<h3>✅ Mijn taken</h3><table style="width:70vw"><tr><th>Taak</th><th>Bestand</th><th>Voor</th><th></th></tr>${rows||'<tr><td colspan="4" class="muted">Geen taken.</td></tr>'}</table>
+    <div style="margin-top:.6rem;display:flex;gap:.3rem;flex-wrap:wrap"><input id="taskTitle" placeholder="titel" style="width:150px"><input id="taskPath" placeholder="/pad (optioneel)" style="width:120px"><input id="taskAssignee" placeholder="voor wie" style="width:90px"><button data-taskadd>Taak toevoegen</button></div>`);
+}
+const tasksBtn = document.getElementById('tasksBtn'); if (tasksBtn) tasksBtn.onclick = showTasks;
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (t.dataset.dosign) { const r = await api('/api/sign',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t.dataset.dosign)})}); if(r.ok) showSigning(decodeURIComponent(t.dataset.dosign)); else alert('Tekenen mislukt'); }
+  if (t.hasAttribute && t.hasAttribute('data-taskadd')) { const title=document.getElementById('taskTitle').value.trim(); if(!title)return; await api('/api/file-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,path:document.getElementById('taskPath').value,assignee:document.getElementById('taskAssignee').value})}); showTasks(); }
+  if (t.dataset.taskdel) { await api('/api/file-tasks/'+encodeURIComponent(t.dataset.taskdel),{method:'DELETE'}); showTasks(); }
+});
+document.addEventListener('change', async (e) => {
+  if (e.target.dataset && e.target.dataset.taskstatus) { await api('/api/file-tasks/'+encodeURIComponent(e.target.dataset.taskstatus)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:e.target.value})}); }
+});
 const teamsBtn = document.getElementById('teamsBtn'); if (teamsBtn) teamsBtn.onclick = () => showTeams();
 document.addEventListener('click', async (e) => {
   const t = e.target;

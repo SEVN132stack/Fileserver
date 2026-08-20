@@ -331,6 +331,13 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Toegankelijkheid: skip-link, focus, ARIA (WCAG-AA)
 - ✅ Laagbandbreedte-modus + kiosk-/gastmodus
 
+## Vertrouwen & workflow: ondertekening, shredder, @-vermeldingen & taken (v3.32)
+
+- ✅ Digitale ondertekening & verificatie (Ed25519, wijzigingsdetectie)
+- ✅ Veilig verwijderen (shredder: overschrijven vóór verwijdering)
+- ✅ @-vermeldingen in reacties met notificatie
+- ✅ Taken/actiepunten op bestanden (toewijzen, status)
+
 ## Toekomstige ideeën
 
 - 💡 Server-side at-rest-encryptie op FS-niveau (LUKS/eCryptfs — gedocumenteerd in `deploy/at-rest-encryption.md`)

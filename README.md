@@ -195,6 +195,13 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Vertrouwen & workflow: ondertekening, shredder, @-vermeldingen & taken (v3.32)
+
+- **Digitale ondertekening & verificatie** — teken bestanden (Ed25519); verificatie detecteert wijzigingen. Publieke sleutel: `/api/signing/pubkey`.
+- **Veilig verwijderen (shredder)** — overschrijf de inhoud (`SHRED_PASSES`) en sla de prullenbak over (best-effort).
+- **@-vermeldingen in reacties** — noem `@gebruiker`, die krijgt een melding.
+- **Taken op bestanden** — titel, toegewezene, status (open/bezig/klaar) per bestand.
+
 ## UX & toegankelijkheid: dashboard, weergaven, i18n, kiosk (v3.31)
 
 - **Recent & vastgezet** — dashboard met vastgezette mappen (server-side) + recente bestanden.

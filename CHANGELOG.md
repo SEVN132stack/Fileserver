@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.32.0] - 2026-08-14
+
+### Toegevoegd (Batch L — Vertrouwen & workflow)
+
+- **Digitale ondertekening & verificatie**: onderteken een bestand met de server-sleutel
+  (Ed25519); verificatie toont per handtekening of hij geldig is én of het bestand sinds
+  ondertekening ongewijzigd is. Publieke sleutel op `/api/signing/pubkey`.
+- **Veilig verwijderen ("shredder")**: overschrijf de bestandsinhoud (`SHRED_PASSES`) en sla
+  de prullenbak over, zodat de data niet triviaal terug te halen is (best-effort; op
+  CoW/SSD niet gegarandeerd).
+- **@-vermeldingen in reacties**: noem `@gebruiker` in een bestandsreactie en die persoon
+  krijgt een melding.
+- **Taken/actiepunten op bestanden**: koppel een taak (titel, toegewezene, status
+  open/bezig/klaar) aan een bestand; de toegewezene krijgt een melding.
+
 ## [3.31.1] - 2026-08-14
 
 ### Opgelost (security-review v3.28–v3.31)

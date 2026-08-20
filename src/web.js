@@ -71,6 +71,9 @@ import { openapiSpec } from './openapi.js';
 import * as eventhooks from './eventhooks.js';
 import * as webhookSubs from './webhook-subs.js';
 import * as comments from './comments.js';
+import * as signing from './signing.js';
+import { shred } from './shredder.js';
+import * as fileTasks from './file-tasks.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
 import { passwordPwnedCount, isExpired } from './users.js';
@@ -1093,6 +1096,13 @@ export function createWebServer() {
       const owner = commentOwner(req, req.body.path || '');
       const list = comments.addComment(owner, req.body.path || '', req.user, req.body.text);
       emitToUser(owner, 'change', { action: 'comment' });
+      // @-vermeldingen: meld genoemde, bestaande gebruikers.
+      const mentioned = new Set((String(req.body.text).match(/@([a-zA-Z0-9_.-]{2,32})/g) || []).map((m) => m.slice(1)));
+      for (const u of mentioned) {
+        if (u !== req.user && userExists(u)) {
+          try { notifications.notifyUser(u, 'Je bent genoemd in een reactie', `${req.user} noemde je bij ${req.body.path || 'een bestand'}: ${String(req.body.text).slice(0, 140)}`); } catch { /* niet-fataal */ }
+        }
+      }
       res.json({ comments: list });
     } catch (err) { res.status(403).json({ error: err.message }); }
   });
@@ -1100,6 +1110,38 @@ export function createWebServer() {
     const ok = comments.deleteComment(req.user, req.body.path || '', req.body.index, req.user, isAdmin(req.user));
     res.json({ ok });
   });
+
+  // Digitale ondertekening & verificatie.
+  app.get('/api/signing/pubkey', (req, res) => res.type('text/plain').send(signing.publicKeyPem()));
+  app.get('/api/signatures', (req, res) => res.json({ signatures: signing.listSignatures(req.home, req.query.path || '') }));
+  app.post('/api/sign', requireWrite, express.json(), (req, res) => {
+    try {
+      const rel = req.body.path || '';
+      const abs = resolveWithin(req.home, rel);
+      if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) return res.status(404).json({ error: 'Bestand niet gevonden' });
+      res.json({ ok: true, signature: signing.signFile(req.home, rel, abs, req.user) });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.get('/api/verify', (req, res) => {
+    try {
+      const rel = req.query.path || '';
+      const abs = resolveWithin(req.home, rel);
+      if (!fs.existsSync(abs)) return res.status(404).json({ error: 'Bestand niet gevonden' });
+      res.json({ results: signing.verifyFile(req.home, rel, abs) });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Taken/actiepunten op bestanden (los van de geplande gebruikerstaken op /api/tasks).
+  app.get('/api/file-tasks', (req, res) => res.json({ tasks: fileTasks.tasksFor(req.user) }));
+  app.post('/api/file-tasks', requireWrite, express.json(), (req, res) => {
+    try { res.json({ ok: true, task: fileTasks.createTask(req.body || {}, req.user) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/file-tasks/:id/status', requireWrite, express.json(), (req, res) => {
+    try { const t = fileTasks.setStatus(req.params.id, req.body.status, req.user); if (!t) return res.status(404).json({ error: 'Taak niet gevonden' }); res.json({ ok: true, task: t }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/file-tasks/:id', requireWrite, (req, res) => res.json({ ok: fileTasks.deleteTask(req.params.id, req.user) }));
 
   // --- Versiegeschiedenis ---
   app.get('/api/versions', (req, res) => {
@@ -1523,10 +1565,16 @@ export function createWebServer() {
         if (retention.retainedUntil(req.home, p)) continue; // bewaarplicht: niet verwijderen
         const abs = resolveWithin(req.home, p);
         if (path.resolve(abs) === path.resolve(req.home)) continue;
-        const dest = path.join(trash, Date.now() + '_' + path.basename(abs));
-        await fsp.rename(abs, dest).catch(async () => {
-          await fsp.rm(abs, { recursive: true, force: true });
-        });
+        // Veilig verwijderen ("shredder"): overschrijf de inhoud en sla de
+        // prullenbak over, zodat de data niet terug te halen is.
+        if (req.body.shred && config.shredPasses > 0) {
+          try { shred(abs, config.shredPasses); audit('web', req.user, 'shred', { path: p }); } catch { await fsp.rm(abs, { recursive: true, force: true }); }
+        } else {
+          const dest = path.join(trash, Date.now() + '_' + path.basename(abs));
+          await fsp.rename(abs, dest).catch(async () => {
+            await fsp.rm(abs, { recursive: true, force: true });
+          });
+        }
         permalinks.removeForPath(req.user, p);
         tags.removePath(req.user, p);
         locks.removePath(req.home, p);

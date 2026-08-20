@@ -52,6 +52,9 @@ process.env.LABELS_FILE = path.join(tmp, 'labels.json');
 process.env.SERVER_SNAPSHOTS_DIR = path.join(tmp, 'server-snapshots');
 process.env.INCIDENTS_FILE = path.join(tmp, 'incidents.json');
 process.env.PINS_FILE = path.join(tmp, 'pins.json');
+process.env.SIGNING_KEY_FILE = path.join(tmp, 'signing-key.json');
+process.env.SIGNATURES_FILE = path.join(tmp, 'signatures.json');
+process.env.TASKS_FILE = path.join(tmp, 'file-tasks.json');
 process.env.EVENT_HOOKS_FILE = path.join(tmp, 'event-hooks.json');
 process.env.WEBHOOK_SUBS_FILE = path.join(tmp, 'webhook-subs.json');
 process.env.COLD_STORE_MIN_BYTES = '0';
@@ -1438,6 +1441,48 @@ try {
     const after = await (await fetch(H + '/api/pins', { headers: jar() })).json();
     ok('vastgezette mappen toevoegen/tonen/losmaken',
       add.ok && list.pins.includes('/projectmap') && del.ok && !after.pins.includes('/projectmap'));
+  }
+
+  // 110. Digitale ondertekening: teken -> geldig+ongewijzigd; na wijziging -> ongewijzigd=false.
+  {
+    await fetch(H + '/api/save?path=/contract.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'akkoord' });
+    const sign = await (await fetch(H + '/api/sign', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/contract.txt' }) })).json();
+    const v1 = await (await fetch(H + '/api/verify?path=/contract.txt', { headers: jar() })).json();
+    await fetch(H + '/api/save?path=/contract.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'GEWIJZIGD' });
+    const v2 = await (await fetch(H + '/api/verify?path=/contract.txt', { headers: jar() })).json();
+    ok('digitale ondertekening: geldig + wijziging gedetecteerd',
+      sign.ok && v1.results[0].valid === true && v1.results[0].unchanged === true && v2.results[0].valid === true && v2.results[0].unchanged === false);
+  }
+
+  // 111. Shredder: veilig verwijderen slaat de prullenbak over en wist het bestand.
+  {
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'geheim.txt'), 'wis mij');
+    await fetch(H + '/api/delete', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/geheim.txt', shred: true }) });
+    const gone = !fs.existsSync(path.join(config.storageDir, 'admin', 'geheim.txt'));
+    const trash = await (await fetch(H + '/api/trash', { headers: jar() })).json();
+    ok('shredder verwijdert veilig (weg + niet in prullenbak)',
+      gone && !(trash.items || []).some((i) => i.path.includes('geheim.txt')));
+  }
+
+  // 112. @-vermelding in een reactie levert een notificatie bij de genoemde gebruiker.
+  {
+    const adminCookie = cookie;
+    addUser({ username: 'mentionee', password: 'mentionpw123', role: 'user' }); // verse gebruiker, geen 2FA
+    await fetch(H + '/api/comments', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/a.txt', text: 'kijk hier @mentionee even naar' }) });
+    cookie = ''; await login('mentionee', 'mentionpw123');
+    const notifs = await (await fetch(H + '/api/notifications', { headers: jar() })).json();
+    ok('@-vermelding notificeert de genoemde gebruiker',
+      (notifs.notifications || notifs.items || []).some((n) => (n.title || '').includes('genoemd')));
+    cookie = adminCookie; // admin-sessie herstellen
+  }
+
+  // 113. Taken op bestanden: aanmaken, toewijzen, status wijzigen.
+  {
+    const t = await (await fetch(H + '/api/file-tasks', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/a.txt', title: 'Controleer dit', assignee: 'admin' }) })).json();
+    const st = await (await fetch(H + `/api/file-tasks/${t.task.id}/status`, { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ status: 'klaar' }) })).json();
+    const list = await (await fetch(H + '/api/file-tasks', { headers: jar() })).json();
+    ok('taken op bestanden: aanmaken + status wijzigen',
+      t.ok && st.task.status === 'klaar' && list.tasks.some((x) => x.id === t.task.id));
   }
 
   console.log(`\n${passed} tests geslaagd.`);
