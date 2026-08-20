@@ -1596,6 +1596,34 @@ try {
       g.nodes.some((n) => n.id === '/graafA.txt') && g.edges.some((ed) => ed.tags.includes('project-x') && ((ed.source === '/graafA.txt' && ed.target === '/graafB.txt') || (ed.source === '/graafB.txt' && ed.target === '/graafA.txt'))));
   }
 
+  // 123. Security: e-mail-upload respecteert quota (gelekte token vult opslag niet).
+  {
+    const eu = await import('../src/email-upload.js');
+    addUser({ username: 'mailquota', password: 'mailquotapw1', role: 'user', quota: 5 }); // 5 bytes
+    const tok = eu.ensureToken('mailquota');
+    const b64 = Buffer.from('ruim meer dan vijf bytes').toString('base64');
+    const del = await (await fetch(H + '/api/email-inbox/' + tok, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attachments: [{ filename: 'groot.txt', contentBase64: b64 }] }) })).json();
+    ok('security: e-mail-upload weigert boven quota',
+      del.ok && del.saved.length === 0 && del.rejected.some((r) => r.reason === 'quota overschreden'));
+  }
+
+  // 124. Security: organize/apply slaat vergrendelde bestanden over + migreert tags mee.
+  {
+    const locks = await import('../src/locks.js');
+    const od = path.join(config.storageDir, 'admin', 'ordenen');
+    fs.mkdirSync(od, { recursive: true });
+    for (const n of ['x.pdf', 'y.pdf']) fs.writeFileSync(path.join(od, n), 'data');
+    await fetch(H + '/api/tags', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/ordenen/y.pdf', tags: ['belangrijk'] }) });
+    locks.lock(path.join(config.storageDir, 'admin'), '/ordenen/x.pdf', 'admin'); // x vergrendeld
+    const sug = await (await fetch(H + '/api/organize/suggest?path=/ordenen&mode=type', { headers: jar() })).json();
+    const ap = await (await fetch(H + '/api/organize/apply', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ moves: sug.moves }) })).json();
+    const xStayed = fs.existsSync(path.join(od, 'x.pdf')); // vergrendeld: niet verplaatst
+    const yMoved = fs.existsSync(path.join(od, 'Documenten', 'y.pdf'));
+    const tagsMigrated = (await (await fetch(H + '/api/tags?path=/ordenen/Documenten/y.pdf', { headers: jar() })).json()).tags.includes('belangrijk');
+    ok('security: organize/apply respecteert lock + migreert metadata',
+      xStayed && yMoved && tagsMigrated && ap.skipped.includes('/ordenen/x.pdf'));
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

@@ -1,5 +1,28 @@
 # Changelog
 
+## [3.35.1] - 2026-08-20
+
+### Opgelost (security-review batches L–O)
+
+- **Quota-omzeiling via e-mail-upload en hot-folder**: beide invoerkanalen schreven naar de
+  opslag van een gebruiker zonder de quota-controle die alle interactieve uploads wél doen.
+  Een gelekte inbox-token of een volle hot-folder kon zo de schijf volgooien. Beide bewaken
+  nu `dirSize(home) + grootte > quota` (0 = onbeperkt) en weigeren het overschot.
+- **`organize/apply` omzeilde locks/retentie en liet metadata verweesd achter**: de
+  mapstructuur-suggestie verplaatste ook vergrendelde/onder-bewaarplicht-staande bestanden en
+  migreerde tags/locks/ocr/vision/permalinks niet mee. Nu slaat het vergrendelde en
+  bewaarplicht-bestanden over (net als bulk/move) en verhuist alle metadata mee.
+- **Geheugen-DoS in `/api/ai/ask`**: de bestandscontext werd volledig in het geheugen gelezen
+  vóór inkorting. Nu wordt hoogstens ~2×`AI_MAX_CONTEXT` bytes gelezen.
+- **Timing-veilige token-vergelijking** voor de chat-bot (`timingSafeEqual` i.p.v. `===`).
+
+### Bevestigd in orde
+- Shredder respecteert locks én WORM-retentie (staat achter dezelfde `continue`-guards als een
+  normale verwijdering).
+- AI-/vision-commando's draaien via `execFile` (geen shell), dus geen commando-injectie; de
+  EXIF-GPS-parser is begrensd door de buffer; kaart/tijdlijn/grafiek blijven binnen de eigen
+  home en zijn begrensd door `INSIGHTS_MAX_SCAN`.
+
 ## [3.35.0] - 2026-08-20
 
 ### Toegevoegd (Batch O — Weergave & inzicht)

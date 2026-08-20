@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
 import { homeDir, userExists } from './users.js';
 import { resolveWithin } from './paths.js';
@@ -19,7 +20,10 @@ export function enabled() {
   return !!(config.chatBotToken && config.chatBotUser && userExists(config.chatBotUser));
 }
 export function checkToken(token) {
-  return enabled() && token === config.chatBotToken;
+  if (!enabled() || typeof token !== 'string') return false;
+  const a = Buffer.from(token);
+  const b = Buffer.from(config.chatBotToken);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 const HELP = [

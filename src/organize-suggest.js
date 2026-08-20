@@ -67,10 +67,13 @@ export function suggest(home, relDir, mode = 'type') {
 }
 
 // Pas een lijst voorgestelde verplaatsingen toe (van/naar zijn paden binnen home).
+// `hooks.isLocked(relFrom)` -> sla vergrendelde bestanden over (net als bulk/move);
+// `hooks.onMoved(relFrom, relTo)` -> migreer metadata (tags/locks/ocr/...) mee.
 // Retourneert hoeveel bestanden zijn verplaatst en welke overgeslagen.
-export function apply(home, moves) {
+export function apply(home, moves, hooks = {}) {
   let moved = 0; const skipped = [];
   for (const mv of Array.isArray(moves) ? moves : []) {
+    if (typeof hooks.isLocked === 'function' && hooks.isLocked(mv.from)) { skipped.push(mv.from); continue; }
     let src, dest;
     try {
       src = resolveWithin(home, mv.from);
@@ -81,6 +84,7 @@ export function apply(home, moves) {
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.renameSync(src, dest);
       moved++;
+      if (typeof hooks.onMoved === 'function') hooks.onMoved(mv.from, mv.to);
     } catch { skipped.push(mv.from); }
   }
   return { moved, skipped };

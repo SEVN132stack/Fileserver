@@ -3,8 +3,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { config } from './config.js';
-import { homeDir, userExists } from './users.js';
-import { resolveWithin } from './paths.js';
+import { homeDir, userExists, quota } from './users.js';
+import { resolveWithin, dirSize } from './paths.js';
 import { scanFile } from './scan.js';
 import { audit } from './audit.js';
 
@@ -38,11 +38,16 @@ export async function scanOnce() {
   fs.mkdirSync(targetDir, { recursive: true });
 
   const imported = []; const rejected = [];
+  const limit = quota(config.hotfolderUser);
+  let used = dirSize(homeDir(config.hotfolderUser));
   for (const e of entries) {
     if (!e.isFile() || e.name.startsWith('.')) continue;
     const src = path.join(config.hotfolderDir, e.name);
     // Sla bestanden over die nog geschreven worden (mtime < 2s geleden).
-    try { if (Date.now() - fs.statSync(src).mtimeMs < 2000) continue; } catch { continue; }
+    let size = 0;
+    try { const st = fs.statSync(src); if (Date.now() - st.mtimeMs < 2000) continue; size = st.size; } catch { continue; }
+    // Quota bewaken: importeer niet voorbij de opslaglimiet (0 = onbeperkt).
+    if (limit > 0 && used + size > limit) { rejected.push(e.name); continue; }
     let clean = true;
     try { const r = await scanFile(src); clean = r.clean !== false; } catch { clean = true; }
     if (!clean) {
@@ -53,7 +58,7 @@ export async function scanOnce() {
       continue;
     }
     const dest = uniqueName(targetDir, e.name);
-    try { fs.renameSync(src, dest); imported.push(path.basename(dest)); }
+    try { fs.renameSync(src, dest); imported.push(path.basename(dest)); used += size; }
     catch { rejected.push(e.name); }
   }
   if (imported.length || rejected.length) {

@@ -4,8 +4,8 @@ import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { config } from './config.js';
 import { readJson, writeJson } from './jsoncache.js';
-import { homeDir, userExists } from './users.js';
-import { resolveWithin } from './paths.js';
+import { homeDir, userExists, quota } from './users.js';
+import { resolveWithin, dirSize } from './paths.js';
 import { scanFile } from './scan.js';
 import { audit } from './audit.js';
 
@@ -68,6 +68,8 @@ export async function deliver(token, mail) {
   fs.mkdirSync(targetDir, { recursive: true });
 
   const saved = []; const rejected = [];
+  const limit = quota(user);
+  let used = dirSize(homeDir(user));
   for (const att of atts) {
     let buf;
     try {
@@ -76,6 +78,10 @@ export async function deliver(token, mail) {
     } catch { rejected.push({ name: att.filename, reason: 'ongeldige inhoud' }); continue; }
     if (!buf.length) { rejected.push({ name: att.filename, reason: 'leeg' }); continue; }
     if (buf.length > config.emailInboxMaxBytes) { rejected.push({ name: att.filename, reason: 'te groot' }); continue; }
+    // Quota bewaken: een (gelekte) inbox-token mag de opslag niet volgooien.
+    // limit 0 = onbeperkt (conventie in deze codebase).
+    if (limit > 0 && used + buf.length > limit) { rejected.push({ name: att.filename, reason: 'quota overschreden' }); continue; }
+    used += buf.length;
     // Eerst naar een tmp-bestand schrijven en scannen; alleen schone bestanden plaatsen.
     const tmp = path.join(os.tmpdir(), 'eml-' + randomBytes(8).toString('hex'));
     fs.writeFileSync(tmp, buf);

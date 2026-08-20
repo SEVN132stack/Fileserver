@@ -1179,7 +1179,15 @@ export function createWebServer() {
       if (req.body.path) {
         try {
           const abs = resolveWithin(req.home, req.body.path);
-          if (fs.existsSync(abs) && !fs.statSync(abs).isDirectory()) context = fs.readFileSync(abs, 'utf8');
+          const st = fs.statSync(abs);
+          // Lees hoogstens 2x aiMaxContext bytes (geen geheugen-DoS op grote bestanden);
+          // buildPrompt begrenst de uiteindelijke contextlengte alsnog.
+          if (!st.isDirectory()) {
+            const cap = Math.max(4096, config.aiMaxContext * 2);
+            const fd = fs.openSync(abs, 'r');
+            try { const b = Buffer.alloc(Math.min(cap, st.size)); const n = fs.readSync(fd, b, 0, b.length, 0); context = b.subarray(0, n).toString('utf8'); }
+            finally { fs.closeSync(fd); }
+          }
         } catch { /* geen leesbare context */ }
       }
       const answer = await aiAssistant.ask(req.body.question || '', context);
@@ -1211,7 +1219,17 @@ export function createWebServer() {
   });
   app.post('/api/organize/apply', requireWrite, express.json(), (req, res) => {
     try {
-      const result = organizeSuggest.apply(req.home, req.body.moves || []);
+      const result = organizeSuggest.apply(req.home, req.body.moves || [], {
+        isLocked: (rel) => !!locks.lockOwner(req.home, rel) || !!retention.retainedUntil(req.home, rel),
+        onMoved: (from, to) => {
+          permalinks.updatePath(req.user, from, to);
+          tags.movePath(req.user, from, to);
+          locks.movePath(req.home, from, to);
+          expiry.movePath(req.home, from, to);
+          ocr.movePath(req.home, from, to);
+          vision.movePath(req.home, from, to);
+        },
+      });
       audit('web', req.user, 'organize-apply', { moved: result.moved });
       emitToUser(req.user, 'change', { action: 'organize' });
       res.json({ ok: true, ...result });
