@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.34.0] - 2026-08-20
+
+### Toegevoegd (Batch N — Invoer & integraties)
+
+- **Upload via e-mail**: elke gebruiker kan een geheim inbox-adres aanmaken; een mailprovider
+  (of script) POST't een geparste e-mail met bijlagen naar `/api/email-inbox/<token>` en die
+  bijlagen komen — na een virusscan — in de `Inbox-mail`-map. Beheer via `/api/email/token`.
+- **Scan-naar-map (hot-folder)**: een host-map (`HOTFOLDER_DIR`) wordt periodiek geleegd naar
+  de opslag van een gebruiker (na virusscan). Handmatige scan via `POST /api/hotfolder/scan`.
+- **Chat-bot (Slack/Teams/Discord)**: inkomend commando-endpoint `POST /api/chat/command`
+  (gedeelde `CHAT_BOT_TOKEN`) met `list`/`search`/`help`; uitgaande meldingen lopen al via
+  `WEBHOOK_URL`.
+
 ## [3.33.0] - 2026-08-20
 
 ### Toegevoegd (Batch M — AI & slimme organisatie)

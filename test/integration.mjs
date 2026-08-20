@@ -60,6 +60,12 @@ process.env.VISION_FILE = path.join(tmp, 'vision-index.json');
 // zetten we een klein node-commando dat vaste labels als JSON teruggeeft.
 process.env.AI_CMD = 'cat';
 process.env.VISION_CMD = 'node ' + path.join(process.cwd(), 'test', 'fake-vision.mjs');
+process.env.EMAIL_INBOX_FILE = path.join(tmp, 'email-inbox.json');
+process.env.HOTFOLDER_DIR = path.join(tmp, 'hotfolder');
+process.env.HOTFOLDER_USER = 'admin';
+process.env.HOTFOLDER_INTERVAL_SEC = '3600'; // scheduler slaapt; test roept scanOnce handmatig
+process.env.CHAT_BOT_TOKEN = 'testbottoken';
+process.env.CHAT_BOT_USER = 'admin';
 process.env.EVENT_HOOKS_FILE = path.join(tmp, 'event-hooks.json');
 process.env.WEBHOOK_SUBS_FILE = path.join(tmp, 'webhook-subs.json');
 process.env.COLD_STORE_MIN_BYTES = '0';
@@ -1517,6 +1523,37 @@ try {
     const movedImg = fs.existsSync(path.join(od, 'Afbeeldingen', 'c.jpg'));
     ok('mapstructuur-suggestie: groeperen per type + toepassen',
       sug.moves.length === 4 && ap.moved === 4 && movedPdf && movedImg);
+  }
+
+  // 117. Upload via e-mail: token aanmaken en een geparste mail met bijlage afleveren.
+  {
+    const tok = (await (await fetch(H + '/api/email/token', { method: 'POST', headers: jar() })).json()).token;
+    const b64 = Buffer.from('hallo per mail').toString('base64');
+    const del = await (await fetch(H + '/api/email-inbox/' + tok, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: 'test', attachments: [{ filename: 'brief.txt', contentBase64: b64 }] }) })).json();
+    const landed = fs.existsSync(path.join(config.storageDir, 'admin', config.emailInboxDir, 'brief.txt'));
+    ok('upload via e-mail: bijlage belandt in de inbox',
+      !!tok && del.ok && del.saved.includes('brief.txt') && landed);
+  }
+
+  // 118. Hot-folder: leg een bestand in de host-map en importeer het via een scan.
+  {
+    fs.mkdirSync(process.env.HOTFOLDER_DIR, { recursive: true });
+    const f = path.join(process.env.HOTFOLDER_DIR, 'scan001.txt');
+    fs.writeFileSync(f, 'ingescand document');
+    fs.utimesSync(f, new Date(Date.now() - 5000), new Date(Date.now() - 5000)); // ouder dan 2s
+    const r = await (await fetch(H + '/api/hotfolder/scan', { method: 'POST', headers: jar() })).json();
+    const imported = fs.existsSync(path.join(config.storageDir, 'admin', config.hotfolderTarget, 'scan001.txt'));
+    const gone = !fs.existsSync(f);
+    ok('hot-folder: bestand geïmporteerd en uit de bronmap gehaald',
+      r.ok && r.imported.includes('scan001.txt') && imported && gone);
+  }
+
+  // 119. Chat-bot: commando met token levert een tekstantwoord (list).
+  {
+    const bad = await fetch(H + '/api/chat/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'list /' }) });
+    const good = await (await fetch(H + '/api/chat/command', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Bot-Token': 'testbottoken' }, body: JSON.stringify({ text: 'list /' }) })).json();
+    ok('chat-bot: token vereist + list-commando geeft antwoord',
+      bad.status === 401 && typeof good.text === 'string' && good.text.includes('Inhoud van'));
   }
 
   console.log(`\n${passed} tests geslaagd.`);

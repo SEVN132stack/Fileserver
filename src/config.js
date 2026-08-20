@@ -521,7 +521,24 @@ export const config = {
   visionMaxBytes: parseInt(process.env.VISION_MAX_BYTES || '10485760', 10), // 10MB
   // Automatische mapstructuur-suggesties werken volledig lokaal (geen commando).
 
-  version: '3.33.0',
+  // --- v3.34 (invoer & integraties) ---
+  // Upload via e-mail: per-gebruiker geheime inbox-token(s). Een mailprovider (of
+  // script) POST't een geparste e-mail met bijlagen naar /api/email-inbox/<token>.
+  emailInboxFile: abs(process.env.EMAIL_INBOX_FILE || 'email-inbox.json'),
+  emailInboxDir: process.env.EMAIL_INBOX_DIR || 'Inbox-mail', // submap in home
+  emailInboxMaxBytes: parseInt(process.env.EMAIL_INBOX_MAX_BYTES || '26214400', 10), // 25MB per bijlage
+  // Scan-naar-map (hot-folder): een host-map wordt periodiek geleegd naar een
+  // gebruiker. Leeg = uit.
+  hotfolderDir: process.env.HOTFOLDER_DIR || '',
+  hotfolderUser: process.env.HOTFOLDER_USER || '',
+  hotfolderTarget: process.env.HOTFOLDER_TARGET || 'Ingescand', // submap in home
+  hotfolderIntervalSec: parseInt(process.env.HOTFOLDER_INTERVAL_SEC || '60', 10),
+  // Chat-bot (Slack/Teams/Discord): inkomende commando's via een gedeelde token.
+  // Uitgaande meldingen lopen al via WEBHOOK_URL (zie notify.js).
+  chatBotToken: process.env.CHAT_BOT_TOKEN || '',
+  chatBotUser: process.env.CHAT_BOT_USER || '', // in wiens home de bot zoekt/lijst
+
+  version: '3.34.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

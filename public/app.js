@@ -868,6 +868,26 @@ async function showOrganize(mode) {
     ${(s.moves||[]).length?`<button data-orgapply>Verplaats ${s.moves.length} bestanden</button>`:''}`);
   window.__orgMoves = s.moves||[];
 }
+// Invoer & integraties (features 13-15): e-mail-upload, hot-folder, chat-bot.
+async function showInbound() {
+  const et = await (await api('/api/email/token')).json();
+  const cb = await (await api('/api/chat/status')).json();
+  let hf = { enabled:false };
+  if (me.role === 'admin') { try { hf = await (await api('/api/hotfolder/status')).json(); } catch {} }
+  const addr = et.token ? `<code style="word-break:break-all">POST /api/email-inbox/${esc(et.token)}</code>` : '<span class="muted">nog geen adres</span>';
+  openModal(`<h3>📥 Invoer & integraties</h3>
+    <h4>📧 Upload via e-mail</h4>
+    <p class="muted">Laat je mailprovider geparste e-mails met bijlagen naar dit adres POST'en; bijlagen komen in <code>${esc('/'+'Inbox-mail')}</code>.</p>
+    <div>${addr}</div>
+    <button data-emltoken="new">${et.token?'Vernieuw adres':'Maak adres aan'}</button>
+    ${et.token?'<button class="danger" data-emltoken="revoke">Intrekken</button>':''}
+    <h4 style="margin-top:1rem">💬 Chat-bot</h4>
+    <p class="muted">Status: ${cb.enabled?`✅ actief (werkt in home van <code>${esc(cb.user)}</code>)`:'⚪ uit — stel <code>CHAT_BOT_TOKEN</code> en <code>CHAT_BOT_USER</code> in'}. Commando's: <code>list</code>, <code>search</code>, <code>help</code>.</p>
+    ${me.role==='admin'?`<h4 style="margin-top:1rem">🗂️ Scan-naar-map (hot-folder)</h4>
+    <p class="muted">${hf.enabled?`✅ actief: <code>${esc(hf.dir||'')}</code> → <code>${esc('/'+(hf.target||''))}</code>`:'⚪ uit — stel <code>HOTFOLDER_DIR</code> en <code>HOTFOLDER_USER</code> in'}</p>
+    ${hf.enabled?'<button data-hfscan>Nu scannen</button>':''}<pre id="inboundOut" class="muted" style="white-space:pre-wrap"></pre>`:''}`);
+}
+const inboundBtn = document.getElementById('inboundBtn'); if (inboundBtn) inboundBtn.onclick = showInbound;
 const aiBtn = document.getElementById('aiBtn'); if (aiBtn) aiBtn.onclick = () => showAi('');
 const organizeBtn = document.getElementById('organizeBtn'); if (organizeBtn) organizeBtn.onclick = () => showOrganize('type');
 const tasksBtn = document.getElementById('tasksBtn'); if (tasksBtn) tasksBtn.onclick = showTasks;
@@ -888,6 +908,9 @@ document.addEventListener('click', async (e) => {
   }
   if (t.dataset.vsearch) { e.preventDefault(); const j=await (await api('/api/vision/search?label='+enc(t.dataset.vsearch))).json(); alert('Bestanden met #'+t.dataset.vsearch+':\n'+((j.files||[]).join('\n')||'geen')); }
   if (t.hasAttribute && t.hasAttribute('data-orgapply')) { const j=await (await api('/api/organize/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({moves:window.__orgMoves||[]})})).json(); alert('Verplaatst: '+(j.moved||0)+', overgeslagen: '+((j.skipped||[]).length)); closeModal(); load(cwd); }
+  if (t.dataset.emltoken==='new') { await api('/api/email/token',{method:'POST'}); showInbound(); }
+  if (t.dataset.emltoken==='revoke') { if(confirm('Adres intrekken?')){ await api('/api/email/token',{method:'DELETE'}); showInbound(); } }
+  if (t.hasAttribute && t.hasAttribute('data-hfscan')) { const out=document.getElementById('inboundOut'); out.textContent='Scannen...'; const j=await (await api('/api/hotfolder/scan',{method:'POST'})).json(); out.textContent = j.ok ? ('Geïmporteerd: '+(j.imported||[]).length+', afgekeurd: '+(j.rejected||[]).length) : ('Fout: '+(j.error||'')); }
 });
 document.addEventListener('change', async (e) => {
   if (e.target.dataset && e.target.dataset.taskstatus) { await api('/api/file-tasks/'+encodeURIComponent(e.target.dataset.taskstatus)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:e.target.value})}); }

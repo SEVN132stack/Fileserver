@@ -77,6 +77,9 @@ import * as fileTasks from './file-tasks.js';
 import * as vision from './vision.js';
 import * as aiAssistant from './ai-assistant.js';
 import * as organizeSuggest from './organize-suggest.js';
+import * as emailUpload from './email-upload.js';
+import * as hotfolder from './hotfolder.js';
+import * as chatbot from './chatbot.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
 import { passwordPwnedCount, isExpired } from './users.js';
@@ -556,6 +559,25 @@ export function createWebServer() {
     const result = await inboundHooks.fireHook(req.params.token, req.body || {});
     if (result === null) return res.status(404).json({ error: 'Onbekende hook' });
     res.json(result);
+  });
+
+  // Upload via e-mail (publiek, token-beschermd): een mailprovider POST't een
+  // geparste e-mail met bijlagen; die worden in de inbox van de gebruiker geplaatst.
+  app.post('/api/email-inbox/:token', express.json({ limit: '30mb' }), async (req, res) => {
+    if (!rateHit(`eml:${clientIp(req)}`, 30, 60000).allowed) return res.status(429).json({ error: 'Te veel verzoeken' });
+    const result = await emailUpload.deliver(req.params.token, req.body || {});
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    emitToUser(result.user, 'change', { action: 'email-upload' });
+    res.json(result);
+  });
+
+  // Chat-bot (publiek, token-beschermd): inkomend commando -> tekstantwoord.
+  app.post('/api/chat/command', express.json({ limit: '16kb' }), (req, res) => {
+    if (!rateHit(`chat:${clientIp(req)}`, 60, 60000).allowed) return res.status(429).json({ error: 'Te veel verzoeken' });
+    const token = req.get('X-Bot-Token') || (req.body && req.body.token) || '';
+    if (!chatbot.checkToken(token)) return res.status(401).json({ error: 'Ongeldige of ontbrekende token' });
+    const reply = chatbot.handle((req.body && req.body.text) || '');
+    res.json({ text: reply, response_type: 'ephemeral' });
   });
 
   // Publieke read-only galerij van een gedeelde afbeeldingsmap.
@@ -1193,6 +1215,24 @@ export function createWebServer() {
       emitToUser(req.user, 'change', { action: 'organize' });
       res.json({ ok: true, ...result });
     } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // --- v3.34: invoer & integraties ---
+  // Upload via e-mail: token voor de eigen inbox ophalen/aanmaken/intrekken.
+  app.get('/api/email/token', (req, res) => res.json({ token: emailUpload.tokenFor(req.user) }));
+  app.post('/api/email/token', requireWrite, (req, res) => res.json({ token: emailUpload.ensureToken(req.user) }));
+  app.delete('/api/email/token', requireWrite, (req, res) => res.json({ ok: emailUpload.revokeToken(req.user) }));
+
+  // Chat-bot: token-status (admin ziet of de bot is ingesteld).
+  app.get('/api/chat/status', (req, res) => res.json({ enabled: chatbot.enabled(), user: config.chatBotUser || null }));
+
+  // Hot-folder: status + handmatige scan (admin).
+  app.get('/api/hotfolder/status', requireAdmin, (req, res) => res.json({ enabled: hotfolder.enabled(), dir: config.hotfolderDir || null, user: config.hotfolderUser || null, target: config.hotfolderTarget }));
+  app.post('/api/hotfolder/scan', requireAdmin, async (req, res) => {
+    const r = await hotfolder.scanOnce();
+    if (r.error) return res.status(r.status || 400).json({ error: r.error });
+    if (r.imported.length && config.hotfolderUser) emitToUser(config.hotfolderUser, 'change', { action: 'hotfolder' });
+    res.json(r);
   });
 
   // --- Versiegeschiedenis ---
