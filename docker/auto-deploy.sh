@@ -180,15 +180,24 @@ fi
 # ── Bouwen en starten ──
 # --pull houdt de base-images vers; zonder dat blijft een oude FROM-laag
 # hangen tot iemand er handmatig achteraan gaat.
-log "Image bouwen..."
-if ! docker compose build --pull; then
-    log "Build mislukt — containers draaien nog op de vorige versie."
+#
+# De buildoutput gaat naar een eigen bestand. In het deploy-log stond anders
+# honderden regels buildkit-uitvoer tussen de vier regels die je wilt lezen,
+# en dan is niet meer te zien wat er wanneer is uitgerold. Bij een fout worden
+# de laatste regels alsnog in het deploy-log herhaald, zodat je voor de
+# diagnose niet twee bestanden nodig hebt.
+BUILD_LOG="${DEPLOY_BUILD_LOG:-/var/log/$(basename "$APP_ROOT" | tr "[:upper:]" "[:lower:]")-build.log}"
+log "Image bouwen (uitvoer in ${BUILD_LOG})..."
+if ! docker compose build --pull >>"$BUILD_LOG" 2>&1; then
+    log "Build mislukt — containers draaien nog op de vorige versie. Laatste regels:"
+    tail -20 "$BUILD_LOG" | sed 's/^/    /'
     exit 1
 fi
 
 log "Containers herstarten..."
-if ! docker compose up -d; then
-    log "compose up mislukt."
+if ! docker compose up -d >>"$BUILD_LOG" 2>&1; then
+    log "compose up mislukt. Laatste regels:"
+    tail -20 "$BUILD_LOG" | sed 's/^/    /'
     exit 1
 fi
 
