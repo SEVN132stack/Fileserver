@@ -45,6 +45,11 @@ done
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
 # ── Eén tegelijk ──
+# Vast pad voor het API-antwoord van de CI-poort: ci_stand draait in een
+# subshell en kan het pad dus niet terugmelden.
+CI_ANTWOORD="$(mktemp)"
+trap 'rm -f "$CI_ANTWOORD"' EXIT
+
 exec 9>"$LOCK"
 flock -n 9 || { log "Andere deploy draait nog — overgeslagen."; exit 0; }
 
@@ -133,8 +138,11 @@ ci_stand() {
               sed -E 's#^.*github\.com[:/]##; s#\.git$##')
     [ -z "$CI_REPO" ] && { echo "geen"; return; }
 
-    tmp="$(mktemp)"
-    trap 'rm -f "$tmp"' RETURN
+    # Schrijft naar het pad dat bovenin het script is vastgelegd, niet naar
+    # een eigen mktemp: ci_stand draait in $( ), dus een pad dat hier wordt
+    # bedacht bereikt de aanroeper nooit. Het bestand zelf wel — daarom leest
+    # ci_samenvatting straks hetzelfde antwoord zonder tweede API-aanroep.
+    tmp="$CI_ANTWOORD"
 
     code=$(_api "commits/${sha}/check-runs?per_page=100" "$tmp")
     if [ "$code" = "200" ]; then
@@ -150,6 +158,81 @@ ci_stand() {
     echo "geen"
 }
 
+# ── CI-samenvatting ────────────────────────────────────────────────────────
+# Wat de CI voor deze commit heeft gecontroleerd, voor in de melding. Gebruikt
+# het antwoord dat ci_stand al ophaalde; alleen bij de Actions-API is er één
+# extra aanroep nodig, want die geeft de run maar niet de losse jobs.
+#
+# Zonder deze regels zegt een melding wel "CI groen", maar niet waarop —
+# en juist bij rood wil je zien wélke job faalde.
+_ci_auth() {
+    CI_TOKEN=$(grep -E '^\s*DEPLOY_GITHUB_TOKEN\s*=\s*\S' "${APP_ROOT}/.env" 2>/dev/null |
+               tail -1 | cut -d= -f2- | tr -d ' "'"'"'')
+    CI_REPO=$(git config --get remote.origin.url |
+              sed -E 's#^.*github\.com[:/]##; s#\.git$##')
+}
+
+_ci_formatteer() {
+    python3 - "$1" <<'PYEOF'
+import json, sys
+from datetime import datetime
+
+TEKEN = {"success": "✓", "failure": "✗", "cancelled": "⊘", "skipped": "–",
+         "neutral": "–", "timed_out": "⏱", "action_required": "!"}
+
+def duur(a, b):
+    if not a or not b:
+        return ""
+    try:
+        d = datetime.fromisoformat(b.replace("Z", "+00:00")) - datetime.fromisoformat(a.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    s = int(d.total_seconds())
+    if s <= 0:
+        return ""
+    return f" ({s}s)" if s < 90 else f" ({s // 60}m{s % 60:02d})"
+
+try:
+    with open(sys.argv[1]) as f:
+        d = json.load(f)
+except Exception:
+    raise SystemExit
+
+items = d.get("check_runs")
+if items is None:
+    items = d.get("jobs") or d.get("workflow_runs") or []
+
+print("\n".join(
+    f"{TEKEN.get(i.get('conclusion') or i.get('status') or '?', '•')} {i.get('name', '?')}"
+    f"{duur(i.get('started_at') or i.get('run_started_at'), i.get('completed_at') or i.get('updated_at'))}"
+    for i in items
+))
+PYEOF
+}
+
+ci_samenvatting() {
+    [ -s "$CI_ANTWOORD" ] || return 0
+    # Token en repo opnieuw bepalen: ci_stand zette ze in een subshell, dus
+    # hier zijn ze leeg. Zonder dit valt de jobs-aanroep terug op een 401 en
+    # zie je alleen "CI" in plaats van de losse jobs.
+    _ci_auth
+
+    # De Actions-API geeft de run, niet de jobs. Eén extra aanroep levert de
+    # namen op; lukt dat niet, dan blijft de regel van de run zelf staan.
+    if grep -q '"workflow_runs"' "$CI_ANTWOORD" 2>/dev/null; then
+        local rid jobs
+        rid=$(python3 -c "import json,sys;r=json.load(open(sys.argv[1])).get('workflow_runs') or [];print(r[0]['id'] if r else '')" "$CI_ANTWOORD" 2>/dev/null)
+        if [ -n "$rid" ]; then
+            jobs="$(mktemp)"
+            if [ "$(_api "actions/runs/${rid}/jobs?per_page=100" "$jobs")" = "200" ]; then
+                _ci_formatteer "$jobs"; rm -f "$jobs"; return 0
+            fi
+            rm -f "$jobs"
+        fi
+    fi
+    _ci_formatteer "$CI_ANTWOORD"
+}
+
 DOEL_SHA=$(git rev-parse "origin/${TAK}")
 CI_POORT=$(grep -E '^\s*CI_POORT\s*=\s*\S' "${APP_ROOT}/.env" 2>/dev/null |
            tail -1 | cut -d= -f2- | tr -d ' "'"'"'')
@@ -159,7 +242,14 @@ if [ "$NEGEER_CI" = "0" ]; then
     case "$(ci_stand "$DOEL_SHA")" in
         groen) log "CI groen voor ${DOEL_SHA:0:8}." ;;
         bezig) log "CI draait nog voor ${DOEL_SHA:0:8} — volgende tick pakt het op."; exit 0 ;;
-        rood)  log "CI is rood voor ${DOEL_SHA:0:8} — deploy afgebroken."; exit 1 ;;
+        rood)
+            log "CI is rood voor ${DOEL_SHA:0:8} — deploy afgebroken."
+            meld "🚫 ${APP_NAAM}: deploy geblokkeerd — CI rood" \
+                "Commit ${DOEL_SHA:0:8} haalde de CI niet, dus er is niets uitgerold.
+
+$(ci_samenvatting)" "$KLEUR_ROOD"
+            exit 1
+            ;;
         geen)
             if [ "$CI_POORT" = "streng" ]; then
                 log "Geen CI-run gevonden voor ${DOEL_SHA:0:8} en CI_POORT=streng — afgebroken."
@@ -175,10 +265,14 @@ COMMITS=$(git log --no-merges --format='• %h %s' HEAD.."origin/${TAK}" | head 
 if [ "$DRY" = "1" ]; then
     log "[dry-run] zou ${AANTAL} commit(s) uitrollen:"
     printf '%s\n' "$COMMITS"
+CI_UITSLAG="$(ci_samenvatting)"
 meld "🚀 ${APP_NAAM}: deploy gestart (${AANTAL} commit(s))" \
     "Nieuw op ${TAK}:
 
 ${COMMITS}
+
+De CI controleerde:
+${CI_UITSLAG:-(geen uitslag opgehaald)}
 
 Bouwen, herstarten en daarna de rooktest." "$KLEUR_BLAUW"
     exit 0
@@ -269,6 +363,9 @@ ${ROOK_KAAL}
     log "Rooktest groen."
     meld "✅ ${APP_NAAM}: deploy klaar" \
         "Commit ${HUIDIG} staat live, app antwoordt (HTTP ${CODE}) en de rooktest is groen.
+
+De CI controleerde:
+${CI_UITSLAG:-(geen uitslag opgehaald)}
 
 \`\`\`
 ${ROOK_KAAL}
