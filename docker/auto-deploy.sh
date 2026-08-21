@@ -29,6 +29,11 @@ HEALTH_URL="${DEPLOY_HEALTH_URL:-http://127.0.0.1:8080/}"
 
 cd "$APP_ROOT" || exit 1
 
+# Meldingen naar Discord. Ontbreekt de webhook in .env, dan doet meld niets.
+# shellcheck source=/dev/null
+. "${APP_ROOT}/docker/meld.sh"
+APP_NAAM="$(basename "$APP_ROOT")"
+
 DRY=0; NEGEER_CI=0
 for ARG in "$@"; do
     case "$ARG" in
@@ -166,6 +171,12 @@ COMMITS=$(git log --no-merges --format='• %h %s' HEAD.."origin/${TAK}" | head 
 if [ "$DRY" = "1" ]; then
     log "[dry-run] zou ${AANTAL} commit(s) uitrollen:"
     printf '%s\n' "$COMMITS"
+meld "🚀 ${APP_NAAM}: deploy gestart (${AANTAL} commit(s))" \
+    "Nieuw op ${TAK}:
+
+${COMMITS}
+
+Bouwen, herstarten en daarna de rooktest." "$KLEUR_BLAUW"
     exit 0
 fi
 
@@ -191,6 +202,10 @@ log "Image bouwen (uitvoer in ${BUILD_LOG})..."
 if ! docker compose build --pull >>"$BUILD_LOG" 2>&1; then
     log "Build mislukt — containers draaien nog op de vorige versie. Laatste regels:"
     tail -20 "$BUILD_LOG" | sed 's/^/    /'
+    meld "❌ ${APP_NAAM}: build mislukt" \
+        "De containers draaien nog op de vorige versie; er is niets vervangen.
+
+Laatste regels staan in ${BUILD_LOG}." "$KLEUR_ROOD"
     exit 1
 fi
 
@@ -198,19 +213,66 @@ log "Containers herstarten..."
 if ! docker compose up -d >>"$BUILD_LOG" 2>&1; then
     log "compose up mislukt. Laatste regels:"
     tail -20 "$BUILD_LOG" | sed 's/^/    /'
+    meld "❌ ${APP_NAAM}: containers starten mislukt" \
+        "compose up gaf een fout. Laatste regels staan in ${BUILD_LOG}." "$KLEUR_ROOD"
     exit 1
 fi
 
 # ── Controle achteraf ──
 log "Wachten tot de app antwoordt (${HEALTH_URL})..."
+LEEFT=0
 for i in $(seq 1 30); do
     CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$HEALTH_URL" || echo 000)
     case "$CODE" in
-        2*|3*) log "App antwoordt (HTTP ${CODE}) — deploy klaar op $(git rev-parse --short=8 HEAD)."; exit 0 ;;
+        2*|3*) LEEFT=1; break ;;
     esac
     sleep 2
 done
 
-log "App antwoordt niet na 60s (laatste code: ${CODE}) — CONTROLEER DIT."
-log "Terugrollen kan met: git reset --hard HEAD~1 && docker compose up -d --build"
-exit 1
+HUIDIG="$(git rev-parse --short=8 HEAD)"
+
+if [ "$LEEFT" = "0" ]; then
+    log "App antwoordt niet na 60s (laatste code: ${CODE}) — CONTROLEER DIT."
+    log "Terugrollen: git reset --hard HEAD~1 && docker compose up -d --build"
+    meld "❌ ${APP_NAAM}: app antwoordt niet" \
+        "Na de deploy van ${HUIDIG} gaf ${HEALTH_URL} 60 seconden lang geen antwoord (laatste code: ${CODE}).
+
+Terugrollen: `git reset --hard HEAD~1 && docker compose up -d --build`" "$KLEUR_ROOD"
+    exit 1
+fi
+
+log "App antwoordt (HTTP ${CODE})."
+
+# De rooktest is de echte poort: HTTP 200 zegt alleen dat er iets luistert, niet
+# dat de app werkt.
+if [ -x "${APP_ROOT}/docker/smoke.sh" ]; then
+    log "Rooktest draaien..."
+    ROOK="$(bash "${APP_ROOT}/docker/smoke.sh" 2>&1)"
+    ROOK_RC=$?
+    printf '%s\n' "$ROOK" | sed 's/^/    /'
+    # Kleurcodes eruit: Discord toont die anders letterlijk.
+    ROOK_KAAL="$(printf '%s' "$ROOK" | sed -e 's/\x1b\[[0-9;]*m//g')"
+    if [ "$ROOK_RC" -ne 0 ]; then
+        log "Rooktest gezakt — deploy staat wel live. CONTROLEER DIT."
+        meld "⚠️ ${APP_NAAM}: rooktest gezakt na deploy" \
+            "Commit ${HUIDIG} staat live en de app antwoordt, maar de rooktest is niet groen.
+
+\`\`\`
+${ROOK_KAAL}
+\`\`\`" "$KLEUR_ORANJE"
+        exit 1
+    fi
+    log "Rooktest groen."
+    meld "✅ ${APP_NAAM}: deploy klaar" \
+        "Commit ${HUIDIG} staat live, app antwoordt (HTTP ${CODE}) en de rooktest is groen.
+
+\`\`\`
+${ROOK_KAAL}
+\`\`\`" "$KLEUR_GROEN"
+else
+    meld "✅ ${APP_NAAM}: deploy klaar" \
+        "Commit ${HUIDIG} staat live en de app antwoordt (HTTP ${CODE}). Geen rooktest aanwezig." "$KLEUR_GROEN"
+fi
+
+log "Deploy klaar op ${HUIDIG}."
+exit 0
