@@ -323,7 +323,7 @@ fi
 # ── Controle achteraf ──
 log "Wachten tot de app antwoordt (${HEALTH_URL})..."
 LEEFT=0
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
     CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$HEALTH_URL" || echo 000)
     case "$CODE" in
         2*|3*) LEEFT=1; break ;;
