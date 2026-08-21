@@ -68,15 +68,23 @@ jobs:
     needs: [test, e2e]
     if: always()
     runs-on: self-hosted
+    permissions:
+      # Voor het opvragen van de jobs van deze run: namen, duur en de stap
+      # waarop een job strandde. Dat staat niet in de needs-context.
+      actions: read
+      contents: read
     steps:
       - name: Uitslag naar Discord
         env:
-          RESULTATEN: ${{ toJSON(needs) }}
+          GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.head_ref || github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          API: ${{ github.api_url }}/repos/${{ github.repository }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
           EVENT: ${{ github.event_name }}
+          TITEL: ${{ github.event.head_commit.message || github.event.pull_request.title || '' }}
         run: |
           if [ -z "${DISCORD_WEBHOOK:-}" ]; then
             echo "Geen webhook in de runner-omgeving — niets gemeld."
@@ -84,11 +92,34 @@ jobs:
           fi
           python3 - <<'PY'
           import json, os, urllib.request
+          from datetime import datetime
 
-          jobs = json.loads(os.environ["RESULTATEN"])
-          teken = {"success": "✓", "failure": "✗", "cancelled": "⊘", "skipped": "–"}
-          regels = [f"{teken.get(v.get('result'), '•')} {k}" for k, v in sorted(jobs.items())]
-          rood = any(v.get("result") == "failure" for v in jobs.values())
+          UA = "nas-ci/1.0 (+https://github.com/SEVN132stack)"
+          TEKEN = {"success": "✓", "failure": "✗", "cancelled": "⊘",
+                   "skipped": "–", "timed_out": "⏱", "neutral": "–"}
+
+          def api(pad):
+              req = urllib.request.Request(
+                  os.environ["API"] + pad,
+                  headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                           "Accept": "application/vnd.github+json", "User-Agent": UA})
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  return json.load(r)
+
+          def duur(a, b):
+              if not a or not b:
+                  return ""
+              try:
+                  d = datetime.fromisoformat(b.replace("Z", "+00:00")) - datetime.fromisoformat(a.replace("Z", "+00:00"))
+              except ValueError:
+                  return ""
+              s = int(d.total_seconds())
+              return "" if s <= 0 else (f"{s}s" if s < 90 else f"{s // 60}m{s % 60:02d}")
+
+          # De meldjob draait nu zelf nog; die hoort niet in het overzicht.
+          jobs = [j for j in api(f"/actions/runs/{os.environ['RUN_ID']}/jobs?per_page=100")["jobs"]
+                  if j.get("status") == "completed"]
+          rood = any(j.get("conclusion") == "failure" for j in jobs)
           branch, repo = os.environ["BRANCH"], os.environ["REPO"].split("/")[-1]
 
           # Groen op een feature-branch: stil. De PR toont het al.
@@ -96,22 +127,29 @@ jobs:
               print("Groen op een branch — niet gemeld.")
               raise SystemExit
 
+          regels = []
+          for j in sorted(jobs, key=lambda x: x.get("started_at") or ""):
+              t = duur(j.get("started_at"), j.get("completed_at"))
+              regels.append(f"{TEKEN.get(j.get('conclusion'), '•')} {j['name']}" + (f" — {t}" if t else ""))
+              # Bij een gezakte job: de stap waarop hij strandde. Dat scheelt het
+              # openklappen van de run om te zien waar het misging.
+              if j.get("conclusion") == "failure":
+                  stap = next((s["name"] for s in j.get("steps", []) if s.get("conclusion") == "failure"), None)
+                  if stap:
+                      regels.append(f"   ↳ gestruikeld bij: {stap}")
+
+          totaal = duur(min((j.get("started_at") or "" for j in jobs), default=""),
+                        max((j.get("completed_at") or "" for j in jobs), default=""))
+          kop = f"Commit `{os.environ['SHA'][:8]}` ({os.environ['EVENT']})" + (f" · {totaal}" if totaal else "")
+          onderwerp = (os.environ.get("TITEL") or "").split("\n")[0][:100]
+
+          tekst = "\n".join([kop] + ([f"_{onderwerp}_"] if onderwerp else []) + ["", *regels, "",
+                                     f"[Run bekijken]({os.environ['RUN_URL']})"])
           titel = f"❌ {repo}: CI rood op {branch}" if rood else f"✅ {repo}: CI groen op main"
-          tekst = "\n".join([
-              f"Commit `{os.environ['SHA'][:8]}` ({os.environ['EVENT']})",
-              "",
-              *regels,
-              "",
-              f"[Run bekijken]({os.environ['RUN_URL']})",
-          ])
           data = json.dumps({"embeds": [{"title": titel, "description": tekst,
                                          "color": 15158332 if rood else 3066993}]}).encode()
-          # Zonder eigen User-Agent weigert Cloudflare de standaard van
-          # urllib met een 403; met een eigen naam gaat hij door.
-          req = urllib.request.Request(
-              os.environ["DISCORD_WEBHOOK"], data=data,
-              headers={"Content-Type": "application/json",
-                       "User-Agent": "nas-ci/1.0 (+https://github.com/SEVN132stack)"})
+          req = urllib.request.Request(os.environ["DISCORD_WEBHOOK"], data=data,
+                                       headers={"Content-Type": "application/json", "User-Agent": UA})
           try:
               urllib.request.urlopen(req, timeout=15)
               print(f"Gemeld: {titel}")
