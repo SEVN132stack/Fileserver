@@ -202,6 +202,10 @@ items = d.get("check_runs")
 if items is None:
     items = d.get("jobs") or d.get("workflow_runs") or []
 
+# De meldjob hoort niet in het overzicht: die stuurt dit bericht en zegt niets
+# over de code.
+items = [i for i in items if i.get("name") != "melden"]
+
 print("\n".join(
     f"{TEKEN.get(i.get('conclusion') or i.get('status') or '?', '•')} {i.get('name', '?')}"
     f"{duur(i.get('started_at') or i.get('run_started_at'), i.get('completed_at') or i.get('updated_at'))}"
