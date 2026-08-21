@@ -56,3 +56,66 @@ jobs:
         run: npx playwright install-deps chromium
 
       - run: npm run test:e2e
+
+  # Meldt de uitslag in Discord. De webhook komt uit de omgeving van de
+  # runner-container (per app een andere), dus er hoeft in deze repo geen
+  # secret te staan — en een fork of PR kan er niet bij.
+  #
+  # Rood melden we altijd, ook op een feature-branch: dat is het bericht dat je
+  # meteen wilt zien. Groen alleen op main, anders loopt het kanaal vol met
+  # bevestigingen van dingen die je toch al in de PR ziet.
+  melden:
+    needs: [test, e2e]
+    if: always()
+    runs-on: self-hosted
+    steps:
+      - name: Uitslag naar Discord
+        env:
+          RESULTATEN: ${{ toJSON(needs) }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ -z "${DISCORD_WEBHOOK:-}" ]; then
+            echo "Geen webhook in de runner-omgeving — niets gemeld."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json, os, urllib.request
+
+          jobs = json.loads(os.environ["RESULTATEN"])
+          teken = {"success": "✓", "failure": "✗", "cancelled": "⊘", "skipped": "–"}
+          regels = [f"{teken.get(v.get('result'), '•')} {k}" for k, v in sorted(jobs.items())]
+          rood = any(v.get("result") == "failure" for v in jobs.values())
+          branch, repo = os.environ["BRANCH"], os.environ["REPO"].split("/")[-1]
+
+          # Groen op een feature-branch: stil. De PR toont het al.
+          if not rood and branch != "main":
+              print("Groen op een branch — niet gemeld.")
+              raise SystemExit
+
+          titel = f"❌ {repo}: CI rood op {branch}" if rood else f"✅ {repo}: CI groen op main"
+          tekst = "\n".join([
+              f"Commit `{os.environ['SHA'][:8]}` ({os.environ['EVENT']})",
+              "",
+              *regels,
+              "",
+              f"[Run bekijken]({os.environ['RUN_URL']})",
+          ])
+          data = json.dumps({"embeds": [{"title": titel, "description": tekst,
+                                         "color": 15158332 if rood else 3066993}]}).encode()
+          # Zonder eigen User-Agent weigert Cloudflare de standaard van
+          # urllib met een 403; met een eigen naam gaat hij door.
+          req = urllib.request.Request(
+              os.environ["DISCORD_WEBHOOK"], data=data,
+              headers={"Content-Type": "application/json",
+                       "User-Agent": "nas-ci/1.0 (+https://github.com/SEVN132stack)"})
+          try:
+              urllib.request.urlopen(req, timeout=15)
+              print(f"Gemeld: {titel}")
+          except Exception as e:
+              # Een mislukte melding mag de CI niet rood maken.
+              print(f"Melden mislukt: {e}")
+          PY
