@@ -18,7 +18,10 @@ KLEUR_ORANJE=15105570
 KLEUR_BLAUW=3447003
 
 _MELD_ROOT="${APP_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-DISCORD_WEBHOOK="${DISCORD_WEBHOOK_URL:-$(grep -hm1 '^DISCORD_WEBHOOK_URL=' "${_MELD_ROOT}/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")}"
+# De -m1 pakt de eerste treffer; met `=.` moet daar ook iets achter staan.
+# Een lege DISCORD_WEBHOOK_URL= uit .env.example zou anders de echte waarde
+# eronder overschaduwen, en dan blijven meldingen stil zonder foutmelding.
+DISCORD_WEBHOOK="${DISCORD_WEBHOOK_URL:-$(grep -h '^DISCORD_WEBHOOK_URL=.' "${_MELD_ROOT}/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'")}"
 
 meld() {
     [ -z "$DISCORD_WEBHOOK" ] && return 0

@@ -121,8 +121,12 @@ PYEOF
 
 ci_stand() {
     local sha="$1" tmp code stand
-    CI_TOKEN=$(grep -E '^\s*DEPLOY_GITHUB_TOKEN\s*=' "${APP_ROOT}/.env" 2>/dev/null |
-               head -1 | cut -d= -f2- | tr -d ' "'"'"'')
+    # `\S` na het =: een lege regel (zoals in .env.example) telt niet mee.
+    # En `tail -1`: staat een sleutel twee keer in .env, dan wint de laatste —
+    # zoals ook gebeurt wanneer een .env wordt ingelezen. Met head -1 won de
+    # oudste regel, wat precies de verkeerde is als je onderaan iets toevoegt.
+    CI_TOKEN=$(grep -E '^\s*DEPLOY_GITHUB_TOKEN\s*=\s*\S' "${APP_ROOT}/.env" 2>/dev/null |
+               tail -1 | cut -d= -f2- | tr -d ' "'"'"'')
     [ -z "$CI_TOKEN" ] && { echo "geen"; return; }
 
     CI_REPO=$(git config --get remote.origin.url |
@@ -147,8 +151,8 @@ ci_stand() {
 }
 
 DOEL_SHA=$(git rev-parse "origin/${TAK}")
-CI_POORT=$(grep -E '^\s*CI_POORT\s*=' "${APP_ROOT}/.env" 2>/dev/null |
-           head -1 | cut -d= -f2- | tr -d ' "'"'"'')
+CI_POORT=$(grep -E '^\s*CI_POORT\s*=\s*\S' "${APP_ROOT}/.env" 2>/dev/null |
+           tail -1 | cut -d= -f2- | tr -d ' "'"'"'')
 CI_POORT="${CI_POORT:-soepel}"
 
 if [ "$NEGEER_CI" = "0" ]; then
