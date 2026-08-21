@@ -121,7 +121,10 @@ PYEOF
 
 ci_stand() {
     local sha="$1" tmp code stand
-    CI_TOKEN=$(grep -E '^\s*DEPLOY_GITHUB_TOKEN\s*=' "${APP_ROOT}/.env" 2>/dev/null |
+    # `\S` na het =: een lege regel (zoals in .env.example) telt niet mee.
+    # Anders wint die van de echte waarde die eronder staat, en valt de poort
+    # stil terug op stand "geen".
+    CI_TOKEN=$(grep -E '^\s*DEPLOY_GITHUB_TOKEN\s*=\s*\S' "${APP_ROOT}/.env" 2>/dev/null |
                head -1 | cut -d= -f2- | tr -d ' "'"'"'')
     [ -z "$CI_TOKEN" ] && { echo "geen"; return; }
 
@@ -147,7 +150,7 @@ ci_stand() {
 }
 
 DOEL_SHA=$(git rev-parse "origin/${TAK}")
-CI_POORT=$(grep -E '^\s*CI_POORT\s*=' "${APP_ROOT}/.env" 2>/dev/null |
+CI_POORT=$(grep -E '^\s*CI_POORT\s*=\s*\S' "${APP_ROOT}/.env" 2>/dev/null |
            head -1 | cut -d= -f2- | tr -d ' "'"'"'')
 CI_POORT="${CI_POORT:-soepel}"
 
