@@ -57,6 +57,27 @@ jobs:
 
       - run: npm run test:e2e
 
+  # Statische controle op de shellscripts: deploy, rooktest, back-up en de
+  # meldingen. Die scripts draaien ongezien op de NAS, dus een quoting-fout of
+  # een `cd` die faalt merk je pas als er iets misgaat op het verkeerde moment.
+  #
+  # Niveau 'warning': errors en warnings blokkeren, info-meldingen (stijl) niet.
+  scripts:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          bestanden=$(find . -name '*.sh' -not -path './vendor/*' -not -path './node_modules/*' | sort)
+          if [ -z "$bestanden" ]; then
+            echo "Geen shellscripts gevonden."
+            exit 0
+          fi
+          echo "$bestanden" | sed 's/^/  /'
+          # shellcheck-versies verschillen in wat ze standaard meenemen; -x volgt
+          # `source`-regels zodat een gedeelde helper ook echt gecontroleerd wordt.
+          shellcheck -x -S warning $bestanden
+
   # Meldt de uitslag in Discord. De webhook komt uit de omgeving van de
   # runner-container (per app een andere), dus er hoeft in deze repo geen
   # secret te staan — en een fork of PR kan er niet bij.
@@ -65,7 +86,7 @@ jobs:
   # meteen wilt zien. Groen alleen op main, anders loopt het kanaal vol met
   # bevestigingen van dingen die je toch al in de PR ziet.
   melden:
-    needs: [test, e2e]
+    needs: [test, e2e, scripts]
     if: always()
     runs-on: self-hosted
     permissions:

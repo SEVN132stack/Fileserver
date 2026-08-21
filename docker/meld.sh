@@ -1,3 +1,5 @@
+# shellcheck shell=sh
+# shellcheck disable=SC2034  # de KLEUR_-constanten zijn voor de aanroeper
 # ============================================================================
 # Discord-webhook helper — POSIX sh.
 #
