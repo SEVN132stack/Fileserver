@@ -54,7 +54,8 @@ import { makeBackup } from './backup.js';
 import { getHistory, recordSample } from './metrics-history.js';
 import { countUpload } from './shares.js';
 import { listGroups, setGroup, deleteGroup } from './groups.js';
-import { getSettings, updateSettings, getSetting } from './settings.js';
+import { getSettings, updateSettings, getSetting, settingsSchema } from './settings.js';
+import * as sla from './sla.js';
 import { runCleanup } from './cleanup.js';
 import { storageReport } from './storage-report.js';
 import { qrSvg } from './qr.js';
@@ -695,7 +696,7 @@ export function createWebServer() {
   // --- Passkey-login (geen auth) ---
   app.get('/api/webauthn/enabled', (req, res) => res.json({ enabled: config.webauthn.enabled }));
   // Publieke branding (voor de login-/reset-pagina's).
-  app.get('/api/branding', (req, res) => res.json({ appName: getSetting('appName'), logoUrl: getSetting('logoUrl'), accent: getSetting('accent') }));
+  app.get('/api/branding', (req, res) => res.json({ appName: getSetting('appName'), logoUrl: getSetting('logoUrl'), accent: getSetting('accent'), bannerText: getSetting('bannerText'), bannerLevel: getSetting('bannerLevel') }));
   app.post('/api/webauthn/login/options', express.json(), async (req, res) => {
     if (!config.webauthn.enabled || !userExists(req.body.username)) return res.status(400).json({ error: 'Niet beschikbaar' });
     res.json(await webauthn.authenticationOptions(req.body.username));
@@ -941,7 +942,7 @@ export function createWebServer() {
       require2fa: config.requireTwoFactor === 'all' || (config.requireTwoFactor === 'admin' && req.userRole === 'admin'),
       has2fa: !!getUser(req.user)?.totp || getCredentials(req.user).length > 0,
       mustChangePassword: isPasswordExpired(req.user),
-      branding: { appName: getSetting('appName'), logoUrl: getSetting('logoUrl'), accent: getSetting('accent') },
+      branding: { appName: getSetting('appName'), logoUrl: getSetting('logoUrl'), accent: getSetting('accent'), bannerText: getSetting('bannerText'), bannerLevel: getSetting('bannerLevel') },
       impersonating: !!req.impersonating,
       realUser: req.realUser || null,
     });
@@ -2335,6 +2336,27 @@ export function createWebServer() {
     res.json({ days, total, byAction, topUsers, timeline });
   });
 
+  // Geconsolideerd admin-dashboard: opslaggroei, top-opslag per gebruiker,
+  // actieve gebruikers en kern-totalen in één aanroep (voor de grafiek-UI).
+  app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
+    // Opslaggroei-tijdlijn uit de historische samples.
+    const samples = getHistory(0);
+    const storageTrend = samples.map((s) => ({ ts: s.ts, diskFree: s.fileserver_disk_free_percent ?? null, bytesUp: s.fileserver_bytes_uploaded_total ?? 0 }));
+    // Top-opslag per gebruiker.
+    const topStorage = listUsers().map((u) => {
+      let used = 0; try { used = dirSize(homeDir(u.username)); } catch { /* map ontbreekt */ }
+      return { user: u.username, used, quota: u.quota || 0 };
+    }).sort((a, b) => b.used - a.used).slice(0, 8);
+    // Actieve gebruikers (uniek) in de laatste 24 uur uit het audit-log.
+    const since = Date.now() - 86400000;
+    const active = new Set();
+    for (const line of tailLines(config.auditLog, 20000)) {
+      let e; try { e = JSON.parse(line); } catch { continue; }
+      if (e.user && e.ts && new Date(e.ts).getTime() >= since) active.add(e.user);
+    }
+    res.json({ storageTrend, topStorage, activeUsers24h: active.size, totals: metrics.snapshot(), users: listUsernames().length });
+  });
+
   // Just-in-time toegang: verzoek + status voor de gebruiker; beheer voor admin.
   app.get('/api/jit/status', (req, res) => {
     const el = jit.activeElevation(req.user);
@@ -2822,8 +2844,18 @@ export function createWebServer() {
   app.get('/api/admin/storage-report', requireAdmin, (req, res) => res.json(storageReport(15)));
 
   // Runtime-instellingen (onderhoudsmodus, opschoning) — admin-UI-config.
-  app.get('/api/admin/settings', requireAdmin, (req, res) => res.json({ settings: getSettings() }));
-  app.put('/api/admin/settings', requireAdmin, express.json(), (req, res) => res.json({ settings: updateSettings(req.body || {}) }));
+  app.get('/api/admin/settings', requireAdmin, (req, res) => res.json({ settings: getSettings(), schema: settingsSchema() }));
+  app.put('/api/admin/settings', requireAdmin, express.json(), (req, res) => {
+    const settings = updateSettings(req.body || {});
+    audit('web', req.user, 'settings_update', { keys: Object.keys(req.body || {}) });
+    res.json({ settings });
+  });
+
+  // Beschikbaarheid/SLA-dashboard: uptime, MTTR en dag-tijdlijn uit de incident-historie.
+  app.get('/api/admin/sla', requireAdmin, (req, res) => {
+    const days = Math.max(1, Math.min(365, parseInt(req.query.days, 10) || 30));
+    res.json(sla.compute(days));
+  });
 
   // Handmatige opschoning starten.
   app.post('/api/admin/cleanup', requireAdmin, (req, res) => res.json(runCleanup()));

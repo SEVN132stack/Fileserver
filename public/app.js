@@ -98,6 +98,14 @@ async function loadMe() {
   if (me.branding) {
     if (me.branding.appName) document.title = me.branding.appName;
     if (me.branding.accent) document.documentElement.style.setProperty('--accent', me.branding.accent);
+    // Globale mededeling (banner) voor alle gebruikers.
+    let mb = document.getElementById('globalBanner');
+    if (me.branding.bannerText) {
+      if (!mb) { mb = document.createElement('div'); mb.id = 'globalBanner'; document.body.insertBefore(mb, document.body.firstChild); }
+      const colors = { info: '#0ea5e9', warning: '#f59e0b', critical: '#ef4444' };
+      mb.style.cssText = `background:${colors[me.branding.bannerLevel]||colors.info};color:#fff;padding:.5rem 1rem;text-align:center;font-size:.9rem`;
+      mb.textContent = me.branding.bannerText;
+    } else if (mb) { mb.remove(); }
   }
   // Impersonatie-banner: toon dat je als een andere gebruiker kijkt.
   let banner = document.getElementById('impBanner');

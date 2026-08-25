@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.36.0] - 2026-08-25
+
+### Toegevoegd (Batch P — Beheer & observability)
+
+- **Opslag-dashboard met grafieken**: geconsolideerd `GET /api/admin/dashboard` (opslaggroei/vrije
+  schijfruimte over tijd, top-opslag per gebruiker, actieve gebruikers 24u) + inline-SVG-grafieken
+  in de admin-UI.
+- **Beschikbaarheids-/SLA-dashboard**: `GET /api/admin/sla?days=` berekent uptime%, MTTR, een
+  dag-tijdlijn en incidenten per severity uit de incident-historie (`SLA_DOWNTIME_SEVERITIES`
+  bepaalt welke severities als downtime tellen). Nieuwe "Beschikbaarheid (SLA)"-sectie in de admin-UI.
+- **Configuratie-UI**: de runtime-instellingen worden nu schema-gedreven weergegeven en bewerkt
+  (`GET /api/admin/settings` levert ook een getypeerd schema), met validatie/coercion bij opslaan.
+  Nieuwe instelbare **globale mededeling (banner)** die alle gebruikers bovenaan de UI zien
+  (`bannerText`/`bannerLevel`). Geheimen blijven in `.env`.
+
 ## [3.35.1] - 2026-08-20
 
 ### Opgelost (security-review batches L–O)
