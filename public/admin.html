@@ -191,6 +191,24 @@
       <table id="incTable" style="margin-top:.6rem"></table>
     </div>
 
+    <h2>Beschikbaarheid (SLA)
+      <select id="slaDays" style="float:right;font-size:.85rem">
+        <option value="7">7 dagen</option><option value="30" selected>30 dagen</option><option value="90">90 dagen</option>
+      </select>
+    </h2>
+    <div class="card" style="margin-bottom:2rem">
+      <div class="cards" id="slaCards"></div>
+      <div class="l" style="margin:.6rem 0 .2rem">Uptime per dag</div>
+      <div id="slaTimeline"></div>
+    </div>
+
+    <h2>Opslag-dashboard</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin-bottom:2rem">
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Vrije schijfruimte (%) over tijd</div><div id="dashDisk"></div></div>
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Top-opslag per gebruiker</div><div id="dashStorage"></div></div>
+      <div class="card"><div class="l" style="margin-bottom:.4rem">Actieve gebruikers (24u)</div><div id="dashActive" style="font-size:2.4rem;font-weight:700"></div></div>
+    </div>
+
     <h2>Just-in-time toegangsverzoeken</h2>
     <div class="card" style="margin-bottom:2rem">
       <p class="l" style="margin-top:0">Tijdelijke rol-verhogingen: keur goed of af. Goedgekeurde verhogingen vervallen automatisch.</p>
@@ -199,8 +217,7 @@
 
     <h2>Instellingen</h2>
     <div class="card" style="margin-bottom:2rem">
-      <label><input type="checkbox" id="setMaintenance"> Onderhoudsmodus (alleen admins hebben toegang)</label><br><br>
-      <label>Prullenbak automatisch legen na <input id="setCleanupDays" type="number" min="0" style="width:70px"> dagen (0 = uit)</label>
+      <div id="settingsForm" style="display:grid;gap:.7rem"></div>
       <div style="margin-top:1rem"><button id="saveSettings">Opslaan</button> <button id="runCleanup">Nu opschonen</button></div>
     </div>
 
@@ -429,15 +446,58 @@
       if (e.target.dataset.qrel) { await j('/api/admin/quarantine/'+e.target.dataset.qrel+'/release',{method:'POST'}); loadQuarantine(); }
       if (e.target.dataset.qdel) { await j('/api/admin/quarantine/'+e.target.dataset.qdel,{method:'DELETE'}); loadQuarantine(); }
     });
+    let settingsSchema = [];
     async function loadSettings() {
-      const { settings } = await (await j('/api/admin/settings')).json();
-      document.getElementById('setMaintenance').checked = !!settings.maintenance;
-      document.getElementById('setCleanupDays').value = settings.cleanupTrashDays || 0;
+      const { settings, schema } = await (await j('/api/admin/settings')).json();
+      settingsSchema = schema || [];
+      const form = document.getElementById('settingsForm');
+      form.innerHTML = settingsSchema.map((s) => {
+        const v = settings[s.key];
+        const id = 'set_' + s.key;
+        if (s.type === 'boolean') return `<label><input type="checkbox" id="${id}" ${v?'checked':''}> ${esc(s.label)}</label>`;
+        if (s.type === 'number') return `<label>${esc(s.label)} <input type="number" id="${id}" min="${s.min??0}" value="${v??0}" style="width:90px"></label>`;
+        if (s.type === 'enum') return `<label>${esc(s.label)} <select id="${id}">${s.options.map(o=>`<option ${o===v?'selected':''}>${esc(o)}</option>`).join('')}</select></label>`;
+        return `<label style="display:block">${esc(s.label)}<br><input type="text" id="${id}" value="${esc(v??'')}" maxlength="${s.max||500}" style="width:100%;max-width:420px"></label>`;
+      }).join('');
     }
     document.getElementById('saveSettings').onclick = async () => {
-      await j('/api/admin/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({ maintenance: document.getElementById('setMaintenance').checked, cleanupTrashDays: parseInt(document.getElementById('setCleanupDays').value||'0',10) })});
-      alert('Instellingen opgeslagen'); loadOverview();
+      const patch = {};
+      for (const s of settingsSchema) {
+        const el = document.getElementById('set_' + s.key); if (!el) continue;
+        patch[s.key] = s.type === 'boolean' ? el.checked : s.type === 'number' ? parseInt(el.value||'0',10) : el.value;
+      }
+      await j('/api/admin/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
+      alert('Instellingen opgeslagen'); loadSettings(); loadOverview();
     };
+
+    const card = (label, value) => `<div class="card"><div class="v">${esc(String(value))}</div><div class="l">${esc(label)}</div></div>`;
+    // Beschikbaarheid (SLA).
+    async function loadSla() {
+      const days = document.getElementById('slaDays').value;
+      const s = await (await j('/api/admin/sla?days='+days)).json();
+      const mttrH = s.mttrMs ? (s.mttrMs/3600000).toFixed(1)+' u' : '—';
+      document.getElementById('slaCards').innerHTML =
+        card('Uptime', s.uptimePct.toFixed(3)+'%') + card('Open incidenten', s.openIncidents) +
+        card('MTTR', mttrH) + card('Opgelost ('+s.days+'d)', s.resolvedCount);
+      // Dag-tijdlijn als gekleurde balkjes (groen=100%, rood=uitval).
+      const tl = s.timeline||[];
+      const bw = Math.max(4, Math.floor(600/Math.max(1,tl.length)));
+      const bars = tl.map((d,i)=>{ const up=d.uptime; const col=up>=99.9?'#4ade80':up>=95?'#facc15':'#f87171';
+        return `<rect x="${i*bw}" y="${20-(18*up/100).toFixed(1)}" width="${bw-1}" height="${(18*up/100).toFixed(1)}" fill="${col}"><title>${d.day}: ${up.toFixed(2)}%</title></rect>`; }).join('');
+      document.getElementById('slaTimeline').innerHTML = tl.length?`<svg viewBox="0 0 ${tl.length*bw} 24" width="100%" height="40">${bars}</svg>`:'<div class="l">Geen data.</div>';
+    }
+    document.getElementById('slaDays').onchange = loadSla;
+
+    // Opslag-dashboard.
+    async function loadDashboard() {
+      const d = await (await j('/api/admin/dashboard')).json();
+      const trend = (d.storageTrend||[]).filter(p=>p.diskFree!=null);
+      if (trend.length>=2) lineChart(document.getElementById('dashDisk'), [{label:'vrij %',color:'#38bdf8',values:trend.map(p=>Math.round(p.diskFree))}], trend.map(p=>p.ts));
+      else document.getElementById('dashDisk').innerHTML='<div class="l">Nog te weinig samples.</div>';
+      const top = d.topStorage||[];
+      barChart(document.getElementById('dashStorage'), top.map((u,i)=>({label:u.user.slice(0,8),value:Math.round(u.used/1048576),color:['#38bdf8','#818cf8','#4ade80','#facc15','#f472b6','#fb923c','#22d3ee','#a78bfa'][i%8]})));
+      document.getElementById('dashActive').textContent = d.activeUsers24h;
+    }
     document.getElementById('runCleanup').onclick = async () => { const r=await (await j('/api/admin/cleanup',{method:'POST'})).json(); alert('Opgeschoond: '+r.removed+' item(s)'); };
     async function loadGroups() {
       const { groups } = await (await j('/api/admin/groups')).json();
@@ -605,18 +665,18 @@
     document.getElementById('selftestBtn').onclick = async () => { cm('Bezig…'); const r = await (await j('/api/admin/selftest',{method:'POST'})).json(); cm('Zelftest: '+(r.ok?'✅ geslaagd':'❌ gefaald')); };
     document.getElementById('coldRun').onclick = async () => { cm('Bezig…'); const r = await (await j('/api/admin/coldstore/run',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json(); cm(`Gecomprimeerd: ${r.compressed} bestand(en), ${(r.saved/1e6).toFixed(1)} MB bespaard.`); };
     document.getElementById('snapCreate').onclick = async () => { cm('Bezig…'); await j('/api/admin/server-snapshots',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); cm('Snapshot gemaakt.'); loadSnaps(); };
-    document.getElementById('incAdd').onclick = async () => { const title=document.getElementById('incTitle').value.trim(); if(!title)return; await j('/api/admin/incidents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,severity:document.getElementById('incSev').value})}); document.getElementById('incTitle').value=''; loadIncidents(); };
+    document.getElementById('incAdd').onclick = async () => { const title=document.getElementById('incTitle').value.trim(); if(!title)return; await j('/api/admin/incidents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,severity:document.getElementById('incSev').value})}); document.getElementById('incTitle').value=''; loadIncidents(); loadSla(); };
     document.getElementById('mntAdd').onclick = async () => { const title=document.getElementById('mntTitle').value.trim()||'Onderhoud'; await j('/api/admin/maintenance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,start:Date.now(),end:Date.now()+3600000})}); document.getElementById('mntTitle').value=''; loadIncidents(); };
     document.addEventListener('click', async e => {
       const d = e.target.dataset;
       if (d.snaprestore) { if(!confirm('De HELE opslag terugzetten naar deze snapshot?'))return; cm('Herstellen…'); await j('/api/admin/server-snapshots/'+encodeURIComponent(d.snaprestore)+'/restore',{method:'POST'}); cm('Hersteld.'); loadSnaps(); }
       if (d.snapdel) { await j('/api/admin/server-snapshots/'+encodeURIComponent(d.snapdel),{method:'DELETE'}); loadSnaps(); }
-      if (d.incres) { await j('/api/admin/incidents/'+encodeURIComponent(d.incres)+'/resolve',{method:'POST'}); loadIncidents(); }
-      if (d.incdel) { await j('/api/admin/incidents/'+encodeURIComponent(d.incdel),{method:'DELETE'}); loadIncidents(); }
+      if (d.incres) { await j('/api/admin/incidents/'+encodeURIComponent(d.incres)+'/resolve',{method:'POST'}); loadIncidents(); loadSla(); }
+      if (d.incdel) { await j('/api/admin/incidents/'+encodeURIComponent(d.incdel),{method:'DELETE'}); loadIncidents(); loadSla(); }
       if (d.mntdel) { await j('/api/admin/maintenance/'+encodeURIComponent(d.mntdel),{method:'DELETE'}); loadIncidents(); }
     });
 
-    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit(); loadAnalytics(); loadHooks(); loadSnaps(); loadIncidents(); loadWebhookSubs(); loadEventHooks();
+    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit(); loadAnalytics(); loadHooks(); loadSnaps(); loadIncidents(); loadWebhookSubs(); loadEventHooks(); loadSla(); loadDashboard();
 
     // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
     // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.

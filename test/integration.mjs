@@ -1624,6 +1624,38 @@ try {
       xStayed && yMoved && tagsMigrated && ap.skipped.includes('/ordenen/x.pdf'));
   }
 
+  // 125. Config-UI: schema-gedreven instellingen bijwerken (met validatie/coercion).
+  {
+    const before = await (await fetch(H + '/api/admin/settings', { headers: jar() })).json();
+    const put = await (await fetch(H + '/api/admin/settings', { method: 'PUT', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ bannerText: 'Onderhoud vanavond', bannerLevel: 'onzin', cleanupTrashDays: '-3' }) })).json();
+    ok('config-UI: schema + validatie bij opslaan',
+      Array.isArray(before.schema) && before.schema.some((s) => s.key === 'bannerText') &&
+      put.settings.bannerText === 'Onderhoud vanavond' && put.settings.bannerLevel === 'info' && put.settings.cleanupTrashDays === 0);
+  }
+
+  // 126. Banner verschijnt in de branding-payload voor gewone gebruikers.
+  {
+    const b = await (await fetch(H + '/api/branding', { headers: jar() })).json();
+    ok('config-UI: mededeling zichtbaar via branding',
+      b.bannerText === 'Onderhoud vanavond' && b.bannerLevel === 'info');
+  }
+
+  // 127. SLA-dashboard: een major-incident verlaagt de uptime; oplossen levert MTTR.
+  {
+    const sla = await import('../src/sla.js');
+    const inc = await import('../src/incidents.js');
+    const i = inc.addIncident({ title: 'Storing', severity: 'major' }, 'admin');
+    // Zet de aanvang 2 uur terug zodat er meetbare downtime is.
+    const store = JSON.parse(fs.readFileSync(process.env.INCIDENTS_FILE, 'utf8'));
+    store.incidents.find((x) => x.id === i.id).created = Date.now() - 2 * 3600000;
+    fs.writeFileSync(process.env.INCIDENTS_FILE, JSON.stringify(store));
+    const openCalc = sla.compute(30);
+    inc.resolveIncident(i.id, 'admin');
+    const res = await (await fetch(H + '/api/admin/sla?days=30', { headers: jar() })).json();
+    ok('SLA-dashboard: downtime verlaagt uptime + MTTR na oplossen',
+      openCalc.uptimePct < 100 && res.uptimePct < 100 && res.mttrMs > 0 && Array.isArray(res.timeline) && res.timeline.length === 30);
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

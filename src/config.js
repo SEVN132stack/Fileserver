@@ -543,7 +543,12 @@ export const config = {
   // begrenst hoeveel bestanden per verzoek worden doorlopen (geheugen/CPU).
   insightsMaxScan: parseInt(process.env.INSIGHTS_MAX_SCAN || '5000', 10),
 
-  version: '3.35.1',
+  // --- v3.36 (beheer & observability) ---
+  // SLA-dashboard: welke incident-severities als downtime tellen voor de
+  // beschikbaarheidsberekening.
+  slaDowntimeSeverities: (process.env.SLA_DOWNTIME_SEVERITIES || 'major,critical').split(',').map((s) => s.trim()).filter(Boolean),
+
+  version: '3.36.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

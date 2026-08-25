@@ -195,6 +195,12 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Beheer & observability (v3.36)
+
+- **Opslag-dashboard** — grafieken van opslaggroei, top-opslag per gebruiker en actieve gebruikers (`GET /api/admin/dashboard`).
+- **Beschikbaarheid (SLA)** — uptime%, MTTR en dag-tijdlijn uit de incident-historie (`GET /api/admin/sla`).
+- **Configuratie-UI** — runtime-instellingen schema-gedreven bewerken in de admin-UI, incl. een globale mededeling (banner). Geheimen blijven in `.env`.
+
 ## Weergave & inzicht (v3.35)
 
 - **Kaartweergave** — GPS uit foto-EXIF (ingebouwde parser) op een kaart (`GET /api/geo/photos`).
