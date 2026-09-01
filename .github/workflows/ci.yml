@@ -1,6 +1,10 @@
 name: CI
 
 on:
+  # Met de hand te starten vanuit het Actions-tabblad. Zonder dit is een
+  # commit de enige manier om te controleren of de eigen runner werkt — juist
+  # wat je niet wilt doen als je daaraan twijfelt.
+  workflow_dispatch:
   push:
     # Alleen de langlevende branches; feature-branches worden al door
     # pull_request gedekt. Voorheen ('**') draaide elke commit de CI twee keer.
