@@ -8,8 +8,7 @@ import { quota } from './users.js';
 import { audit } from './audit.js';
 import { inc } from './metrics.js';
 import { emitToUser } from './events.js';
-import { scanFile } from './scan.js';
-import { quarantine } from './quarantine.js';
+import { inspectUpload } from './inspect.js';
 import { retainedUntil } from './retention.js';
 import { lockOwner } from './locks.js';
 import { isE2ERequired } from './e2e-folders.js';
@@ -115,15 +114,9 @@ export async function handleTus(req, res) {
           await fsp.mkdir(path.dirname(dest), { recursive: true });
           await fsp.rename(dataFile(sub), dest);
           await fsp.rm(metaFile(sub), { force: true });
-          // Antivirus-scan na assemblage, gelijk aan de web-upload.
-          try {
-            const verdict = await scanFile(dest);
-            if (verdict.clean === false) {
-              quarantine(dest, { user: req.user, home: req.home, targetPath: meta.targetPath, filename: meta.filename, detail: verdict.detail });
-              audit('web', req.user, 'quarantined', { file: meta.filename, via: 'tus', detail: verdict.detail });
-              return res.status(422).end('Bestand geweigerd (virusscan)');
-            }
-          } catch { /* scanner onbereikbaar: doorlaten (fail-open, als de web-upload) */ }
+          // Antivirus + DLP na assemblage, gelijk aan de web-upload.
+          const verdict = await inspectUpload({ abs: dest, user: req.user, home: req.home, relPath: relTarget, via: 'tus' });
+          if (!verdict.ok) return res.status(422).end(verdict.reason === 'dlp' ? 'Bestand geweigerd (DLP)' : 'Bestand geweigerd (virusscan)');
           audit('web', req.user, 'upload', { path: meta.targetPath, files: [meta.filename], tus: true });
           inc('fileserver_uploads_total');
           inc('fileserver_bytes_uploaded_total', meta.length);

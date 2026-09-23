@@ -5,8 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { resolveWithin, dirSize } from './paths.js';
 import { config } from './config.js';
 import { quota } from './users.js';
-import { scanFile } from './scan.js';
-import { quarantine } from './quarantine.js';
+import { inspectUpload } from './inspect.js';
 import { audit } from './audit.js';
 import { retainedUntil } from './retention.js';
 import { lockOwner } from './locks.js';
@@ -168,15 +167,9 @@ export async function handleWebdav(req, res) {
       req.pipe(ws);
       ws.on('close', async () => {
         if (res.headersSent) return;
-        // Antivirus-scan na afloop, gelijk aan de web-upload; besmet → quarantaine.
-        try {
-          const verdict = await scanFile(abs);
-          if (verdict.clean === false) {
-            quarantine(abs, { user: req.user, home: req.home, targetPath: path.posix.dirname(davPath(req)), filename: path.basename(abs), detail: verdict.detail });
-            audit('web', req.user, 'quarantined', { file: path.basename(abs), via: 'webdav', detail: verdict.detail });
-            return res.status(422).end('Bestand geweigerd (virusscan)');
-          }
-        } catch { /* scanner onbereikbaar: laat door zoals de web-upload bij fail-open */ }
+        // Antivirus + DLP na afloop, gelijk aan de web-upload; afgekeurd → quarantaine.
+        const verdict = await inspectUpload({ abs, user: req.user, home: req.home, relPath: davPath(req), via: 'webdav' });
+        if (!verdict.ok) return res.status(422).end(verdict.reason === 'dlp' ? 'Bestand geweigerd (DLP)' : 'Bestand geweigerd (virusscan)');
         res.status(201).end();
       });
       ws.on('error', () => { if (!res.headersSent) res.status(500).end(); });

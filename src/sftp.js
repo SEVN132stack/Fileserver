@@ -13,6 +13,7 @@ import { checkHoneypot } from './honeypot.js';
 import { retainedUntil } from './retention.js';
 import { lockOwner } from './locks.js';
 import { isE2ERequired } from './e2e-folders.js';
+import { inspectUpload } from './inspect.js';
 
 const { Server, utils } = ssh2;
 const { STATUS_CODE: SFTP_STATUS_CODE, OPEN_MODE: SFTP_OPEN_MODE } = utils.sftp;
@@ -138,7 +139,7 @@ export function startSftpServer() {
               return sftp.status(reqid, SFTP_STATUS_CODE.NO_SUCH_FILE);
             }
             if (!reading) { audit('sftp', username, 'upload', { path: toClientPath(abs) }); recordMutation(username, 'write'); checkHoneypot(username, toClientPath(abs), 'write'); }
-            sftp.handle(reqid, newHandle({ fd, path: abs }));
+            sftp.handle(reqid, newHandle({ fd, path: abs, write: !reading }));
           });
 
           sftp.on('READ', (reqid, handle, offset, length) => {
@@ -160,12 +161,18 @@ export function startSftpServer() {
             });
           });
 
-          sftp.on('CLOSE', (reqid, handle) => {
+          sftp.on('CLOSE', async (reqid, handle) => {
             const h = getHandle(handle);
             if (h && typeof h.fd === 'number') {
               try { fs.closeSync(h.fd); } catch { /* al gesloten */ }
             }
             handles.delete(handle.readUInt32BE(0));
+            // Geschreven bestand: zelfde antivirus- en DLP-controle als de web-upload.
+            // Afgekeurd -> quarantaine, en de client krijgt een fout bij het sluiten.
+            if (h && h.write && h.path) {
+              const verdict = await inspectUpload({ abs: h.path, user: username, home, relPath: toClientPath(h.path), via: 'sftp' });
+              if (!verdict.ok) return sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED, verdict.reason === 'dlp' ? 'Geweigerd (DLP)' : 'Geweigerd (virusscan)');
+            }
             sftp.status(reqid, SFTP_STATUS_CODE.OK);
           });
 

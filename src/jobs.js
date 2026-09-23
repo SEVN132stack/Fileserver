@@ -43,15 +43,39 @@ export function enqueue(user, type, params = {}, label = '') {
   return pub(job);
 }
 
+// Eerlijke planning: kies steeds de wachtende taak van de gebruiker met de minste
+// lopende taken; bij gelijkstand de gebruiker die het langst niet bediend is. Zo
+// kan één gebruiker met veel taken de wachtrij niet voor anderen bezet houden.
+const runningPerUser = new Map();
+const lastServed = new Map();
+function pickNext() {
+  let best = -1; let bestKey = null;
+  for (let i = 0; i < queue.length; i++) {
+    const job = jobs.get(queue[i]);
+    if (!job || job.status !== 'queued') { queue.splice(i, 1); i--; continue; }
+    const key = [runningPerUser.get(job.user) || 0, lastServed.get(job.user) || 0, job.created];
+    if (!bestKey || key[0] < bestKey[0] || (key[0] === bestKey[0] && (key[1] < bestKey[1] || (key[1] === bestKey[1] && key[2] < bestKey[2])))) { best = i; bestKey = key; }
+  }
+  if (best < 0) return null;
+  return jobs.get(queue.splice(best, 1)[0]);
+}
 function pump() {
   while (running < CONCURRENCY && queue.length) {
-    const id = queue.shift();
-    const job = jobs.get(id);
-    if (!job || job.status !== 'queued') continue;
+    const job = pickNext();
+    if (!job) break;
     running++;
-    run(job).finally(() => { running--; setImmediate(pump); });
+    runningPerUser.set(job.user, (runningPerUser.get(job.user) || 0) + 1);
+    lastServed.set(job.user, Date.now() + Math.random()); // strikt oplopend bij gelijke ms
+    run(job).finally(() => {
+      running--;
+      runningPerUser.set(job.user, Math.max(0, (runningPerUser.get(job.user) || 1) - 1));
+      setImmediate(pump);
+    });
   }
 }
+
+// Alleen voor tests: registreer een eenvoudig taaktype.
+export function _registerTestType(type, fn) { handlers.set(type, fn); }
 
 async function run(job) {
   job.status = 'running'; emit(job);
