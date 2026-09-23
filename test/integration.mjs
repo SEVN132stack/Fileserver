@@ -2316,6 +2316,21 @@ try {
     ok('security: FTPS begrenst gelijktijdige verbindingen per IP', greetings.slice(0, 8).every((g) => g === '220') && greetings[8] === '421');
   }
 
+  // 163. HTTPS aan zonder bestaand certificaat: self-signed wordt (async) aangemaakt.
+  {
+    const tlsMod = await import('../src/tls.js');
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'fs-tls-'));
+    const orig = { ...config.tls };
+    Object.assign(config.tls, { enabled: true, certPath: path.join(d, 'c', 'cert.pem'), keyPath: path.join(d, 'k', 'key.pem') });
+    let res = null; let err = null;
+    try { res = await tlsMod.prepareTls(); } catch (e) { err = e; }
+    const again = tlsMod.ensureTls();
+    Object.assign(config.tls, orig);
+    ok('HTTPS: self-signed certificaat wordt aangemaakt als het ontbreekt',
+      !err && res && String(res.cert).includes('BEGIN CERTIFICATE') && fs.existsSync(path.join(d, 'k', 'key.pem')) &&
+      String(again.cert).includes('BEGIN CERTIFICATE') && (fs.statSync(path.join(d, 'k', 'key.pem')).mode & 0o777) === 0o600);
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close(); if (ftpsServer) ftpsServer.close();
   process.exit(0);

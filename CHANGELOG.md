@@ -8,6 +8,7 @@
 - **Midden — FTPS STARTTLS-injectie**: commando's die in hetzelfde onversleutelde pakket na `AUTH TLS` werden meegestuurd, werden na de handshake alsnog uitgevoerd. Alle invoer tussen `AUTH` en de handshake wordt nu genegeerd.
 - **Midden — FTPS-verbindingen**: maximaal 8 gelijktijdige sessies per IP en 200 totaal; zonder login na 60 s verbroken (voorkomt uitputten van passieve poorten).
 - **Midden — schaduw-instantie**: draait nu in een netwerk-sandbox (alleen loopback), zodat gekopieerde webhook-wachtrijen/abonnementen geen echte berichten versturen.
+- **Bug — HTTPS**: met `TLS_ENABLED=true` en nog geen certificaat crashte het opstarten (selfsigned v5 is asynchroon). Het certificaat wordt nu vooraf (async) aangemaakt.
 - **Laag**: upload-inspectie gebruikt de echte bestandsnaam (DLP sloeg tijdelijke bestanden zonder extensie over); gasttoegang uit bij `REQUIRE_2FA=all`; gasten kunnen in reacties alleen de eigenaar @-noemen; gasten van verwijderde eigenaren worden opgeruimd; geen wachtwoord-verloopprompt voor gasten; rij-menu zet labels via `textContent`.
 
 ## [3.45.0] - 2026-09-23

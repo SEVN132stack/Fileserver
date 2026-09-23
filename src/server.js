@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { ensureStorage, ensureHostKey } from './util.js';
 import { ensureUsers, listUsernames } from './users.js';
 import { startWebServer } from './web.js';
+import { prepareTls } from './tls.js';
 import { startSftpServer } from './sftp.js';
 import { startFtpsServer } from './ftps.js';
 import { startBackupScheduler } from './backup.js';
@@ -58,6 +59,7 @@ startHotfolderScheduler((user) => emitToUser(user, 'change', { action: 'hotfolde
 startScheduledReports();
 startLifecycleScheduler((user) => (title, body) => notifyUser(user, title, body));
 
+await prepareTls(); // self-signed certificaat (async) vóór de HTTPS-server
 startWebServer();
 startSftpServer();
 startFtpsServer().catch((e) => console.error('[ftps] start mislukt:', e.message));
