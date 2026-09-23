@@ -195,6 +195,12 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Prestaties & schaal (v3.41)
+
+- **Achtergrondtaken** — ZIP's en previews asynchroon met live voortgang, annuleren en een downloadlink (🧰, `/api/jobs`).
+- **Delta-uploads** — bij het opnieuw uploaden van een groot bestand worden alleen de gewijzigde blokken verstuurd, volledig geverifieerd en gescand.
+- **Preview-precaching** — thumbnails worden direct na upload of per map vooraf gemaakt.
+
 ## Data-intelligentie (v3.40)
 
 - **Duplicaten-assistent** — per groep een exemplaar bewaren (oudste/nieuwste/kortste pad/voorkeursmap), met hash-herverificatie vóór verwijderen.

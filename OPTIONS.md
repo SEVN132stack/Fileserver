@@ -350,6 +350,12 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Scan-naar-map / hot-folder (periodieke import van een host-map, na virusscan)
 - ✅ Chat-bot (Slack/Teams/Discord): inkomende `list`/`search`/`help`-commando's
 
+## Prestaties & schaal (v3.41)
+
+- ✅ Achtergrond-taakwachtrij met voortgang (ZIP, previews)
+- ✅ Delta-uploads op blokniveau (alleen gewijzigde blokken, geverifieerd + gescand)
+- ✅ Preview-/thumbnail-precaching
+
 ## Data-intelligentie (v3.40)
 
 - ✅ Duplicaten-opruimassistent (strategieën + hash-herverificatie)

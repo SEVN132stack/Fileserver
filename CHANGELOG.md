@@ -1,5 +1,30 @@
 # Changelog
 
+## [3.41.0] - 2026-09-23
+
+### Toegevoegd (Batch U — Prestaties & schaal)
+
+- **Achtergrond-taakwachtrij met voortgang**: zware bewerkingen draaien asynchroon in plaats
+  van een HTTP-verzoek minutenlang open te houden. Eerste taaktypes: een map als ZIP inpakken
+  en previews vooraf genereren. Voortgang komt live binnen via SSE (🧰-paneel en een melding
+  met downloadknop), taken zijn annuleerbaar en het resultaat is alleen voor de eigenaar en
+  blijft een uur bewaard. Er zijn grenzen per gebruiker (10 lopende taken, 3 ZIP-resultaten) en
+  per ZIP (`JOB_MAX_ZIP_BYTES`, standaard 20 GB). `/api/jobs`.
+- **Delta-uploads op blokniveau**: als een groot bestand dat al bestaat opnieuw wordt
+  geüpload, hasht de browser het in blokken van 4 MB en stuurt alleen de gewijzigde blokken.
+  De server controleert:
+  - elk ontvangen blok tegen de opgegeven hash;
+  - elk hergebruikt oud blok opnieuw (het bestand kan intussen gewijzigd zijn);
+  - optioneel de SHA-256 van het hele bestand.
+
+  Daarna volgt een virusscan van het samengestelde bestand, een versie-snapshot en een atomaire
+  vervanging. Locks, bewaarplicht, E2E-verplichte mappen en quota worden gerespecteerd.
+  Zonder beveiligde context (HTTPS) valt de browser terug op de gewone hervatbare upload.
+  `/api/upload/delta/*`.
+- **Preview-precaching**: thumbnails (lijst- en rasterformaat) worden direct na een upload
+  één voor één op de achtergrond gemaakt (`THUMB_PRECACHE`, standaard aan). Voor een bestaande
+  map kan dat als achtergrondtaak (🖼️).
+
 ## [3.40.0] - 2026-09-23
 
 ### Toegevoegd (Batch T — Data-intelligentie)
