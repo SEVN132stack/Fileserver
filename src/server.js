@@ -4,6 +4,7 @@ import { ensureStorage, ensureHostKey } from './util.js';
 import { ensureUsers, listUsernames } from './users.js';
 import { startWebServer } from './web.js';
 import { startSftpServer } from './sftp.js';
+import { startFtpsServer } from './ftps.js';
 import { startBackupScheduler } from './backup.js';
 import { startMetricsHistory } from './metrics-history.js';
 import { startCleanupScheduler } from './cleanup.js';
@@ -59,6 +60,7 @@ startLifecycleScheduler((user) => (title, body) => notifyUser(user, title, body)
 
 startWebServer();
 startSftpServer();
+startFtpsServer().catch((e) => console.error('[ftps] start mislukt:', e.message));
 
 const scheme = config.tls.enabled ? 'https' : 'http';
 console.log('\n=== SFTP Fileserver gestart ===');

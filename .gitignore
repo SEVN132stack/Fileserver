@@ -65,3 +65,5 @@ templates.json
 lifecycle.json
 share-presets.json
 portals.json
+.update-staging/
+shadow-report.json

@@ -96,6 +96,9 @@ process.env.TLS_CERT = path.join(tmp, 'cert.pem');
 process.env.TLS_KEY = path.join(tmp, 'key.pem');
 process.env.WEB_PORT = '8097';
 process.env.SFTP_PORT = '2239';
+process.env.FTPS_PORT = '2240';
+process.env.FTPS_PASV_MIN = '50600';
+process.env.FTPS_PASV_MAX = '50620';
 process.env.AUTH_USER = 'admin';
 process.env.AUTH_PASS = 'testpass123';
 process.env.QUARANTINE_DIR = path.join(tmp, 'quarantine');
@@ -128,6 +131,8 @@ const { startSftpServer } = await import('../src/sftp.js');
 const ssh2 = (await import('ssh2')).default;
 const web = startWebServer();
 const sftp = startSftpServer();
+const { startFtpsServer } = await import('../src/ftps.js');
+const ftpsServer = await startFtpsServer();
 
 const H = 'http://localhost:8097';
 let cookie = '';
@@ -2179,8 +2184,77 @@ try {
       (!sh.token || rc.reads.some((x) => x.via === 'deellink')) && noteTxt.includes('Leesbevestiging') && guestCant);
   }
 
+  // 157. FTPS: alleen versleuteld, eigen thuismap, upload/download, beschermingen, AV/DLP, geen actieve modus.
+  {
+    const net = await import('node:net'); const tlsMod = await import('node:tls');
+    // Minimale FTPS-client (expliciet, passief).
+    function ftps() {
+      let sock; let buf = ''; const waiters = [];
+      const feed = () => { let m; while (waiters.length && (m = /^(\d{3}) [^\n]*\n/m.exec(buf))) { const end = buf.indexOf(m[0]) + m[0].length; const text = buf.slice(0, end); buf = buf.slice(end); waiters.shift()({ code: +m[1], text }); } };
+      const next = () => new Promise((r) => { waiters.push(r); feed(); });
+      const bind = (s) => { sock = s; s.setEncoding('utf8'); s.on('data', (d) => { buf += d; feed(); }); s.on('error', () => {}); };
+      const cmd = async (line) => { sock.write(line + '\r\n'); return next(); };
+      const api = {
+        open: () => new Promise((res) => { const s = net.connect(2240, '127.0.0.1'); bind(s); next().then(res); }),
+        cmd,
+        tls: async () => { const r = await cmd('AUTH TLS'); if (r.code !== 234) return r; sock.removeAllListeners('data'); const t = tlsMod.connect({ socket: sock, rejectUnauthorized: false }); await new Promise((ok2) => t.once('secureConnect', ok2)); bind(t); return r; },
+        data: async (line, upload) => {
+          const e = await cmd('EPSV'); if (e.code !== 229) return { reply: e };
+          const port = +/\|\|\|(\d+)\|/.exec(e.text)[1];
+          const d = tlsMod.connect({ port, host: '127.0.0.1', rejectUnauthorized: false });
+          await new Promise((ok2) => d.once('secureConnect', ok2));
+          const pre = await cmd(line);
+          let body = '';
+          if (upload !== undefined) d.end(upload); else d.on('data', (c) => { body += c; });
+          await new Promise((ok2) => d.once('close', ok2));
+          const fin = pre.code < 400 ? await next() : pre;
+          return { pre, fin, body };
+        },
+        end: () => sock.destroy(),
+      };
+      return api;
+    }
+    // Onversleuteld inloggen wordt geweigerd.
+    const plain = ftps(); await plain.open(); const plainUser = await plain.cmd('USER wormtest'); plain.end();
+    const c = ftps(); await c.open(); await c.tls();
+    await c.cmd('USER wormtest'); const pass = await c.cmd('PASS wormtestpw1');
+    const pbsz = await c.cmd('PBSZ 0'); const prot = await c.cmd('PROT P');
+    const up = await c.data('STOR ftpsproef.txt', 'via ftps');
+    const list = await c.data('LIST');
+    const get = await c.data('RETR ftpsproef.txt');
+    const size = await c.cmd('SIZE ftpsproef.txt');
+    const escape = await c.cmd('CWD ../../..'); const pwd = await c.cmd('PWD');
+    const active = await c.cmd('PORT 127,0,0,1,4,1');
+    const retentionMod = await import('../src/retention.js');
+    const { homeDir: hdF } = await import('../src/users.js'); const home = hdF('wormtest');
+    fs.writeFileSync(path.join(home, 'worm-ftps.txt'), 'x'); retentionMod.setRetention(home, '/worm-ftps.txt', Date.now() + 86400000);
+    const delWorm = await c.cmd('DELE worm-ftps.txt');
+    const origDlp = config.dlp.action; config.dlp.action = 'block';
+    const dlp = await c.data('STOR kaart-ftps.txt', 'Kaart 4111 1111 1111 1111 betaling');
+    config.dlp.action = origDlp;
+    await c.cmd('RNFR ftpsproef.txt'); const rn = await c.cmd('RNTO hernoemd-ftps.txt');
+    await c.cmd('QUIT'); c.end();
+    const bad = ftps(); await bad.open(); await bad.tls(); await bad.cmd('USER wormtest'); const badPass = await bad.cmd('PASS fout'); bad.end();
+    ok('FTPS: TLS verplicht, upload/list/download, geen uitbraak, geen actieve modus, WORM + DLP afgedwongen',
+      plainUser.code === 530 && pass.code === 230 && pbsz.code === 200 && prot.code === 200 &&
+      up.fin && up.fin.code === 226 && fs.readFileSync(path.join(home, 'hernoemd-ftps.txt'), 'utf8') === 'via ftps' &&
+      list.body.includes('ftpsproef.txt') && get.body === 'via ftps' && size.text.startsWith('213 8') &&
+      pwd.text.includes('"/"') && active.code === 502 && delWorm.code === 550 && fs.existsSync(path.join(home, 'worm-ftps.txt')) &&
+      dlp.fin && dlp.fin.code === 550 && !fs.existsSync(path.join(home, 'kaart-ftps.txt')) && rn.code === 250 && badPass.code === 530 &&
+      /"ftps"/.test(fs.readFileSync(config.auditLog, 'utf8')));
+  }
+
+  // 158. Gefaseerde update: schaduw-instantie start los van de echte data en slaagt voor de zelftest.
+  {
+    const { spawnSync } = await import('node:child_process');
+    const r = spawnSync(process.execPath, ['scripts/shadow-check.mjs', '--port', '18765', '--timeout', '45000'], { encoding: 'utf8', timeout: 90000 });
+    let rep = {}; try { rep = JSON.parse(r.stdout); } catch { /* geen json */ }
+    ok('gefaseerde update: schaduw-controle slaagt en rapporteert alle stappen',
+      r.status === 0 && rep.ok === true && rep.checks.length >= 12 && rep.checks.every((x) => x.ok) && !/AUTH_PASS/.test(r.stdout));
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
-  web.close(); sftp.close();
+  web.close(); sftp.close(); if (ftpsServer) ftpsServer.close();
   process.exit(0);
 } catch (err) {
   console.error('\nTEST MISLUKT:', err.message);
