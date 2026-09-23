@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Portaal</title>
+  <style>
+    :root { --accent: #2563eb; --bg: #f8fafc; --fg: #0f172a; --muted: #64748b; --card: #fff; --border: #e2e8f0; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0f172a; --fg: #e2e8f0; --muted: #94a3b8; --card: #1e293b; --border: #334155; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+    header { background: var(--accent); color: #fff; padding: 1.1rem 1rem; }
+    header h1 { margin: 0; font-size: 1.3rem; }
+    main { max-width: 820px; margin: 0 auto; padding: 1rem; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: .55rem .3rem; border-bottom: 1px solid var(--border); word-break: break-word; }
+    td.size { text-align: right; color: var(--muted); white-space: nowrap; width: 90px; }
+    a { color: var(--accent); text-decoration: none; }
+    button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: .55rem 1rem; font-size: 1rem; cursor: pointer; }
+    input[type=password] { padding: .5rem; border: 1px solid var(--border); border-radius: 6px; width: 100%; max-width: 280px; background: var(--card); color: var(--fg); }
+    .muted { color: var(--muted); }
+    .crumbs { margin-bottom: .6rem; font-size: .9rem; }
+    #msg { margin-top: .6rem; }
+  </style>
+</head>
+<body>
+  <header><h1 id="title">Portaal</h1></header>
+  <main>
+    <div class="card" id="pwCard" hidden>
+      <p>Dit portaal is beveiligd met een wachtwoord.</p>
+      <input type="password" id="pw" placeholder="Wachtwoord" autocomplete="current-password">
+      <button id="pwBtn">Openen</button>
+      <div id="pwErr" class="muted"></div>
+    </div>
+    <div class="card" id="filesCard" hidden>
+      <div class="crumbs" id="crumbs"></div>
+      <table id="files"></table>
+    </div>
+    <div class="card" id="uploadCard" hidden>
+      <h2 style="margin-top:0;font-size:1.05rem">Bestanden aanleveren</h2>
+      <input type="file" id="fileInput" multiple>
+      <button id="upBtn">Uploaden</button>
+      <div id="msg" class="muted"></div>
+    </div>
+  </main>
+  <script>
+    const token = location.pathname.split('/').pop();
+    let pw = sessionStorage.getItem('portalpw:' + token) || '';
+    let sub = '';
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const fmt = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(0) + ' kB' : n + ' B';
+    const hdr = () => (pw ? { 'X-Portal-Password': pw } : {});
+
+    async function load() {
+      const r = await fetch('/api/portal/' + encodeURIComponent(token) + (sub ? '?sub=' + encodeURIComponent(sub) : ''), { headers: hdr() });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 401) { document.getElementById('pwCard').hidden = false; document.getElementById('filesCard').hidden = true; if (pw) document.getElementById('pwErr').textContent = 'Onjuist wachtwoord.'; return; }
+      if (!r.ok) { document.getElementById('title').textContent = d.error || 'Portaal niet beschikbaar'; return; }
+      document.getElementById('pwCard').hidden = true;
+      document.title = d.title;
+      document.getElementById('title').textContent = d.title;
+      if (d.accent) document.documentElement.style.setProperty('--accent', d.accent);
+      const parts = sub ? sub.split('/').filter(Boolean) : [];
+      let crumbs = '<a href="#" data-sub="">Start</a>';
+      parts.forEach((p, i) => { crumbs += ' / <a href="#" data-sub="' + esc(parts.slice(0, i + 1).join('/')) + '">' + esc(p) + '</a>'; });
+      document.getElementById('crumbs').innerHTML = crumbs;
+      const rows = d.files.map((f) => {
+        const full = (sub ? sub + '/' : '') + f.name;
+        return f.isDir
+          ? '<tr><td>📁 <a href="#" data-sub="' + esc(full) + '">' + esc(f.name) + '</a></td><td class="size"></td></tr>'
+          : '<tr><td>📄 <a href="#" data-dl="' + esc(full) + '">' + esc(f.name) + '</a></td><td class="size">' + fmt(f.size) + '</td></tr>';
+      }).join('');
+      document.getElementById('files').innerHTML = rows || '<tr><td class="muted">Deze map is leeg.</td></tr>';
+      document.getElementById('filesCard').hidden = false;
+      document.getElementById('uploadCard').hidden = !d.allowUpload;
+    }
+
+    document.addEventListener('click', async (e) => {
+      const a = e.target.closest('a'); if (!a) return;
+      if (a.dataset.sub !== undefined) { e.preventDefault(); sub = a.dataset.sub; load(); }
+      else if (a.dataset.dl) {
+        e.preventDefault();
+        // Download via fetch zodat het wachtwoord in een header meegaat (niet in de URL).
+        const r = await fetch('/api/portal/' + encodeURIComponent(token) + '/download?path=' + encodeURIComponent(a.dataset.dl), { headers: hdr() });
+        if (!r.ok) return alert('Downloaden mislukt');
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a'); link.href = url; link.download = a.dataset.dl.split('/').pop(); link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      }
+    });
+    document.getElementById('pwBtn').onclick = () => { pw = document.getElementById('pw').value; sessionStorage.setItem('portalpw:' + token, pw); load(); };
+    document.getElementById('pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('pwBtn').click(); });
+    document.getElementById('upBtn').onclick = async () => {
+      const files = document.getElementById('fileInput').files; if (!files.length) return;
+      const fd = new FormData(); for (const f of files) fd.append('files', f);
+      document.getElementById('msg').textContent = 'Bezig met uploaden…';
+      const r = await fetch('/api/portal/' + encodeURIComponent(token) + '/upload', { method: 'POST', headers: hdr(), body: fd });
+      const d = await r.json().catch(() => ({}));
+      document.getElementById('msg').textContent = r.ok ? ('✅ Ontvangen: ' + d.saved.length + (d.rejected.length ? ' · geweigerd: ' + d.rejected.length : '')) : ('Fout: ' + (d.error || r.status));
+      document.getElementById('fileInput').value = '';
+      load();
+    };
+    load();
+  </script>
+</body>
+</html>

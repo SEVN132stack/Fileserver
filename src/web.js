@@ -5,6 +5,7 @@ import archiver from 'archiver';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import https from 'node:https';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
@@ -85,6 +86,8 @@ import * as insights from './insights.js';
 import * as scheduledReports from './scheduled-reports.js';
 import * as templates from './templates.js';
 import * as lifecycle from './lifecycle.js';
+import * as sharePresets from './share-presets.js';
+import * as portals from './portals.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
 import { passwordPwnedCount, isExpired } from './users.js';
@@ -96,7 +99,7 @@ import {
   recordDevice, listDevices, isTrustedDevice, trustDevice, forgetDevice,
 } from './users.js';
 import * as webauthn from './webauthn.js';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { handleTus, TUS_MOUNT } from './tus.js';
 import { quarantine, listQuarantine, release as qRelease, remove as qRemove } from './quarantine.js';
 import { snapshot, listVersions, versionPath } from './versions.js';
@@ -855,6 +858,74 @@ export function createWebServer() {
     // Token is een gevalideerde random string, maar escape defensief tegen reflectie.
     const safeToken = encodeURIComponent(req.params.token);
     res.send('<p style="font-family:sans-serif">✅ Bedankt, je bestanden zijn ontvangen. <a href="/s/' + safeToken + '">Meer uploaden</a></p>');
+  });
+
+  // --- v3.38: klantportalen (publiek, token + optioneel wachtwoord) ---
+  app.get('/p/:token', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'portal.html')));
+  const portalGuard = (req, res) => {
+    if (!rateHit(`portal:${clientIp(req)}`, 120, 60000).allowed) { res.status(429).json({ error: 'Te veel verzoeken' }); return null; }
+    const portal = portals.getPortal(req.params.token);
+    if (!portal) { res.status(404).json({ error: 'Portaal niet gevonden' }); return null; }
+    const pw = req.get('X-Portal-Password') || req.query.pw || '';
+    if (!portals.checkPassword(portal, pw)) {
+      // Wachtwoordpogingen extra beperken (brute-force).
+      if (!rateHit(`portalpw:${clientIp(req)}`, 20, 600000).allowed) { res.status(429).json({ error: 'Te veel pogingen' }); return null; }
+      res.status(401).json({ error: 'Wachtwoord vereist', needPassword: true }); return null;
+    }
+    return portal;
+  };
+  app.get('/api/portal/:token', (req, res) => {
+    const portal = portalGuard(req, res); if (!portal) return;
+    try {
+      const subRel = String(req.query.sub || '');
+      const ownerHome = homeDir(portal.owner);
+      // Als vertrouwelijk/geheim gelabelde items nooit via een portaal tonen.
+      const files = portals.listing(portal, subRel).filter((f) => labels.mayShare(ownerHome, path.posix.join(portal.path, subRel, f.name)));
+      if (!req.query.sub) portals.bump(req.params.token, 'views');
+      res.json({ name: portal.name, title: portal.title, accent: portal.accent, allowUpload: portal.allowUpload, files });
+    } catch { res.status(404).json({ error: 'Map niet gevonden' }); }
+  });
+  app.get('/api/portal/:token/download', (req, res) => {
+    const portal = portalGuard(req, res); if (!portal) return;
+    let abs;
+    try { ({ abs } = portals.resolveInPortal(portal, req.query.path || '')); } catch { return res.status(400).json({ error: 'Ongeldig pad' }); }
+    if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory() || path.basename(abs).startsWith('.')) return res.status(404).json({ error: 'Bestand niet gevonden' });
+    const ownerHome = homeDir(portal.owner);
+    const relInHome = '/' + path.relative(ownerHome, abs).split(path.sep).join('/');
+    if (!labels.mayShare(ownerHome, relInHome)) return res.status(404).json({ error: 'Bestand niet gevonden' });
+    audit('web', portal.owner, 'portal_download', { token: req.params.token.slice(0, 8), path: req.query.path, ip: clientIp(req) });
+    res.download(abs, path.basename(abs));
+  });
+  const portalUpload = multer({ storage: multer.memoryStorage(), limits: mlimits });
+  app.post('/api/portal/:token/upload', (req, res, next) => { const p = portalGuard(req, res); if (!p) return; req.portal = p; next(); }, portalUpload.array('files'), async (req, res) => {
+    const portal = req.portal;
+    if (!portal.allowUpload) return res.status(403).json({ error: 'Aanleveren niet toegestaan' });
+    const files = req.files || [];
+    const incoming = files.reduce((n, f) => n + f.size, 0);
+    const q = quota(portal.owner);
+    if (q > 0 && dirSize(homeDir(portal.owner)) + incoming > q) return res.status(413).json({ error: 'Opslaglimiet van de eigenaar bereikt' });
+    const { base } = portals.resolveInPortal(portal, '');
+    const dest = path.join(base, config.portalUploadDir);
+    fs.mkdirSync(dest, { recursive: true });
+    const saved = []; const rejected = [];
+    for (const f of files) {
+      const safe = path.basename(f.originalname).replace(/[^\w.\- ]+/g, '_').slice(0, 200) || 'bestand';
+      const tmp = path.join(os.tmpdir(), 'portal-' + randomBytes(8).toString('hex'));
+      fs.writeFileSync(tmp, f.buffer);
+      let clean = true; try { clean = (await scanFile(tmp)).clean !== false; } catch { /* scan niet beschikbaar */ }
+      if (!clean) { fs.rmSync(tmp, { force: true }); rejected.push(safe); continue; }
+      let target = path.join(dest, safe);
+      if (fs.existsSync(target)) { const ext = path.extname(safe); target = path.join(dest, path.basename(safe, ext) + '-' + randomBytes(3).toString('hex') + ext); }
+      fs.copyFileSync(tmp, target); fs.rmSync(tmp, { force: true });
+      saved.push(path.basename(target));
+    }
+    if (saved.length) {
+      portals.bump(req.params.token, 'uploads');
+      notifications.notifyUser(portal.owner, 'Nieuwe aanlevering via portaal', `${saved.length} bestand(en) in portaal "${portal.name}".`);
+      emitToUser(portal.owner, 'change', { action: 'portal_upload' });
+    }
+    audit('web', portal.owner, 'portal_upload', { token: req.params.token.slice(0, 8), saved: saved.length, rejected: rejected.length, ip: clientIp(req) });
+    res.json({ ok: true, saved, rejected });
   });
 
   // --- Alles hieronder vereist authenticatie ---
@@ -2210,6 +2281,29 @@ export function createWebServer() {
     res.json({ ok: true, rule: r });
   });
 
+  // --- v3.38: deel-presets en portaalbeheer ---
+  app.get('/api/share-presets', (req, res) => res.json({ presets: sharePresets.listPresets(req.user) }));
+  app.post('/api/share-presets', requireWrite, express.json(), (req, res) => {
+    try { res.json({ ok: true, preset: sharePresets.addPreset(req.user, req.body || {}) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/share-presets/:id', requireWrite, (req, res) => res.json({ ok: sharePresets.deletePreset(req.user, req.params.id) }));
+  app.get('/api/portals', (req, res) => res.json({ portals: portals.listPortals(req.user) }));
+  app.post('/api/portals', requireWrite, express.json(), (req, res) => {
+    const body = req.body || {};
+    if (!labels.mayShare(req.home, body.path || '/')) return res.status(403).json({ error: 'Deze map is als vertrouwelijk/geheim gelabeld en mag niet extern gedeeld worden.' });
+    try {
+      const token = portals.createPortal(req.user, body);
+      audit('web', req.user, 'portal_create', { path: body.path, upload: !!body.allowUpload });
+      res.json({ ok: true, token, url: `/p/${token}` });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/portals/:token', requireWrite, (req, res) => {
+    const ok = portals.deletePortal(req.user, req.params.token);
+    if (ok) audit('web', req.user, 'portal_delete', {});
+    res.json({ ok });
+  });
+
   // --- v3.37: geplande rapporten (admin) ---
   app.get('/api/admin/scheduled-reports', requireAdmin, (req, res) => res.json({ reports: scheduledReports.listReports() }));
   app.post('/api/admin/scheduled-reports', requireAdmin, express.json(), (req, res) => {
@@ -2499,17 +2593,27 @@ export function createWebServer() {
       audit('web', req.user, 'share_blocked', { path: req.body.path, reason: 'classificatie' });
       return res.status(403).json({ error: 'Dit bestand is als vertrouwelijk/geheim gelabeld en mag niet publiek gedeeld worden.' });
     }
+    // Optioneel een preset als basis; expliciete velden in de body gaan voor.
+    let preset = null;
+    if (req.body.presetId) {
+      preset = sharePresets.getPreset(req.user, String(req.body.presetId));
+      if (!preset) return res.status(404).json({ error: 'Preset niet gevonden' });
+    }
+    const pick = (k) => (req.body[k] !== undefined && req.body[k] !== '' ? Number(req.body[k]) : (preset ? preset[k] : 0)) || 0;
+    let password = req.body.password || null;
+    let generatedPassword = null;
+    if (!password && preset && preset.autoPassword) { password = generatedPassword = sharePresets.generatePassword(); }
     const token = createShare(req.user, req.body.path, {
-      expiresInHours: req.body.expiresInHours ? Number(req.body.expiresInHours) : 0,
-      password: req.body.password || null,
-      maxDownloads: req.body.maxDownloads ? Number(req.body.maxDownloads) : 0,
-      maxKbps: req.body.maxKbps ? Number(req.body.maxKbps) : 0,
+      expiresInHours: pick('expiresInHours'),
+      password,
+      maxDownloads: pick('maxDownloads'),
+      maxKbps: pick('maxKbps'),
     });
-    audit('web', req.user, 'share_create', { path: req.body.path });
+    audit('web', req.user, 'share_create', { path: req.body.path, preset: preset ? preset.id : undefined });
     emitEvent('share_create', { user: req.user, path: req.body.path, token });
     notifyShare('share_create', req.user, { path: req.body.path, token });
     emitAdmin('activity', { kind: 'share', user: req.user });
-    res.json({ token, url: `/s/${token}` });
+    res.json({ token, url: `/s/${token}`, ...(generatedPassword ? { password: generatedPassword } : {}) });
   });
   app.get('/api/shares', (req, res) => res.json({ shares: listShares(req.user) }));
   app.delete('/api/share/:token', (req, res) => res.json({ ok: deleteShare(req.user, req.params.token) }));

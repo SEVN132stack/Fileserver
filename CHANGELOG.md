@@ -1,5 +1,21 @@
 # Changelog
 
+## [3.38.0] - 2026-09-23
+
+### Toegevoegd (Batch R — Delen & externe samenwerking)
+
+- **Klantportalen**: een gebrande, publieke pagina (`/p/<token>`) per klantmap, met eigen
+  koptekst en accentkleur, optioneel wachtwoord en vervaldatum. De klant bladert door de map en
+  downloadt bestanden; als dat is toegestaan levert de klant ook bestanden aan (na virusscan,
+  binnen het quotum van de eigenaar, in de submap `Aangeleverd`). Paden blijven strikt binnen de
+  portaalmap, als vertrouwelijk/geheim gelabelde mappen en bestanden worden nooit via een
+  portaal getoond, en er is rate-limiting op verzoeken en wachtwoordpogingen.
+  Beheer via `/api/portals`.
+- **Deel-link-presets**: herbruikbare profielen (vervaltijd, max. downloads, snelheidslimiet,
+  auto-wachtwoord) per gebruiker. `/api/share` accepteert een `presetId`; met auto-wachtwoord
+  wordt per link een willekeurig wachtwoord gemaakt en één keer getoond (presets bevatten nooit
+  een wachtwoord in platte tekst). De deel-dialoog is een formulier met preset-keuze geworden.
+
 ## [3.37.0] - 2026-09-23
 
 ### Toegevoegd (Batch Q — Automatisering & workflows)

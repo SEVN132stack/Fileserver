@@ -195,6 +195,11 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Delen & externe samenwerking (v3.38)
+
+- **Klantportalen** — gebrande externe pagina per klantmap: bladeren, downloaden en optioneel aanleveren (virusscan, quotum, wachtwoord, vervaldatum) via `/p/<token>`.
+- **Deel-link-presets** — herbruikbare profielen voor deel-links, met optioneel een per link gegenereerd wachtwoord.
+
 ## Automatisering & workflows (v3.37)
 
 - **Workflow-engine** — upload-regels met condities (pad/ext/naam-bevat/grootte) en acties (tag/verplaats/notificeer/classificatie), per regel aan/uit.
