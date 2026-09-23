@@ -69,6 +69,8 @@ process.env.CHAT_BOT_USER = 'admin';
 process.env.SCHEDULED_REPORTS_FILE = path.join(tmp, 'scheduled-reports.json');
 process.env.TEMPLATES_FILE = path.join(tmp, 'templates.json');
 process.env.LIFECYCLE_FILE = path.join(tmp, 'lifecycle.json');
+process.env.SHARE_PRESETS_FILE = path.join(tmp, 'share-presets.json');
+process.env.PORTALS_FILE = path.join(tmp, 'portals.json');
 process.env.EVENT_HOOKS_FILE = path.join(tmp, 'event-hooks.json');
 process.env.WEBHOOK_SUBS_FILE = path.join(tmp, 'webhook-subs.json');
 process.env.COLD_STORE_MIN_BYTES = '0';
@@ -1709,6 +1711,49 @@ try {
     const lockedStayed = fs.existsSync(path.join(od, 'vergrendeld.txt'));
     ok('verloop-workflow: archiveren + vergrendelde overslaan',
       Array.isArray(prev.items) && prev.items.length >= 2 && run.archived >= 2 && archived && lockedStayed && run.skipped.includes('/oud/vergrendeld.txt'));
+  }
+
+  // 132. Deel-presets: preset met auto-wachtwoord levert een beveiligde link op.
+  {
+    const shares = await import('../src/shares.js');
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'offerte.pdf'), 'pdf');
+    const pr = await (await fetch(H + '/api/share-presets', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ name: 'Klant 7d', expiresInHours: 168, maxDownloads: 5, autoPassword: true }) })).json();
+    const sh = await (await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/offerte.pdf', presetId: pr.preset.id }) })).json();
+    const rec = shares.getShare(sh.token);
+    const bad = await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/offerte.pdf', presetId: 'bestaatniet' }) });
+    ok('deel-presets: preset toepassen + auto-wachtwoord',
+      pr.ok && typeof sh.password === 'string' && sh.password.length >= 12 && rec.maxDownloads === 5 && rec.expires > Date.now() + 160 * 3600000 &&
+      shares.checkSharePassword(rec, sh.password) && !shares.checkSharePassword(rec, 'fout') && bad.status === 404);
+  }
+
+  // 133. Klantportaal: wachtwoord, listing, download, aanlevering, traversal geblokkeerd.
+  {
+    const pd = path.join(config.storageDir, 'admin', 'klantA'); fs.mkdirSync(pd, { recursive: true });
+    fs.writeFileSync(path.join(pd, 'rapport.txt'), 'inhoud');
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'geheim-buiten.txt'), 'nee');
+    const cr = await (await fetch(H + '/api/portals', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ name: 'Klant A', path: '/klantA', allowUpload: true, password: 'portaalpw1', accent: '#123456' }) })).json();
+    const tok = cr.token;
+    const noPw = await fetch(H + '/api/portal/' + tok);
+    const list = await (await fetch(H + '/api/portal/' + tok, { headers: { 'X-Portal-Password': 'portaalpw1' } })).json();
+    const dl = await fetch(H + '/api/portal/' + tok + '/download?path=rapport.txt', { headers: { 'X-Portal-Password': 'portaalpw1' } });
+    const dlText = await dl.text();
+    const trav = await fetch(H + '/api/portal/' + tok + '/download?path=' + encodeURIComponent('../geheim-buiten.txt'), { headers: { 'X-Portal-Password': 'portaalpw1' } });
+    const fd = new FormData(); fd.append('files', new Blob(['aangeleverd']), 'levering.txt');
+    const up = await (await fetch(H + '/api/portal/' + tok + '/upload', { method: 'POST', headers: { 'X-Portal-Password': 'portaalpw1' }, body: fd })).json();
+    const landed = fs.existsSync(path.join(pd, config.portalUploadDir, 'levering.txt'));
+    // Classificatie: een vertrouwelijke map mag geen portaal krijgen.
+    const labelsMod = await import('../src/labels.js');
+    fs.mkdirSync(path.join(config.storageDir, 'admin', 'vertrouwelijk'), { recursive: true });
+    labelsMod.setLabel(path.join(config.storageDir, 'admin'), '/vertrouwelijk', 'vertrouwelijk', 'admin');
+    fs.writeFileSync(path.join(pd, 'intern.txt'), 'geheim');
+    labelsMod.setLabel(path.join(config.storageDir, 'admin'), '/klantA/intern.txt', 'geheim', 'admin');
+    const list2 = await (await fetch(H + '/api/portal/' + tok, { headers: { 'X-Portal-Password': 'portaalpw1' } })).json();
+    const dlSecret = await fetch(H + '/api/portal/' + tok + '/download?path=intern.txt', { headers: { 'X-Portal-Password': 'portaalpw1' } });
+    const secretHidden = !list2.files.some((f) => f.name === 'intern.txt') && dlSecret.status === 404;
+    const blocked = await fetch(H + '/api/portals', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ name: 'X', path: '/vertrouwelijk' }) });
+    ok('klantportaal: wachtwoord + listing + download + upload + traversal/classificatie geblokkeerd',
+      cr.ok && noPw.status === 401 && list.accent === '#123456' && list.files.some((f) => f.name === 'rapport.txt') &&
+      dl.ok && dlText === 'inhoud' && trav.status === 400 && up.ok && up.saved.includes('levering.txt') && landed && blocked.status === 403 && secretHidden);
   }
 
   console.log(`\n${passed} tests geslaagd.`);

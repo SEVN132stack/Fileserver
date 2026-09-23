@@ -512,13 +512,27 @@ document.addEventListener('click', async (e) => {
   if (t2.dataset.restore) { await api('/api/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t2.dataset.restore)})}); renderTrash(); load(); loadMe(); return; }
   if (t2.dataset.share) {
     const p = decodeURIComponent(t2.dataset.share);
-    const hrs = prompt('Vervalt na hoeveel uur? (leeg = nooit)', '24');
-    if (hrs === null) return;
-    const pw = prompt('Wachtwoord voor de link? (leeg = geen)', '') || null;
-    const max = prompt('Maximaal aantal downloads? (leeg = onbeperkt)', '') || 0;
-    const r = await (await api('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,expiresInHours:hrs?Number(hrs):0,password:pw,maxDownloads:Number(max)||0})})).json();
+    const { presets } = await (await api('/api/share-presets')).json();
+    const opts = (presets||[]).map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
+    openModal(`<h3>🔗 Deel-link voor ${esc(p.split('/').pop())}</h3>
+      <label>Preset <select id="shPreset"><option value="">— eigen instellingen —</option>${opts}</select></label>
+      <div id="shCustom" style="display:grid;gap:.4rem;margin-top:.6rem">
+        <label>Vervalt na (uur, leeg = nooit) <input id="shHrs" type="number" min="0" value="24" style="width:90px"></label>
+        <label>Wachtwoord (leeg = geen) <input id="shPw" type="text" autocomplete="off"></label>
+        <label>Max. downloads (leeg = onbeperkt) <input id="shMax" type="number" min="0" style="width:90px"></label>
+      </div>
+      <button data-sharego="${enc(p)}" style="margin-top:.7rem">Link maken</button>`);
+    document.getElementById('shPreset').onchange = (e) => { document.getElementById('shCustom').style.display = e.target.value ? 'none' : 'grid'; };
+    return;
+  }
+  if (t2.dataset.sharego) {
+    const p = decodeURIComponent(t2.dataset.sharego);
+    const presetId = document.getElementById('shPreset').value;
+    const body = presetId ? { path: p, presetId } : { path: p, expiresInHours: Number(document.getElementById('shHrs').value)||0, password: document.getElementById('shPw').value || null, maxDownloads: Number(document.getElementById('shMax').value)||0 };
+    const r = await (await api('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
     if (r.error) return alert(r.error);
-    showLink('Deel-link (download)', location.origin + r.url); return;
+    closeModal();
+    showLink('Deel-link (download)' + (r.password ? ' — wachtwoord: ' + r.password : ''), location.origin + r.url); return;
   }
   if (t2.dataset.meta) {
     const p = decodeURIComponent(t2.dataset.meta);
@@ -801,6 +815,43 @@ async function showAutomation() {
     <h4 style="margin-top:1rem">Digest-samenvatting</h4>
     <select id="digestFreq">${opt('off')}${opt('daily')}${opt('weekly')}</select> <button data-digestsave>Opslaan</button>`);
 }
+// Deel-presets & klantportalen (features 5 + 8).
+async function showSharing() {
+  const [pr, po] = await Promise.all([api('/api/share-presets'), api('/api/portals')]);
+  const presets = (await pr.json()).presets || [];
+  const ports = (await po.json()).portals || [];
+  const prow = x => `<tr><td>${esc(x.name)}</td><td>${x.expiresInHours||'∞'} u · ${x.maxDownloads||'∞'} dl${x.autoPassword?' · 🔑 auto':''}</td><td><button class="danger" data-presetdel="${esc(x.id)}">×</button></td></tr>`;
+  const porow = x => `<tr><td>${esc(x.name)}<br><small class="muted">${esc(x.path)}</small></td><td>${x.allowUpload?'⬆️ ':''}${x.hasPassword?'🔑 ':''}${x.views} bezoeken · ${x.uploads} uploads</td><td><button data-portalcopy="${esc(x.token)}">link</button> <button class="danger" data-portaldel="${esc(x.token)}">×</button></td></tr>`;
+  openModal(`<h3>🤝 Delen & portalen</h3>
+    <h4>Deel-link-presets</h4>
+    <table><tr><th>Naam</th><th>Instellingen</th><th></th></tr>${presets.map(prow).join('')||'<tr><td colspan="3" class="muted">Nog geen presets.</td></tr>'}</table>
+    <div style="margin-top:.4rem;display:flex;gap:.3rem;flex-wrap:wrap;align-items:center">
+      <input id="psName" placeholder="naam" style="width:110px"><input id="psHrs" type="number" min="0" placeholder="uur" style="width:65px">
+      <input id="psMax" type="number" min="0" placeholder="max dl" style="width:70px"><label><input type="checkbox" id="psAuto"> auto-wachtwoord</label>
+      <button data-presetadd>Preset opslaan</button></div>
+    <h4 style="margin-top:1rem">Klantportalen</h4>
+    <table><tr><th>Portaal</th><th>Status</th><th></th></tr>${ports.map(porow).join('')||'<tr><td colspan="3" class="muted">Nog geen portalen.</td></tr>'}</table>
+    <div style="margin-top:.4rem;display:grid;gap:.3rem">
+      <div style="display:flex;gap:.3rem;flex-wrap:wrap"><input id="ptName" placeholder="naam (bijv. klant)" style="width:130px"><input id="ptPath" placeholder="map" value="${esc(cwd||'/')}" style="width:130px"><input id="ptTitle" placeholder="koptekst" style="width:130px"><input id="ptAccent" placeholder="#kleur" style="width:80px"></div>
+      <div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center"><label><input type="checkbox" id="ptUpload"> klant mag aanleveren</label><input id="ptPw" placeholder="wachtwoord (optioneel)" style="width:160px"><input id="ptDays" type="number" min="0" placeholder="geldig (dagen)" style="width:110px"><button data-portaladd>Portaal maken</button></div>
+    </div>`);
+}
+const sharingBtn = document.getElementById('sharingBtn'); if (sharingBtn) sharingBtn.onclick = showSharing;
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (t.hasAttribute && t.hasAttribute('data-presetadd')) {
+    const r = await (await api('/api/share-presets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:document.getElementById('psName').value,expiresInHours:document.getElementById('psHrs').value,maxDownloads:document.getElementById('psMax').value,autoPassword:document.getElementById('psAuto').checked})})).json();
+    if (r.error) return alert(r.error); return showSharing();
+  }
+  if (t.dataset.presetdel) { await api('/api/share-presets/'+encodeURIComponent(t.dataset.presetdel),{method:'DELETE'}); return showSharing(); }
+  if (t.hasAttribute && t.hasAttribute('data-portaladd')) {
+    const r = await (await api('/api/portals',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:document.getElementById('ptName').value,path:document.getElementById('ptPath').value||'/',title:document.getElementById('ptTitle').value,accent:document.getElementById('ptAccent').value,allowUpload:document.getElementById('ptUpload').checked,password:document.getElementById('ptPw').value,expiresInDays:document.getElementById('ptDays').value})})).json();
+    if (r.error) return alert(r.error);
+    showLink('Klantportaal', location.origin + r.url); return;
+  }
+  if (t.dataset.portalcopy) { showLink('Klantportaal', location.origin + '/p/' + t.dataset.portalcopy); return; }
+  if (t.dataset.portaldel) { if (!confirm('Portaal verwijderen? De link werkt daarna niet meer.')) return; await api('/api/portals/'+encodeURIComponent(t.dataset.portaldel),{method:'DELETE'}); return showSharing(); }
+});
 const autoBtn = document.getElementById('autoBtn'); if (autoBtn) autoBtn.onclick = showAutomation;
 document.addEventListener('click', async (e) => {
   const t = e.target;

@@ -559,7 +559,13 @@ export const config = {
   lifecycleIntervalHours: parseInt(process.env.LIFECYCLE_INTERVAL_HOURS || '24', 10),
   lifecycleArchiveDir: process.env.LIFECYCLE_ARCHIVE_DIR || 'Archief', // submap in home
 
-  version: '3.37.0',
+  // --- v3.38 (delen & externe samenwerking) ---
+  // Deel-link-presets per gebruiker en klantportalen (gebrande externe ruimtes).
+  sharePresetsFile: abs(process.env.SHARE_PRESETS_FILE || 'share-presets.json'),
+  portalsFile: abs(process.env.PORTALS_FILE || 'portals.json'),
+  portalUploadDir: process.env.PORTAL_UPLOAD_DIR || 'Aangeleverd', // submap in de portaalmap
+
+  version: '3.38.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
