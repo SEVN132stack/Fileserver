@@ -4,12 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Registreren — Fileserver</title>
+  <script>(function(){try{var s=localStorage.getItem('style')||{dark:'donker',light:'licht',auto:'systeem'}[localStorage.getItem('theme')]||localStorage.getItem('styleDefault')||'systeem';if(s==='systeem')s=matchMedia('(prefers-color-scheme: light)').matches?'licht':'donker';document.documentElement.setAttribute('data-style',s);}catch(e){}})();</script>
+  <link rel="stylesheet" href="/themes.css" />
   <style>
-    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; font-family:system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
-    .card { background:#1e293b; padding:2rem; border-radius:12px; width:320px; }
-    h1 { font-size:1.1rem; } label { display:block; font-size:.85rem; color:#94a3b8; margin:.7rem 0 .2rem; }
-    input { width:100%; padding:.6rem; border-radius:6px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; box-sizing:border-box; }
-    button { width:100%; margin-top:1.2rem; padding:.65rem; border:0; border-radius:6px; background:#38bdf8; color:#04283a; font-weight:700; cursor:pointer; }
+    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); }
+    .card { background:var(--panel); padding:2rem; border-radius:12px; width:320px; }
+    h1 { font-size:1.1rem; } label { display:block; font-size:.85rem; color:var(--muted); margin:.7rem 0 .2rem; }
+    input { width:100%; padding:.6rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); box-sizing:border-box; }
+    button { width:100%; margin-top:1.2rem; padding:.65rem; border:0; border-radius:6px; background:var(--accent); color:var(--accent-contrast); font-weight:700; cursor:pointer; }
     .msg { margin-top:.8rem; font-size:.85rem; }
   </style>
 </head>

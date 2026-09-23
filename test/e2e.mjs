@@ -67,6 +67,22 @@ try {
   if (!hasFolder) throw new Error('map niet aangemaakt');
   console.log('  ✓ map aanmaken via de UI werkt');
 
+  // Nieuwe indeling: ⋯-menu per rij, commandopalet en stijlkeuze.
+  await page.locator('#rows .rowmore').first().click();
+  if (!(await page.locator('.rowmenu.open button').count())) throw new Error('rij-menu opent niet');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+k');
+  if (!(await page.locator('#palette.open').count())) throw new Error('commandopalet opent niet');
+  await page.keyboard.press('Escape');
+  for (const st of ['licht', 'zakelijk', 'donker']) {
+    await page.selectOption('#styleSelect', st);
+    if ((await page.getAttribute('html', 'data-style')) !== st) throw new Error('stijl ' + st + ' niet toegepast');
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  const sw = await page.evaluate(() => document.documentElement.scrollWidth);
+  if (sw > 400) throw new Error('horizontale scroll op mobiel: ' + sw);
+  console.log('  ✓ rij-menu, commandopalet, stijlen en mobiele indeling werken');
+
   await browser.close();
   console.log('\nE2E-browsertest geslaagd.');
 } catch (err) {

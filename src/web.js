@@ -708,7 +708,7 @@ export function createWebServer() {
   // --- Passkey-login (geen auth) ---
   app.get('/api/webauthn/enabled', (req, res) => res.json({ enabled: config.webauthn.enabled }));
   // Publieke branding (voor de login-/reset-pagina's).
-  app.get('/api/branding', (req, res) => res.json({ appName: getSetting('appName'), logoUrl: getSetting('logoUrl'), accent: getSetting('accent'), bannerText: getSetting('bannerText'), bannerLevel: getSetting('bannerLevel') }));
+  app.get('/api/branding', (req, res) => res.json({ appName: getSetting('appName'), logoUrl: getSetting('logoUrl'), accent: getSetting('accent'), bannerText: getSetting('bannerText'), bannerLevel: getSetting('bannerLevel'), defaultStyle: getSetting('defaultStyle') }));
   app.post('/api/webauthn/login/options', express.json(), async (req, res) => {
     if (!config.webauthn.enabled || !userExists(req.body.username)) return res.status(400).json({ error: 'Niet beschikbaar' });
     res.json(await webauthn.authenticationOptions(req.body.username));
@@ -1066,7 +1066,7 @@ export function createWebServer() {
       require2fa: config.requireTwoFactor === 'all' || (config.requireTwoFactor === 'admin' && req.userRole === 'admin'),
       has2fa: !!getUser(req.user)?.totp || getCredentials(req.user).length > 0,
       mustChangePassword: isPasswordExpired(req.user),
-      branding: { appName: getSetting('appName'), logoUrl: getSetting('logoUrl'), accent: getSetting('accent'), bannerText: getSetting('bannerText'), bannerLevel: getSetting('bannerLevel') },
+      branding: { appName: getSetting('appName'), logoUrl: getSetting('logoUrl'), accent: getSetting('accent'), bannerText: getSetting('bannerText'), bannerLevel: getSetting('bannerLevel'), defaultStyle: getSetting('defaultStyle') },
       impersonating: !!req.impersonating,
       realUser: req.realUser || null,
     });

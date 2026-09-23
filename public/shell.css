@@ -1,0 +1,131 @@
+/* Nieuwe app-indeling (v3.42): zijbalk + topbalk, menu's, rij-menu en
+   commandopalet. Wordt ná de bestaande inline stijl geladen en werkt volledig op
+   de thema-variabelen uit themes.css. */
+
+:root[data-style] body { background: var(--bg); color: var(--text); }
+
+/* --- Basis-elementen in de stijl --- */
+:root[data-style] button { background: var(--accent); color: var(--accent-contrast); border: 1px solid transparent; border-radius: var(--radius-sm); font-weight: 600; }
+:root[data-style] button.ghost { background: var(--panel); color: var(--text); border-color: var(--border); }
+:root[data-style] button.ghost:hover { background: var(--hover); opacity: 1; }
+:root[data-style] button.danger { background: transparent; color: var(--danger); border-color: var(--border); }
+:root[data-style] input, :root[data-style] select, :root[data-style] textarea { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+:root[data-style] table { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+:root[data-style] th, :root[data-style] td { border-bottom-color: var(--border); }
+:root[data-style] tbody tr:hover, :root[data-style] #rows tr:hover { background: var(--hover); }
+:root[data-style] #modal .box { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+:root[data-style="zakelijk"] th { background: var(--panel-2); }
+
+/* --- Indeling --- */
+body.shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); grid-template-rows: auto 1fr; min-height: 100vh; }
+body.shell > header { grid-column: 1 / -1; position: sticky; top: 0; z-index: 30; background: var(--panel); border-bottom: 1px solid var(--border);
+  padding: .55rem 1rem; gap: .75rem; flex-wrap: nowrap; }
+body.shell > header h1 { font-size: 1.02rem; white-space: nowrap; display: flex; align-items: center; gap: .5rem; }
+body.shell > header h1 img { height: 26px; width: auto; }
+body.shell > header .spacer { flex: 1; }
+body.shell > header .who { white-space: nowrap; }
+body.shell #sidebar { grid-column: 1; grid-row: 2; background: var(--sidebar); color: var(--sidebar-text); border-right: 1px solid var(--border);
+  padding: .8rem .6rem 1.2rem; position: sticky; top: 52px; height: calc(100vh - 52px); overflow-y: auto; }
+body.shell > main { grid-column: 2; grid-row: 2; max-width: 1180px; width: 100%; margin: 0 auto; padding: 1.1rem 1.4rem 3rem; }
+
+#globalBanner, #impBanner { grid-column: 1 / -1; }
+body.shell:has(> #globalBanner) { grid-template-rows: auto auto 1fr; }
+body.shell:has(> #globalBanner) > #sidebar, body.shell:has(> #globalBanner) > main { grid-row: 3; }
+
+/* Zoekveld in de topbalk */
+#topSearch { display: flex; align-items: center; gap: .4rem; flex: 1; max-width: 560px; margin-left: 1rem; }
+#topSearch input[type=search] { flex: 1; padding: .5rem .8rem; border-radius: 999px; background: var(--panel-2); }
+#topSearch label { white-space: nowrap; font-size: .8rem; color: var(--muted); }
+#paletteBtn { font-size: .8rem; color: var(--muted); }
+#paletteBtn kbd { font: inherit; border: 1px solid var(--border); border-radius: 4px; padding: 0 .3rem; margin-left: .2rem; }
+#menuToggle { display: none; }
+
+/* --- Zijbalk --- */
+#sidebar .nav-group { margin-bottom: 1rem; }
+#sidebar .nav-title { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--sidebar-muted); padding: .2rem .7rem .35rem; }
+#sidebar button, #sidebar .navrow { display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left; background: transparent; color: var(--sidebar-text);
+  border: 0; border-radius: var(--radius-sm); padding: .48rem .7rem; font-weight: 500; font-size: .9rem; margin: 1px 0; cursor: pointer; }
+#sidebar button:hover { background: var(--sidebar-hover); opacity: 1; }
+#sidebar button.active { background: var(--sidebar-active); color: var(--sidebar-text); font-weight: 650; outline: none; }
+#sidebar .ico { width: 1.3rem; text-align: center; flex: 0 0 auto; }
+#sidebar .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#sidebar .navrow { cursor: default; }
+#sidebar .navrow select, #sidebar .navrow > button { width: auto; flex: 0 0 auto; padding: .25rem .5rem; font-size: .8rem; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+#sidebar .tabs { display: block; margin: 0 0 1rem; }
+#sidebar #quota { display: block; padding: .5rem .7rem; font-size: .78rem; color: var(--sidebar-muted); }
+#sidebar #quota .barwrap { width: 100%; margin: .35rem 0 0; display: block; }
+#sidebar #jobsCount, #sidebar #notifCount { background: var(--accent); color: var(--accent-contrast); border-radius: 999px; padding: 0 .45rem; font-size: .7rem; }
+
+/* --- Werkbalk en menu's --- */
+.toolbar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .2rem 0 1rem; }
+.toolbar .grow { flex: 1; }
+.menu { position: relative; display: inline-block; }
+.menu-pop { position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; min-width: 240px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow); padding: .35rem; }
+.menu-pop.right { left: auto; right: 0; }
+.menu-pop[hidden] { display: none; }
+.menu-pop button { display: flex; align-items: center; gap: .55rem; width: 100%; text-align: left; background: transparent; color: var(--text); border: 0; font-weight: 500; padding: .5rem .6rem; }
+.menu-pop button:hover { background: var(--hover); opacity: 1; }
+.menu-pop button.danger { color: var(--danger); }
+.menu-pop hr { border: 0; border-top: 1px solid var(--border); margin: .3rem 0; }
+
+#selBar { display: none; align-items: center; gap: .5rem; flex-wrap: wrap; padding: .5rem .7rem; margin-bottom: .8rem; background: var(--accent-soft);
+  border: 1px solid var(--border); border-radius: var(--radius); }
+#selBar.show { display: flex; }
+#selBar .count { font-weight: 650; margin-right: .4rem; }
+
+/* Compacte uploadzone */
+body.shell #drop { padding: .7rem 1rem; font-size: .9rem; border-radius: var(--radius); background: var(--panel); border-color: var(--border); }
+body.shell #drop.over { border-color: var(--accent); background: var(--accent-soft); }
+
+/* Klikken op pictogram/label binnen een knop moet de knop zelf raken
+   (gedelegeerde handlers kijken naar e.target.dataset). */
+button > span, button > kbd { pointer-events: none; }
+
+/* --- Rij-acties: primaire knop + ⋯-menu --- */
+.actions { position: relative; }
+.actions .rowmore { font-size: 1rem; line-height: 1; padding: .25rem .55rem; }
+.rowmenu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 35; min-width: 230px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow); padding: .3rem; display: none; }
+.rowmenu.up { top: auto; bottom: calc(100% + 4px); }
+.rowmenu.open { display: block; }
+.rowmenu button { display: flex !important; align-items: center; gap: .55rem; width: 100%; text-align: left; background: transparent !important; color: var(--text) !important;
+  border: 0 !important; font-weight: 500; font-size: .86rem !important; padding: .45rem .6rem !important; }
+.rowmenu button:hover { background: var(--hover) !important; }
+.rowmenu button.danger { color: var(--danger) !important; }
+.rowmenu .lbl { flex: 1; }
+
+/* --- Commandopalet --- */
+#palette { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, .45); display: none; align-items: flex-start; justify-content: center; padding-top: 12vh; }
+#palette.open { display: flex; }
+#palette .box { width: min(620px, 94vw); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+#palette input { width: 100%; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: .9rem 1rem; font-size: 1rem; background: var(--panel); outline: none; }
+#palette ul { list-style: none; margin: 0; padding: .3rem; max-height: 55vh; overflow: auto; }
+#palette li { display: flex; align-items: center; gap: .6rem; padding: .5rem .7rem; border-radius: var(--radius-sm); cursor: pointer; }
+#palette li .grp { margin-left: auto; font-size: .75rem; color: var(--muted); }
+#palette li.sel { background: var(--accent-soft); }
+
+/* --- Mobiel --- */
+@media (max-width: 900px) {
+  body.shell { grid-template-columns: minmax(0, 1fr); }
+  body.shell > main { grid-column: 1; padding: .8rem .7rem 3rem; }
+  body.shell #sidebar { position: fixed; top: 0; left: 0; bottom: 0; height: 100vh; width: 280px; z-index: 60; transform: translateX(-105%); transition: transform .2s ease; box-shadow: var(--shadow); }
+  body.shell.nav-open #sidebar { transform: none; }
+  body.shell.nav-open::after { content: ""; position: fixed; inset: 0; background: rgba(0, 0, 0, .4); z-index: 55; }
+  #menuToggle { display: inline-flex; }
+  body.shell > header { padding: .5rem .6rem; gap: .45rem; overflow: visible; }
+  body.shell > header .who, #paletteBtn span, #paletteBtn kbd, #topSearch label { display: none; }
+  #topSearch { min-width: 0; }
+  #topSearch input[type=search] { min-width: 0; width: 100%; }
+  body.shell > header > * { flex-shrink: 1; min-width: 0; }
+  body.shell > header button { flex-shrink: 0; }
+  #topSearch { margin-left: 0; }
+  body.shell > header h1 .appname { display: none; }
+  .toolbar { gap: .4rem; }
+  body.shell td:nth-child(3), body.shell th:nth-child(3) { display: none; }
+}
+
+/* Kiosk: navigatie en beheer verbergen. */
+body.kiosk #sidebar, body.kiosk #menuToggle, body.kiosk .toolbar .menu, body.kiosk #selBar, body.kiosk .rowmore { display: none !important; }
+body.kiosk.shell { grid-template-columns: minmax(0, 1fr); }
+body.kiosk.shell > main { grid-column: 1; }

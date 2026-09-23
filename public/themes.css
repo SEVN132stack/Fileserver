@@ -1,0 +1,84 @@
+/* Gedeelde stijlen (thema-variabelen) voor app, login en beheer.
+   Keuze via <html data-style="licht|donker|zakelijk">; "systeem" wordt in JS
+   vertaald naar licht of donker. Hoog contrast (.hc) gaat altijd voor. */
+
+:root, :root[data-style="donker"] {
+  --bg: #0b1120;
+  --panel: #111827;
+  --panel-2: #1a2333;
+  --hover: #1f2a3d;
+  --text: #e5e7eb;
+  --muted: #9aa4b2;
+  --border: #243044;
+  --accent: #38bdf8;
+  --accent-contrast: #03253a;
+  --accent-soft: rgba(56, 189, 248, .14);
+  --danger: #f87171;
+  --radius: 10px;
+  --radius-sm: 7px;
+  --shadow: 0 12px 32px rgba(0, 0, 0, .45);
+  --sidebar: #0e1626;
+  --sidebar-text: #d7dde7;
+  --sidebar-muted: #8391a7;
+  --sidebar-hover: #182338;
+  --sidebar-active: rgba(56, 189, 248, .16);
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: dark;
+}
+
+:root[data-style="licht"] {
+  --bg: #f5f7fb;
+  --panel: #ffffff;
+  --panel-2: #f1f4f9;
+  --hover: #eef2f8;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: #e3e8ef;
+  --accent: #2563eb;
+  --accent-contrast: #ffffff;
+  --accent-soft: rgba(37, 99, 235, .10);
+  --danger: #dc2626;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 10px 28px rgba(15, 23, 42, .10);
+  --sidebar: #ffffff;
+  --sidebar-text: #1f2937;
+  --sidebar-muted: #7b8494;
+  --sidebar-hover: #f1f4f9;
+  --sidebar-active: rgba(37, 99, 235, .10);
+  color-scheme: light;
+}
+
+:root[data-style="zakelijk"] {
+  --bg: #eef0f3;
+  --panel: #ffffff;
+  --panel-2: #f6f7f9;
+  --hover: #f0f2f5;
+  --text: #111827;
+  --muted: #4b5563;
+  --border: #d4d8de;
+  --accent: #0f766e;
+  --accent-contrast: #ffffff;
+  --accent-soft: rgba(15, 118, 110, .10);
+  --danger: #b91c1c;
+  --radius: 4px;
+  --radius-sm: 3px;
+  --shadow: 0 2px 8px rgba(17, 24, 39, .10);
+  --sidebar: #1f2937;
+  --sidebar-text: #e5e7eb;
+  --sidebar-muted: #9ca3af;
+  --sidebar-hover: #2b3645;
+  --sidebar-active: rgba(255, 255, 255, .10);
+  --font: "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color-scheme: light;
+}
+
+/* Hoog contrast: toegankelijkheid gaat boven elke stijl. */
+:root.hc, :root.hc[data-style] {
+  --bg: #000; --panel: #000; --panel-2: #000; --hover: #222; --text: #fff; --muted: #e0e0e0;
+  --border: #fff; --accent: #ffff00; --accent-contrast: #000; --accent-soft: rgba(255,255,0,.2);
+  --danger: #ff5555; --sidebar: #000; --sidebar-text: #fff; --sidebar-muted: #e0e0e0;
+  --sidebar-hover: #222; --sidebar-active: #333; --shadow: none;
+}
+
+body { font-family: var(--font); }

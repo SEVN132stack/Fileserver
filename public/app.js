@@ -60,14 +60,35 @@ function scheduledTheme() {
   const h = new Date().getHours();
   return (h >= 7 && h < 19) ? 'light' : 'dark';
 }
-function applyTheme() {
-  let th = localStorage.getItem('theme') || 'dark';
-  if (th === 'auto') th = scheduledTheme();
-  document.documentElement.setAttribute('data-theme', th);
-  document.documentElement.classList.toggle('hc', localStorage.getItem('highContrast') === '1');
+// Stijlen (v3.42): licht, donker, zakelijk of systeem. Keuze per gebruiker in
+// localStorage 'style'; zonder keuze geldt de standaard van de beheerder.
+const STYLES = ['licht', 'donker', 'zakelijk', 'systeem'];
+function currentStyleChoice() {
+  let s = null; try { s = localStorage.getItem('style'); } catch { /* nvt */ }
+  if (!s) { // migratie van de oude thema-sleutel
+    let old = null; try { old = localStorage.getItem('theme'); } catch { /* nvt */ }
+    s = { dark: 'donker', light: 'licht', auto: 'systeem' }[old] || null;
+  }
+  if (!STYLES.includes(s)) { try { s = localStorage.getItem('styleDefault'); } catch { s = null; } }
+  return STYLES.includes(s) ? s : 'systeem';
 }
-// Bij 'auto' periodiek herevalueren zodat het thema met de klok meebeweegt.
-setInterval(() => { if ((localStorage.getItem('theme') || 'dark') === 'auto') applyTheme(); }, 300000);
+function applyTheme() {
+  let s = currentStyleChoice();
+  if (s === 'systeem') s = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'licht' : 'donker';
+  const root = document.documentElement;
+  root.setAttribute('data-style', s);
+  root.setAttribute('data-theme', s === 'donker' ? 'dark' : 'light');
+  root.classList.toggle('hc', localStorage.getItem('highContrast') === '1');
+}
+window.currentStyleChoice = currentStyleChoice;
+window.setStyle = (s) => { if (!STYLES.includes(s)) return; try { localStorage.setItem('style', s); } catch { /* nvt */ } applyTheme(); };
+if (window.matchMedia) window.matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', applyTheme);
+// Leesbare tekstkleur op een (merk)accent.
+function contrastOn(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return '#ffffff';
+  const n = parseInt(m[1], 16); const l = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return l > 0.6 ? '#0b1120' : '#ffffff';
+}
 
 const fmtSize = (n) => { if (!n) return ''; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; };
 const isImg = (name) => /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(name);
@@ -97,7 +118,9 @@ async function loadMe() {
   // Huisstijl toepassen (naam/accentkleur).
   if (me.branding) {
     if (me.branding.appName) document.title = me.branding.appName;
-    if (me.branding.accent) document.documentElement.style.setProperty('--accent', me.branding.accent);
+    if (me.branding.accent) { document.documentElement.style.setProperty('--accent', me.branding.accent); document.documentElement.style.setProperty('--accent-contrast', contrastOn(me.branding.accent)); }
+    if (me.branding.defaultStyle) { try { const had = localStorage.getItem('styleDefault'); localStorage.setItem('styleDefault', me.branding.defaultStyle); if (had !== me.branding.defaultStyle) { applyTheme(); const ss = document.getElementById('styleSelect'); if (ss) ss.value = currentStyleChoice(); } } catch { /* nvt */ } }
+    const an = document.querySelector('header h1 .appname'); if (an && me.branding.appName) an.textContent = me.branding.appName;
     // Globale mededeling (banner) voor alle gebruikers.
     let mb = document.getElementById('globalBanner');
     if (me.branding.bannerText) {
@@ -1374,7 +1397,7 @@ document.getElementById('contentSearch').onchange = load;
 const dropBtn = document.getElementById('dropLinkBtn'); if (dropBtn) dropBtn.onclick = makeDropLink;
 const galBtn = document.getElementById('galleryBtn'); if (galBtn) galBtn.onclick = showGallery;
 document.getElementById('adminBtn').onclick = () => window.location='/admin.html';
-document.getElementById('themeBtn').onclick = () => { const order=['dark','light','auto']; const cur=localStorage.getItem('theme')||'dark'; const next=order[(order.indexOf(cur)+1)%order.length]; localStorage.setItem('theme',next); applyTheme(); document.getElementById('themeBtn').title='Thema: '+next; };
+document.getElementById('themeBtn').onclick = () => { const order=['donker','licht','zakelijk','systeem']; const next=order[(order.indexOf(currentStyleChoice())+1)%order.length]; window.setStyle(next); const ss=document.getElementById('styleSelect'); if (ss) ss.value=next; };
 const hcBtn = document.getElementById('hcBtn'); if (hcBtn) hcBtn.onclick = () => { localStorage.setItem('highContrast', localStorage.getItem('highContrast')==='1'?'0':'1'); applyTheme(); };
 document.getElementById('langBtn').onclick = () => { lang = LANGS[(LANGS.indexOf(lang)+1)%LANGS.length]; localStorage.setItem('lang',lang); applyI18n(); loadMe(); load(); };
 

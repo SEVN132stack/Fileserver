@@ -4,25 +4,27 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Beheer — SFTP Fileserver</title>
+  <script>(function(){try{var s=localStorage.getItem('style')||{dark:'donker',light:'licht',auto:'systeem'}[localStorage.getItem('theme')]||localStorage.getItem('styleDefault')||'systeem';if(s==='systeem')s=matchMedia('(prefers-color-scheme: light)').matches?'licht':'donker';document.documentElement.setAttribute('data-style',s);}catch(e){}})();</script>
+  <link rel="stylesheet" href="/themes.css" />
   <style>
-    body { margin:0; font-family:system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
-    header { background:#1e293b; padding:.9rem 1.5rem; display:flex; gap:1rem; align-items:center; }
-    header a { color:#38bdf8; text-decoration:none; }
+    body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); }
+    header { background:var(--panel); padding:.9rem 1.5rem; display:flex; gap:1rem; align-items:center; }
+    header a { color:var(--accent); text-decoration:none; }
     main { max-width:1000px; margin:1.2rem auto; padding:0 1rem; }
-    h2 { font-size:1rem; border-bottom:1px solid #334155; padding-bottom:.3rem; }
-    table { width:100%; border-collapse:collapse; background:#1e293b; border-radius:8px; overflow:hidden; margin-bottom:2rem; }
-    th, td { text-align:left; padding:.5rem .8rem; border-bottom:1px solid #334155; font-size:.9rem; }
-    input, select { background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:6px; padding:.4rem; }
-    button { background:#38bdf8; color:#04283a; border:0; border-radius:6px; padding:.4rem .7rem; cursor:pointer; font-weight:600; }
-    button.danger { background:transparent; color:#f87171; border:1px solid #334155; }
-    pre { background:#1e293b; padding:1rem; border-radius:8px; max-height:320px; overflow:auto; font-size:.8rem; }
+    h2 { font-size:1rem; border-bottom:1px solid var(--border); padding-bottom:.3rem; }
+    table { width:100%; border-collapse:collapse; background:var(--panel); border-radius:8px; overflow:hidden; margin-bottom:2rem; }
+    th, td { text-align:left; padding:.5rem .8rem; border-bottom:1px solid var(--border); font-size:.9rem; }
+    input, select { background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:.4rem; }
+    button { background:var(--accent); color:var(--accent-contrast); border:0; border-radius:6px; padding:.4rem .7rem; cursor:pointer; font-weight:600; }
+    button.danger { background:transparent; color:var(--danger); border:1px solid var(--border); }
+    pre { background:var(--panel); padding:1rem; border-radius:8px; max-height:320px; overflow:auto; font-size:.8rem; }
     .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:.8rem; margin-bottom:2rem; }
-    .card { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:1rem; }
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:1rem; }
     .card .v { font-size:1.6rem; font-weight:700; }
-    .card .l { color:#94a3b8; font-size:.8rem; margin-top:.2rem; }
-    .badges span { display:inline-block; background:#0f172a; border:1px solid #334155; border-radius:999px; padding:.15rem .6rem; font-size:.75rem; margin:.15rem .2rem 0 0; }
+    .card .l { color:var(--muted); font-size:.8rem; margin-top:.2rem; }
+    .badges span { display:inline-block; background:var(--bg); border:1px solid var(--border); border-radius:999px; padding:.15rem .6rem; font-size:.75rem; margin:.15rem .2rem 0 0; }
     .badges .on { border-color:#22c55e; color:#4ade80; }
-    .badges .off { color:#94a3b8; }
+    .badges .off { color:var(--muted); }
   </style>
 </head>
 <body>
@@ -652,7 +654,7 @@
       const days = document.getElementById('anDays').value;
       const a = await (await j('/api/admin/report/analytics?days='+days)).json();
       document.getElementById('anTotal').textContent = (a.total||0)+' gebeurtenissen';
-      const bar = (label, val, max, color) => `<div style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0"><span style="width:120px" class="l">${esc(label)}</span><span style="flex:1;background:var(--border,#334155);border-radius:3px;overflow:hidden"><span style="display:block;height:12px;width:${max?Math.max(3,val/max*100):0}%;background:${color}"></span></span><span class="l" style="width:44px;text-align:right">${val}</span></div>`;
+      const bar = (label, val, max, color) => `<div style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0"><span style="width:120px" class="l">${esc(label)}</span><span style="flex:1;background:var(--border,var(--border));border-radius:3px;overflow:hidden"><span style="display:block;height:12px;width:${max?Math.max(3,val/max*100):0}%;background:${color}"></span></span><span class="l" style="width:44px;text-align:right">${val}</span></div>`;
       const acts = Object.entries(a.byAction||{}).sort((x,y)=>y[1]-x[1]).slice(0,10);
       const amax = acts.length?acts[0][1]:1;
       document.getElementById('anActions').innerHTML = acts.map(([k,v])=>bar(k,v,amax,'#38bdf8')).join('')||'<span class="l">Geen data.</span>';
@@ -660,7 +662,7 @@
       document.getElementById('anUsers').innerHTML = (a.topUsers||[]).map(u=>bar(u.user,u.total,umax,'#4ade80')).join('')||'<span class="l">Geen data.</span>';
       const days2 = Object.entries(a.timeline||{}).sort();
       const tmax = days2.reduce((m,[,v])=>Math.max(m,v),1);
-      document.getElementById('anTimeline').innerHTML = days2.map(([d,v])=>`<div title="${esc(d)}: ${v}" style="flex:1;min-width:3px;height:${Math.max(2,v/tmax*100)}%;background:#38bdf8;border-radius:2px 2px 0 0"></div>`).join('')||'<span class="l">Geen data.</span>';
+      document.getElementById('anTimeline').innerHTML = days2.map(([d,v])=>`<div title="${esc(d)}: ${v}" style="flex:1;min-width:3px;height:${Math.max(2,v/tmax*100)}%;background:var(--accent);border-radius:2px 2px 0 0"></div>`).join('')||'<span class="l">Geen data.</span>';
     }
     document.getElementById('anDays').onchange = loadAnalytics;
 
