@@ -129,3 +129,24 @@ button > span, button > kbd { pointer-events: none; }
 body.kiosk #sidebar, body.kiosk #menuToggle, body.kiosk .toolbar .menu, body.kiosk #selBar, body.kiosk .rowmore { display: none !important; }
 body.kiosk.shell { grid-template-columns: minmax(0, 1fr); }
 body.kiosk.shell > main { grid-column: 1; }
+
+/* Gastmodus (v3.44): alleen de gedeelde map. */
+body.guest #sidebar .nav-group:not(.tabs):not(:last-child), body.guest .toolbar, body.guest #selBar, body.guest #drop,
+body.guest #sidebar .tabs button:not([data-tab="shared"]), body.guest #sidebar #quota, body.guest #paletteBtn, body.guest #topSearch,
+body.guest #crumbs, body.guest #filesView { display: none !important; }
+.guest-banner { background: var(--accent-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: .55rem .8rem; margin-bottom: .8rem; }
+
+/* Betere preview (v3.44) */
+.md-view { display: grid; grid-template-columns: 1fr; gap: 1.2rem; max-width: 84vw; max-height: 74vh; overflow: auto; line-height: 1.6; }
+.md-view.has-toc { grid-template-columns: 210px minmax(0, 1fr); }
+.md-toc { position: sticky; top: 0; align-self: start; font-size: .85rem; border-right: 1px solid var(--border); padding-right: .8rem; }
+.md-toc ul { list-style: none; padding: 0; margin: .4rem 0 0; } .md-toc li { margin: .2rem 0; }
+.md-body blockquote { border-left: 3px solid var(--accent); margin: .4rem 0; padding: .2rem .8rem; color: var(--muted); }
+.md-body li.task { list-style: none; }
+pre.code { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .7rem .9rem; overflow: auto; font-size: .84rem; line-height: 1.5; }
+pre.code.numbered .ln { display: inline-block; width: 3ch; margin-right: 1ch; color: var(--muted); text-align: right; user-select: none; opacity: .7; }
+.t-k { color: #c678dd; font-weight: 600; } .t-s { color: #3fa65a; } .t-n { color: #d19a66; } .t-c { color: var(--muted); font-style: italic; } .t-a { color: #d19a66; }
+:root[data-style="donker"] .t-k { color: #c792ea; } :root[data-style="donker"] .t-s { color: #a5d6a7; } :root[data-style="donker"] .t-n { color: #f78c6c; }
+table.csv { border-collapse: collapse; font-size: .85rem; } table.csv th { position: sticky; top: 0; background: var(--panel-2); cursor: pointer; user-select: none; white-space: nowrap; }
+table.csv th, table.csv td { border: 1px solid var(--border); padding: .3rem .55rem; } .csv-filter { margin-bottom: .5rem; }
+@media (max-width: 900px) { .md-view.has-toc { grid-template-columns: 1fr; } .md-toc { position: static; border-right: 0; border-bottom: 1px solid var(--border); padding-bottom: .5rem; } }

@@ -38,6 +38,8 @@ process.env.ACCESS_REQUESTS_FILE = path.join(tmp, 'access-requests.json');
 process.env.USER_TASKS_FILE = path.join(tmp, 'user-tasks.json');
 process.env.AUTO_TAG = 'true';
 process.env.LOGIN_HISTORY_FILE = path.join(tmp, 'login-history.json');
+process.env.GUEST_TOKENS_FILE = path.join(tmp, 'guest-tokens.json');
+process.env.RECEIPTS_FILE = path.join(tmp, 'receipts.json');
 process.env.INVITES_FILE = path.join(tmp, 'invites.json');
 process.env.WEBHOOK_QUEUE_FILE = path.join(tmp, 'webhook-queue.json');
 process.env.SNAPSHOTS_DIR = path.join(tmp, 'snapshots');
@@ -2105,6 +2107,76 @@ try {
     config.dlp.action = origDlp;
     ok('security: SFTP-upload met gevoelige data wordt geweigerd en verwijderd',
       r && r.err && !fs.existsSync(path.join(hd('wormtest'), 'kaartsftp.txt')));
+  }
+
+  // 154. Gasttoegang: eenmalige link, alleen de gedeelde map, geen andere API's, intrekken.
+  {
+    const home = path.join(config.storageDir, 'admin');
+    fs.mkdirSync(path.join(home, 'gastmap', 'sub'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'gastmap', 'sub', 'offerte.txt'), 'offerte');
+    fs.writeFileSync(path.join(home, 'geheim.txt'), 'niet voor gasten');
+    const cr = await fetch(H + '/api/guests', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/gastmap', mode: 'ro', days: 3, label: 'Accountant' }) });
+    const g = await cr.json();
+    const token = g.link.split('/gast/')[1];
+    const first = await fetch(H + '/gast/' + token, { redirect: 'manual' });
+    const gc = (first.headers.get('set-cookie') || '').split(';')[0];
+    const reuse = await fetch(H + '/gast/' + token, { redirect: 'manual' });
+    const gh = { Cookie: gc };
+    const who = await (await fetch(H + '/api/whoami', { headers: gh })).json();
+    const sub = await (await fetch(H + `/api/shared/list?owner=admin&path=${encodeURIComponent('/gastmap/sub')}`, { headers: gh })).json();
+    const dl = await fetch(H + `/api/shared/download?owner=admin&path=${encodeURIComponent('/gastmap/sub/offerte.txt')}`, { headers: gh });
+    const outside = await fetch(H + `/api/shared/download?owner=admin&path=${encodeURIComponent('/geheim.txt')}`, { headers: gh });
+    const ownList = await fetch(H + '/api/list?path=/', { headers: gh });
+    const apikey = await fetch(H + '/api/apikeys', { method: 'POST', headers: { ...gh, 'Content-Type': 'application/json' }, body: '{}' });
+    const upload = await fetch(H + `/api/shared/mkdir?owner=admin`, { method: 'POST', headers: { ...gh, 'Content-Type': 'application/json' }, body: JSON.stringify({ owner: 'admin', path: '/gastmap/nieuw' }) });
+    const pwLogin = await fetch(H + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: g.guest, password: '' }) });
+    const list = await (await fetch(H + '/api/guests', { headers: jar() })).json();
+    const del = await fetch(H + '/api/guests/' + g.guest, { method: 'DELETE', headers: jar() });
+    const after = await fetch(H + '/api/whoami', { headers: gh });
+    ok('gasttoegang: eenmalige link, alleen gedeelde map (lezen), rest geblokkeerd, intrekken werkt',
+      cr.ok && g.guest.startsWith('gast-') && first.status === 302 && gc.startsWith('sid=') && reuse.status === 400 &&
+      who.role === 'guest' && who.guestExpires > Date.now() && (sub.items || []).some((i) => i.name === 'offerte.txt') &&
+      dl.ok && (await dl.text()) === 'offerte' && outside.status === 403 && ownList.status === 403 && apikey.status === 403 &&
+      upload.status === 403 && pwLogin.status !== 200 && list.guests.some((x) => x.guest === g.guest && x.path === '/gastmap') &&
+      del.ok && after.status === 401 && !fs.existsSync(path.join(config.storageDir, 'admin', 'gastmap', 'nieuw')));
+  }
+
+  // 155. Gasten verlopen automatisch (account + deling weg); geen gasten voor gelabelde/niet-bestaande mappen.
+  {
+    const guestsMod = await import('../src/guests.js');
+    const { getUser: gu, userExists: ue } = await import('../src/users.js');
+    const g = guestsMod.createGuest('admin', { path: '/gastmap', days: 1 });
+    const { updateUser: uu } = await import('../src/users.js');
+    uu(g.guest, { expires: Date.now() - 1000 });
+    const gone = guestsMod.sweepGuests();
+    const noFolder = await fetch(H + '/api/guests', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/bestaatniet' }) });
+    const traversal = await fetch(H + '/api/guests', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/../..' }) });
+    ok('gasttoegang: automatisch verlopen en ongeldige mappen geweigerd',
+      gone.includes(g.guest) && !ue(g.guest) && !(gu('admin').shares || []).some((s) => s.to === g.guest) &&
+      noFolder.status === 400 && traversal.status === 400);
+  }
+
+  // 156. Leesbevestigingen: registreren via gedeelde map en deellink, eigenaar telt niet, melding bij eerste keer.
+  {
+    const home = path.join(config.storageDir, 'admin');
+    fs.mkdirSync(path.join(home, 'lees'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'lees', 'brief.txt'), 'brief');
+    await fetch(H + '/api/receipts', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/lees', on: true }) });
+    const g = await (await fetch(H + '/api/guests', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/lees', label: 'Lezer' }) })).json();
+    const r = await fetch(H + '/gast/' + g.link.split('/gast/')[1], { redirect: 'manual' });
+    const gh = { Cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+    await fetch(H + `/api/shared/download?owner=admin&path=${encodeURIComponent('/lees/brief.txt')}`, { headers: gh });
+    await fetch(H + `/api/shared/download?owner=admin&path=${encodeURIComponent('/lees/brief.txt')}`, { headers: gh });
+    await fetch(H + '/api/download?path=' + encodeURIComponent('/lees/brief.txt'), { headers: jar() }); // eigenaar zelf telt niet
+    const sh = await (await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/lees/brief.txt' }) })).json();
+    if (sh.token) await fetch(H + '/s/' + sh.token);
+    const rc = await (await fetch(H + '/api/receipts?path=' + encodeURIComponent('/lees/brief.txt'), { headers: jar() })).json();
+    const notes = await (await fetch(H + '/api/notifications', { headers: jar() })).json().catch(() => ({}));
+    const noteTxt = JSON.stringify(notes);
+    const guestCant = (await fetch(H + '/api/receipts?path=/', { headers: gh })).status === 403;
+    ok('leesbevestigingen: gast + deellink geregistreerd, eigenaar niet, melding verstuurd',
+      rc.tracked === 'parent' && rc.reads.filter((x) => x.who === g.guest).length === 2 && !rc.reads.some((x) => x.who === 'admin') &&
+      (!sh.token || rc.reads.some((x) => x.via === 'deellink')) && noteTxt.includes('Leesbevestiging') && guestCant);
   }
 
   console.log(`\n${passed} tests geslaagd.`);

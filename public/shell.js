@@ -9,7 +9,7 @@
 
   // Label + pictogram per knop. Knoppen met data-i18n behouden hun vertaling.
   const LABELS = {
-    tasksBtn: ['✅', 'Mijn taken'], autoBtn: ['⚙️', 'Automatisering'], sharingBtn: ['🤝', 'Delen & portalen'],
+    tasksBtn: ['✅', 'Mijn taken'], autoBtn: ['⚙️', 'Automatisering'], sharingBtn: ['🤝', 'Delen & portalen'], guestsBtn: ['🎟️', 'Gasttoegang'],
     teamsBtn: ['👥', 'Teamruimtes'], inboundBtn: ['📥', 'Invoer & integraties'], insightsBtn: ['📈', 'Inzicht'],
     organizeBtn: ['🗂️', 'Ordenen'], aiBtn: ['🤖', 'AI-assistent'], snapBtn: ['📸', 'Snapshots'], jobsBtn: ['🧰', 'Achtergrondtaken'],
     '2faBtn': ['🔐', null], passkeyBtn: ['🔑', 'Passkeys'], pwBtn: ['🔒', 'Wachtwoord wijzigen'], sessionsBtn: ['🖥️', 'Actieve sessies'],
@@ -75,7 +75,7 @@
       const icons = { files: '📁', shared: '👥', trash: '🗑' };
       tabs.querySelectorAll('button[data-tab]').forEach((b) => { const i18n = b.getAttribute('data-i18n'); const lbl = el('span', { class: 'lbl' }); lbl.textContent = b.textContent.trim(); if (i18n) { lbl.setAttribute('data-i18n', i18n); b.removeAttribute('data-i18n'); } b.textContent = ''; b.append(el('span', { class: 'ico' }, icons[b.dataset.tab] || '•'), lbl); });
     }
-    side.append(group('Werken', ['tasksBtn', 'jobsBtn', 'autoBtn', 'sharingBtn', 'teamsBtn', 'inboundBtn', 'insightsBtn', 'organizeBtn', 'aiBtn', 'snapBtn']));
+    side.append(group('Werken', ['tasksBtn', 'jobsBtn', 'autoBtn', 'sharingBtn', 'guestsBtn', 'teamsBtn', 'inboundBtn', 'insightsBtn', 'organizeBtn', 'aiBtn', 'snapBtn']));
     side.append(group('Account & beveiliging', ['2faBtn', 'passkeyBtn', 'pwBtn', 'sessionsBtn', 'secBtn', 'apikeyBtn', 'jitBtn', 'clientsBtn']));
     // Weergave: stijlkiezer + taal + weergaveopties.
     const styleRow = el('div', { class: 'navrow' }, '<span class="ico">🎨</span><span class="lbl">Stijl</span>');

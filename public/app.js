@@ -92,7 +92,7 @@ function contrastOn(hex) {
 
 const fmtSize = (n) => { if (!n) return ''; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; };
 const isImg = (name) => /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(name);
-const isText = (name) => /\.(txt|md|json|js|mjs|css|html?|csv|log|xml|ya?ml|ini|sh|conf)$/i.test(name);
+const isText = (name) => /\.(txt|md|json|js|mjs|cjs|tsx?|jsx|css|scss|html?|csv|tsv|log|xml|ya?ml|ini|sh|conf|toml|py|sql|go|java|kt|c|h|cpp|cs|rs|php|rb|vue)$/i.test(name);
 const isVideo = (name) => /\.(mp4|webm|ogv|mov|m4v)$/i.test(name);
 const isAudio = (name) => /\.(mp3|wav|ogg|oga|flac|m4a|aac)$/i.test(name);
 const isMd = (name) => /\.md$/i.test(name);
@@ -129,6 +129,12 @@ async function loadMe() {
       mb.style.cssText = `background:${colors[me.branding.bannerLevel]||colors.info};color:#fff;padding:.5rem 1rem;text-align:center;font-size:.9rem`;
       mb.textContent = me.branding.bannerText;
     } else if (mb) { mb.remove(); }
+  }
+  // Gastmodus: alleen de gedeelde map, geen eigen bestanden of instellingen.
+  if (me.role === 'guest') {
+    document.body.classList.add('guest');
+    if (!document.getElementById('guestBanner')) { const gb = document.createElement('div'); gb.id = 'guestBanner'; gb.className = 'guest-banner'; gb.textContent = `Je bent ingelogd als gast. Toegang tot ${new Date(me.guestExpires).toLocaleDateString()}.`; const m = document.querySelector('main'); if (m) m.prepend(gb); }
+    setTimeout(() => showTab('shared'), 0);
   }
   // Impersonatie-banner: toon dat je als een andere gebruiker kijkt.
   let banner = document.getElementById('impBanner');
@@ -171,6 +177,7 @@ function connectEvents() {
 
 // --- Bestandenweergave ---
 async function load() {
+  if (document.body.classList.contains('guest')) return; // gasten hebben geen eigen bestanden
   const q = document.getElementById('search').value.trim();
   const sort = document.getElementById('sort').value, order = document.getElementById('order').value;
   const inhoud = document.getElementById('contentSearch')?.checked ? '&content=1' : '';
@@ -182,6 +189,7 @@ async function load() {
   const rows = document.getElementById('rows');
   rows.setAttribute('aria-label', 'Bestanden en mappen');
   rows.innerHTML = '';
+  if (!Array.isArray(data.items)) { rows.innerHTML = `<tr><td colspan="4" class="muted">${esc(data.error || 'Kon map niet laden')}</td></tr>`; return; }
   if (!data.items.length) rows.innerHTML = `<tr><td colspan="4" class="muted">${t('empty')}</td></tr>`;
   for (const it of data.items) {
     const tr = document.createElement('tr');
@@ -206,6 +214,8 @@ async function load() {
     a += `<button class="ghost" data-perma="${enc(it.path)}" title="Vaste link (permalink)">∞</button>`;
     a += `<button class="ghost" data-share="${enc(it.path)}">🔗</button>`;
     a += `<button class="ghost" data-grant="${enc(it.path)}">👥</button>`;
+    if (it.isDir) a += `<button class="ghost" data-guest="${enc(it.path)}" title="Gasttoegang (iemand van buiten uitnodigen)">🎟️</button>`;
+    a += `<button class="ghost" data-receipt="${enc(it.path)}" title="Leesbevestigingen">📬</button>`;
     a += `<button class="ghost" data-ren="${enc(it.path)}">✏</button>`;
     a += `<button class="danger" data-del="${enc(it.path)}">🗑</button>`;
     const checked = selected.has(it.path) ? 'checked' : '';
@@ -244,7 +254,10 @@ async function openFile(p) {
   else if (isVideo(name)) openModal(`<h3>${esc(name)}</h3><video src="${url}" controls autoplay style="max-width:82vw;max-height:74vh"></video>`);
   else if (isAudio(name)) openModal(`<h3>${esc(name)}</h3><audio src="${url}" controls autoplay style="width:70vw"></audio>`);
   else if (/\.pdf$/i.test(name)) openModal(`<h3>${esc(name)}</h3><iframe src="${url}" style="width:82vw;height:74vh"></iframe>`);
+  else if (isMd(name) && window.Preview) { const txt = await (await api(url)).text(); const md = Preview.markdown(txt); openModal(`<h3>${esc(name)}</h3><div class="md-view${md.toc?' has-toc':''}">${md.toc}<article class="md-body">${md.html}</article></div>`); }
   else if (isMd(name)) { const txt = await (await api(url)).text(); openModal(`<h3>${esc(name)}</h3><div style="max-width:80vw;max-height:74vh;overflow:auto;line-height:1.5">${renderMarkdown(txt)}</div>`); }
+  else if (/\.(csv|tsv)$/i.test(name) && window.Preview) { const txt = await (await api(url)).text(); openModal(`<h3>${esc(name)}</h3>${Preview.csvTable(txt)}`); }
+  else if (window.Preview && Preview.isCode(name)) { const txt = await (await api(url)).text(); openModal(`<h3>${esc(name)}</h3><div style="max-width:84vw;max-height:74vh;overflow:auto">${Preview.code(txt, name.split('.').pop())}</div>`); }
   else if (isText(name)) { const txt = await (await api(url)).text(); openModal(`<h3>${esc(name)}</h3><pre>${txt.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`); }
   else if (/\.(docx|xlsx|pptx)$/i.test(name)) { const r = await (await api('/api/office-preview?path='+enc(p))).json(); openModal(`<h3>${esc(name)}</h3><p class="muted">Tekst-preview (${r.type||'office'})</p><pre style="max-width:80vw;max-height:70vh;overflow:auto;white-space:pre-wrap">${(r.text||'(geen tekst)').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre><button data-dl="${enc(p)}">Download origineel</button>`); }
   else if (/\.epub$/i.test(name)) { openModal(`<h3>${esc(name)}</h3><img src="/api/richpreview?path=${enc(p)}" style="max-height:74vh" onerror="this.replaceWith(Object.assign(document.createElement('p'),{className:'muted',textContent:'Geen omslag gevonden.'}))"><br><button data-dl="${enc(p)}">Download</button>`); }
@@ -630,17 +643,20 @@ function showTab(name) {
   if (name==='trash') renderTrash();
   if (name==='files') load();
 }
+const sharedNav = {};
 async function renderShared() {
   const v = document.getElementById('sharedView');
   if (!me.shared || !me.shared.length) { v.innerHTML = '<p class="muted">Niets met je gedeeld.</p>'; return; }
   let html = '';
   for (const s of me.shared) {
-    const data = await (await api(`/api/shared/list?owner=${enc(s.owner)}&path=${enc(s.path)}`)).json().catch(()=>({items:[]}));
+    const key = s.owner + '|' + s.path; const cur = sharedNav[key] || s.path;
+    const data = await (await api(`/api/shared/list?owner=${enc(s.owner)}&path=${enc(cur)}`)).json().catch(()=>({items:[]}));
     const rw = (data.mode || s.mode) === 'rw';
-    html += `<h3>${esc(s.owner)}: ${esc(s.path)} <span class="muted">(${rw?'lezen+schrijven':'alleen-lezen'})</span></h3>`;
-    if (rw) html += `<div><input type="file" multiple data-shup="${enc(s.owner)}|${enc(s.path)}"></div>`;
+    const up = cur !== s.path ? ` <button class="ghost" data-shnav="${enc(key)}|${enc(cur.slice(0, cur.lastIndexOf('/')) || '/')}">⬆ omhoog</button>` : '';
+    html += `<h3>${esc(s.owner)}: ${esc(cur)} <span class="muted">(${rw?'lezen+schrijven':'alleen-lezen'})</span>${up}</h3>`;
+    if (rw) html += `<div><input type="file" multiple data-shup="${enc(s.owner)}|${enc(cur)}"></div>`;
     html += '<ul>' + (data.items||[]).map(i =>
-      `<li>${i.isDir?'📂':'📄'} ${esc(i.name)} ${i.isDir?'':`<a href="/api/shared/download?owner=${enc(s.owner)}&path=${enc(i.path)}">⬇</a>`}`
+      `<li>${i.isDir?`📂 <a href="#" data-shnav="${enc(key)}|${enc(i.path)}">${esc(i.name)}</a>`:`📄 ${esc(i.name)} <a href="/api/shared/download?owner=${enc(s.owner)}&path=${enc(i.path)}">⬇</a>`}`
       + (rw?` <button class="danger" data-shdel="${enc(s.owner)}|${enc(i.path)}">🗑</button>`:'') + `</li>`).join('') + '</ul>';
   }
   v.innerHTML = html;
@@ -650,6 +666,7 @@ async function renderShared() {
     await api(`/api/shared/upload?owner=${enc(owner)}&path=${enc(base)}`, { method:'POST', body: fd });
     renderShared();
   });
+  v.querySelectorAll('[data-shnav]').forEach(el => el.onclick = (ev) => { ev.preventDefault(); const [k, target] = el.dataset.shnav.split('|').map(decodeURIComponent); sharedNav[k] = target; renderShared(); });
   v.querySelectorAll('[data-shdel]').forEach(btn => btn.onclick = async () => {
     const [owner, p] = btn.dataset.shdel.split('|').map(decodeURIComponent);
     if (!confirm('Verwijderen?')) return;
@@ -736,6 +753,11 @@ document.addEventListener('click', async (e) => {
     if (label !== null) await api('/api/label',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p,label:label.trim()})});
     load(); return;
   }
+  if (t2.dataset.guest) return showGuests(decodeURIComponent(t2.dataset.guest));
+  if (t2.dataset.receipt) return showReceipts(decodeURIComponent(t2.dataset.receipt));
+  if (t2.dataset.guestdel) { if (!confirm('Gasttoegang intrekken? Het gastaccount wordt verwijderd.')) return; await api('/api/guests/'+t2.dataset.guestdel,{method:'DELETE'}); return showGuests(); }
+  if (t2.dataset.guestlink) { const r = await (await api('/api/guests/'+t2.dataset.guestlink+'/link',{method:'POST'})).json(); const o=document.getElementById('guestOut'); if (o) o.innerHTML = guestLinkHtml(r.link, false); return; }
+  if (t2.dataset.copy) { try { await navigator.clipboard.writeText(t2.dataset.copy); t2.textContent = '✓ gekopieerd'; } catch { prompt('Kopieer de link:', t2.dataset.copy); } return; }
   if (t2.dataset.grant) {
     const p = decodeURIComponent(t2.dataset.grant);
     const to = prompt('Delen met welke gebruiker?'); if (!to) return;
@@ -1090,6 +1112,49 @@ async function showAutomation() {
     <select id="digestFreq">${opt('off')}${opt('daily')}${opt('weekly')}</select> <button data-digestsave>Opslaan</button>`);
 }
 // Deel-presets & klantportalen (features 5 + 8).
+// --- v3.44: gasttoegang ---
+function guestLinkHtml(link, mailed) {
+  return `<div class="card" style="margin:.6rem 0;padding:.6rem;border:1px solid var(--border);border-radius:var(--radius,8px)">
+    <div class="muted">${mailed ? 'De uitnodiging is gemaild. ' : ''}Eenmalige inloglink (7 dagen geldig):</div>
+    <code style="word-break:break-all">${esc(link)}</code><br><button class="ghost" data-copy="${esc(link)}">📋 Kopiëren</button></div>`;
+}
+async function showGuests(forPath) {
+  const r = await (await api('/api/guests')).json();
+  const list = (r.guests || []).map(g => `<tr><td>${esc(g.label)}<div class="muted" style="font-size:.8rem">${esc(g.guest)}${g.email?' · '+esc(g.email):''}</div></td>
+    <td>${esc(g.path||'-')} <span class="muted">(${g.mode==='rw'?'lezen+schrijven':'alleen-lezen'})</span></td>
+    <td>${new Date(g.expires).toLocaleDateString()}</td><td>${g.lastLogin?new Date(g.lastLogin).toLocaleString():'<span class="muted">nog niet</span>'}</td>
+    <td><button class="ghost" data-guestlink="${enc(g.guest)}">Nieuwe link</button> <button class="danger" data-guestdel="${enc(g.guest)}">Intrekken</button></td></tr>`).join('');
+  openModal(`<h3>🎟️ Gasttoegang</h3>
+    <p class="muted">Nodig iemand zonder account uit voor één map. De gast logt in met een eenmalige link, ziet alleen die map en het account verloopt vanzelf.</p>
+    <form id="guestForm" style="display:grid;grid-template-columns:auto 1fr;gap:.4rem .6rem;align-items:center;max-width:520px">
+      <label>Map</label><input name="path" value="${esc(forPath || cwd)}" required>
+      <label>Naam</label><input name="label" placeholder="bv. Accountant Jansen">
+      <label>E-mail</label><input name="email" type="email" placeholder="optioneel — dan mailen we de link">
+      <label>Rechten</label><select name="mode"><option value="ro">Alleen lezen</option><option value="rw">Lezen + uploaden</option></select>
+      <label>Geldig</label><select name="days"><option value="1">1 dag</option><option value="7" selected>7 dagen</option><option value="30">30 dagen</option><option value="90">90 dagen</option></select>
+      <span></span><button type="submit">Gast uitnodigen</button>
+    </form><div id="guestOut"></div>
+    <h4>Actieve gasten</h4>${list ? `<table><thead><tr><th>Gast</th><th>Map</th><th>Verloopt</th><th>Laatst actief</th><th></th></tr></thead><tbody>${list}</tbody></table>` : '<p class="muted">Nog geen gasten.</p>'}`);
+  document.getElementById('guestForm').onsubmit = async (e) => {
+    e.preventDefault(); const body = Object.fromEntries(new FormData(e.target));
+    const res = await api('/api/guests', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const j = await res.json(); if (!res.ok) return alert(j.error || 'Mislukt');
+    await showGuests(body.path); document.getElementById('guestOut').innerHTML = guestLinkHtml(j.link, j.mailed);
+  };
+}
+// --- v3.44: leesbevestigingen ---
+async function showReceipts(p) {
+  const r = await (await api('/api/receipts?path='+enc(p))).json();
+  const rows = (r.reads || []).map(x => `<tr><td>${esc(x.who)}</td><td>${esc(x.path)}</td><td>${esc(x.via)}</td><td>${new Date(x.ts).toLocaleString()}</td></tr>`).join('');
+  const state = r.tracked === 'self' ? 'aan' : r.tracked === 'parent' ? `aan via bovenliggende map ${esc(r.trackedPath)}` : 'uit';
+  openModal(`<h3>📬 Leesbevestigingen</h3><p><b>${esc(p)}</b></p>
+    <p>Status: <b>${state}</b>. Je krijgt een melding zodra iemand anders dit voor het eerst opent of downloadt (via gedeelde map, gastlink, deellink of permalink).</p>
+    ${r.tracked === 'parent' ? '' : `<button id="rcToggle">${r.tracked ? 'Uitzetten' : 'Aanzetten'}</button>`}
+    <h4>Gelezen door</h4>${rows ? `<table><thead><tr><th>Wie</th><th>Bestand</th><th>Via</th><th>Wanneer</th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="muted">Nog niemand.</p>'}`);
+  const b = document.getElementById('rcToggle');
+  if (b) b.onclick = async () => { await api('/api/receipts', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ path: p, on: !r.tracked }) }); showReceipts(p); };
+}
+
 async function showSharing() {
   const [pr, po] = await Promise.all([api('/api/share-presets'), api('/api/portals')]);
   const presets = (await pr.json()).presets || [];
@@ -1162,6 +1227,7 @@ document.addEventListener('click', async (e) => {
     document.getElementById('pairArea').innerHTML = `<p>${r.ok ? (approve ? '✅ Apparaat gekoppeld en als vertrouwd opgeslagen.' : 'Koppeling afgewezen.') : 'Mislukt: ' + esc(r.error || '')}</p>`;
   }
 });
+const guestsBtn = document.getElementById('guestsBtn'); if (guestsBtn) guestsBtn.onclick = () => showGuests();
 const sharingBtn = document.getElementById('sharingBtn'); if (sharingBtn) sharingBtn.onclick = showSharing;
 document.addEventListener('click', async (e) => {
   const t = e.target;

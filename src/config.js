@@ -431,6 +431,9 @@ export const config = {
   jitFile: abs(process.env.JIT_FILE || 'jit.json'),
   jitMaxHours: parseInt(process.env.JIT_MAX_HOURS || '4', 10),
   // Anomalie-detectie: alarmeer bij > N downloads of > N bytes per uur (0 = uit).
+  // Gasttoegang en leesbevestigingen (v3.44).
+  guestTokensFile: abs(process.env.GUEST_TOKENS_FILE || 'guest-tokens.json'),
+  receiptsFile: abs(process.env.RECEIPTS_FILE || 'receipts.json'),
   // Login-anomalieën (v3.43).
   loginHistoryFile: abs(process.env.LOGIN_HISTORY_FILE || 'login-history.json'),
   loginTravelHours: parseFloat(process.env.LOGIN_TRAVEL_HOURS || '2'),
@@ -582,7 +585,7 @@ export const config = {
   // Max. brongrootte voor een ZIP-achtergrondtaak (bytes).
   jobMaxZipBytes: parseInt(process.env.JOB_MAX_ZIP_BYTES || String(20 * 1073741824), 10),
 
-  version: '3.43.0',
+  version: '3.44.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

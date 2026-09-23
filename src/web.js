@@ -27,6 +27,9 @@ import * as jit from './jit.js';
 import { recordDownload } from './anomaly.js';
 import { onLogin as loginAnomaly, onDownload as loginBurst } from './login-anomaly.js';
 import { searchAudit, exportAudit } from './audit-search.js';
+import * as guests from './guests.js';
+const { isGuest } = guests;
+import * as receipts from './receipts.js';
 import * as savedsearch from './savedsearch.js';
 import * as labels from './labels.js';
 import { suggestName } from './naming.js';
@@ -745,6 +748,7 @@ export function createWebServer() {
     const name = path.basename(abs);
     checkHoneypot(entry.user, entry.path, 'permalink');
     audit('web', entry.user, 'permalink_access', { path: entry.path, uuid: req.params.uuid, ip: clientIp(req), country: countryOf(req) });
+    receipts.recordRead(entry.user, entry.path, 'permalink ' + clientIp(req), 'permalink', { ip: clientIp(req) });
     accessLog.recordAccess({ owner: entry.user, kind: 'permalink', ref: req.params.uuid, path: entry.path, ip: clientIp(req) });
     if (fs.statSync(abs).isDirectory()) {
       res.attachment(name + '.zip');
@@ -798,6 +802,7 @@ export function createWebServer() {
     const abs = resolveWithin(homeDir(share.user), share.path);
     const name = path.basename(abs);
     audit('web', share.user, 'share_access', { path: share.path, token: req.params.token, country: countryOf(req) });
+    receipts.recordRead(share.user, share.path, 'deellink ' + clientIp(req), 'deellink', { ip: clientIp(req) });
     notifyShare('share_access', share.user, { path: share.path, ip: clientIp(req) });
     accessLog.recordAccess({ owner: share.user, kind: 'share', ref: req.params.token, path: share.path, ip: clientIp(req) });
     countDownload(req.params.token);
@@ -985,7 +990,28 @@ export function createWebServer() {
 
   // --- Alles hieronder vereist authenticatie ---
   app.use('/api', (req, res, next) => (req.path === '/events' ? next() : apiLimiter(req, res, next)));
+  // --- v3.44: gasttoegang via eenmalige link ---
+  app.get('/gast/:token', (req, res) => {
+    if (!rateHit(`guestlink:${clientIp(req)}`, 20, 60000).allowed) return res.status(429).send('Te veel pogingen.');
+    const user = guests.consumeLink(req.params.token);
+    if (!user) return res.status(400).send('Deze gastlink is ongeldig, al gebruikt of verlopen. Vraag de afzender om een nieuwe.');
+    const ip = clientIp(req);
+    const sid = createSession(user, { ip, ua: req.headers['user-agent'] });
+    res.set('Set-Cookie', `sid=${sid}; ${cookieAttrs('Lax')}`);
+    recordLogin(user);
+    try { loginAnomaly(user, { ip, country: countryOf(req) }); } catch { /* nvt */ }
+    audit('web', user, 'login', { method: 'guest-link', ip, owner: getUser(user).guestOf });
+    const owner = getUser(user).guestOf;
+    if (owner) { try { notifications.notifyUser(owner, 'Gast heeft ingelogd', `${getUser(user).guestLabel || user} heeft je gastlink gebruikt.`); } catch { /* nvt */ } }
+    res.redirect('/');
+  });
+
   app.use('/api', authenticate);
+  // Gasten mogen alleen een beperkte set routes gebruiken (gedeelde map, reacties).
+  app.use('/api', (req, res, next) => {
+    if (req.user && isGuest(req.user) && !req.impersonating && !guests.guestAllowed(req.path)) return res.status(403).json({ error: 'Niet beschikbaar voor gasten', code: 'guest' });
+    next();
+  });
 
   // OpenAPI-spec (achter auth: geen onnodige API-map voor anonieme bezoekers;
   // tooling authenticeert met een API-sleutel of sessie).
@@ -1068,6 +1094,7 @@ export function createWebServer() {
       trashUsed: fs.existsSync(trash) ? dirSize(trash) : 0,
       bandwidth: bandwidth(req.user),
       shared: sharedWith(req.user),
+      guestExpires: isGuest(req.user) ? getUser(req.user).expires : undefined,
       require2fa: config.requireTwoFactor === 'all' || (config.requireTwoFactor === 'admin' && req.userRole === 'admin'),
       has2fa: !!getUser(req.user)?.totp || getCredentials(req.user).length > 0,
       mustChangePassword: isPasswordExpired(req.user),
@@ -1811,6 +1838,7 @@ export function createWebServer() {
       folderInfo.movePath(req.home, req.body.from, req.body.to);
       reviews.movePath(req.home, req.body.from, req.body.to);
       labels.movePath(req.home, req.body.from, req.body.to);
+      receipts.movePath(req.user, req.body.from, req.body.to);
       recordMutation(req.user, 'rename'); checkHoneypot(req.user, req.body.from, 'rename');
       audit('web', req.user, 'rename', { from: req.body.from, to: req.body.to });
       emitToUser(req.user, 'change', { action: 'rename' });
@@ -2024,7 +2052,8 @@ export function createWebServer() {
   app.get('/api/duplicates', (req, res) => res.json(findDuplicates(req.home)));
 
   // --- v3.41: achtergrondtaken, delta-uploads en preview-precaching ---
-  jobs.init(); blockdelta.init();
+  jobs.init(); blockdelta.init(); guests.initGuests();
+  receipts.setReceiptNotifier((owner, p, who, via) => { try { notifications.notifyUser(owner, 'Leesbevestiging', `${who} heeft ${p} geopend (${via}).`); emitToUser(owner, 'receipt', { path: p, who, via }); } catch { /* nvt */ } });
   jobs.setUpdateListener((user, j) => emitToUser(user, 'job', j));
   jobs.register('zip', async (job, ctx) => {
     const home = homeDir(job.user);
@@ -2983,6 +3012,7 @@ export function createWebServer() {
   app.get('/api/shared/download', (req, res) => {
     try {
       const { abs } = resolveShared(req);
+      receipts.recordRead(req.query.owner, req.query.path || '/', req.user, isGuest(req.user) ? 'gast' : 'gedeelde map', { ip: clientIp(req) });
       res.download(abs, path.basename(abs));
     } catch (err) {
       res.status(403).json({ error: err.message });
@@ -3021,6 +3051,43 @@ export function createWebServer() {
       emitToUser(req.body.owner, 'change', { action: 'shared_delete' });
       res.json({ ok: true });
     } catch (err) { res.status(403).json({ error: err.message }); }
+  });
+
+  // --- v3.44: gasten beheren (eigenaar) ---
+  app.get('/api/guests', (req, res) => res.json({ guests: guests.listGuests(req.user) }));
+  app.post('/api/guests', requireWrite, express.json(), (req, res) => {
+    try {
+      const abs = resolveWithin(req.home, String(req.body.path || ''));
+      const rel = toClientPath(req.home, abs);
+      if (rel === '/' || !fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) return res.status(400).json({ error: 'Kies een bestaande submap (niet je hele thuismap)' });
+      if (!labels.mayShare(req.home, rel)) return res.status(403).json({ error: 'Deze map mag door het label niet gedeeld worden' });
+      const g = guests.createGuest(req.user, { path: rel, mode: req.body.mode, days: req.body.days, label: req.body.label, email: req.body.email });
+      const link = `${(config.appBaseUrl || `${req.protocol}://${req.get('host')}`)}/gast/${g.token}`;
+      audit('web', req.user, 'guest_create', { guest: g.guest, path: rel, mode: req.body.mode === 'rw' ? 'rw' : 'ro', expires: g.expires });
+      let mailed = false;
+      if (req.body.email && /^[^@\s]+@[^@\s]+$/.test(req.body.email)) {
+        try { sendMail({ to: req.body.email, subject: `${req.user} deelt een map met je`, text: `Je bent als gast uitgenodigd voor de map ${rel}.\n\nOpen deze eenmalige link (7 dagen geldig):\n${link}\n\nToegang vervalt op ${new Date(g.expires).toLocaleDateString('nl-NL')}.` }).catch(() => {}); mailed = true; } catch { /* geen mail */ }
+      }
+      res.json({ guest: g.guest, link, expires: g.expires, mailed });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/guests/:name/link', requireWrite, (req, res) => {
+    try { const t = guests.renewLink(req.user, req.params.name); audit('web', req.user, 'guest_link', { guest: req.params.name }); res.json({ link: `${(config.appBaseUrl || `${req.protocol}://${req.get('host')}`)}/gast/${t}` }); }
+    catch (err) { res.status(404).json({ error: err.message }); }
+  });
+  app.delete('/api/guests/:name', (req, res) => {
+    try { guests.removeGuest(req.user, req.params.name); revokeAllForUser(req.params.name); audit('web', req.user, 'guest_remove', { guest: req.params.name }); res.json({ ok: true }); }
+    catch (err) { res.status(404).json({ error: err.message }); }
+  });
+
+  // --- v3.44: leesbevestigingen ---
+  app.get('/api/receipts', (req, res) => res.json(receipts.getReceipts(req.user, String(req.query.path || '/'))));
+  app.get('/api/receipts/all', (req, res) => res.json({ tracked: receipts.listTracked(req.user) }));
+  app.post('/api/receipts', requireWrite, express.json(), (req, res) => {
+    try { resolveWithin(req.home, String(req.body.path || '')); } catch { return res.status(400).json({ error: 'Ongeldig pad' }); }
+    const on = receipts.setTracking(req.user, req.body.path, !!req.body.on);
+    audit('web', req.user, on ? 'receipts_on' : 'receipts_off', { path: req.body.path });
+    res.json({ tracked: on });
   });
 
   // Een eigen map delen met een andere gebruiker (grant).

@@ -113,7 +113,8 @@ export function isAdmin(username) {
 }
 
 export function isReadonly(username) {
-  return role(username) === 'readonly';
+  const r = role(username);
+  return r === 'readonly' || r === 'guest'; // gasten schrijven alleen in rw-delingen
 }
 
 export function quota(username) {
@@ -237,6 +238,9 @@ export function updateUser(username, patch) {
   if (patch.tenant !== undefined) u.tenant = patch.tenant;
   if (patch.totp !== undefined) u.totp = patch.totp;
   if (patch.shares !== undefined) u.shares = patch.shares;
+  if (patch.disablePassword) { u.password = 'disabled$none'; u.pwHistory = []; }
+  if (patch.guestOf !== undefined) u.guestOf = patch.guestOf;
+  if (patch.guestLabel !== undefined) u.guestLabel = patch.guestLabel;
   saveUsers();
 }
 
