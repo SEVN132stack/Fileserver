@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.45.0] - 2026-09-23
+
+### Nieuw
+- **FTPS-server** (`src/ftps.js`, geen extra dependency): expliciet (AUTH TLS) of impliciet, alleen versleuteld (PROT P verplicht), alleen passief (PASV/EPSV), dataverbinding alleen vanaf het IP van de sessie, PORT/EPRT geweigerd. Dezelfde bescherming als SFTP: thuismap, quotum, alleen-lezen, bewaarplicht, locks, E2E-mappen, AV/DLP-inspectie na upload, rate-limit/ban, audit (`ftps`). Gasten zijn uitgesloten. Uit tenzij `FTPS_PORT` gezet is.
+- **Gefaseerde update**: `deploy/update.sh` zet de nieuwe versie klaar in een git-worktree, test die als schaduw-instantie met `scripts/shadow-check.mjs` (eigen tijdelijke datamap + kopie van de datastores, eigen poort, raakt de echte installatie niet) en schakelt pas over als alle controles slagen; daarna gezondheidscontrole met automatische rollback. `DRY_RUN=1` en een JSON-rapport.
+
 ## [3.44.0] - 2026-09-23
 
 ### Nieuw

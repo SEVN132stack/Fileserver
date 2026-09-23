@@ -59,7 +59,8 @@ Doorloop de stappen; de aanbevolen `.env` staat onderaan.
 ## 7. Als service draaien
 
 - [ ] `deploy/fileserver.service` (systemd) geïnstalleerd en `enable --now`.
-- [ ] Updaten met `deploy/update.sh` (back-up → pull → `npm ci` → herstart, met rollback).
+- [ ] Updaten met `deploy/update.sh` (back-up → klaarzetten → schaduwtest → overschakelen → gezondheidscontrole, met rollback). Eerst proberen: `DRY_RUN=1 bash deploy/update.sh`.
+- [ ] FTPS nodig? `FTPS_PORT` + passieve poortreeks in de firewall openzetten; anders uit laten.
 - [ ] Of Docker: `docker-compose.yml` (Watchtower werkt de image automatisch bij).
 
 ## 8. Na de eerste start controleren

@@ -195,6 +195,10 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## FTPS & gefaseerde updates (v3.45)
+- **FTPS** voor apparaten die alleen FTP kennen (scanners, camera's, boekhoudsoftware). Zet `FTPS_PORT` (bv. `2121`, of `990` met `FTPS_IMPLICIT=true`) en open ook de passieve poorten `FTPS_PASV_MIN`–`FTPS_PASV_MAX`. Achter NAT: `FTPS_PASV_ADDRESS=<publiek IP>`. Alleen versleuteld (AUTH TLS / impliciet, PROT P verplicht), alleen passief, dataverbinding alleen vanaf hetzelfde IP. Zelfde regels als SFTP (thuismap, quotum, alleen-lezen, bewaarplicht, locks, E2E-mappen, AV/DLP, rate-limit, audit). Gasten hebben geen FTPS. Certificaat: `FTPS_CERT`/`FTPS_KEY`, anders het HTTPS-certificaat, anders self-signed.
+- **Gefaseerde update**: `bash deploy/update.sh` zet de nieuwe versie eerst klaar in `.update-staging`, start die als schaduw-instantie op `SHADOW_PORT` (standaard 18080) met een tijdelijke kopie van de datastores en draait een zelftest (`scripts/shadow-check.mjs`). Alleen bij succes wordt overgeschakeld; na de herstart wordt `/ready` gecontroleerd en anders automatisch teruggerold. `DRY_RUN=1` test alleen, zonder over te schakelen. Rapport: `shadow-report.json`.
+
 ## Prestaties & schaal (v3.41)
 
 - **Achtergrondtaken** — ZIP's en previews asynchroon met live voortgang, annuleren en een downloadlink (🧰, `/api/jobs`).
@@ -424,8 +428,8 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 ## Onderhoud & up-to-date houden (v3.13)
 
 - **Automatische dependency-updates** via Dependabot; CI faalt bij kwetsbaarheden (`npm audit`).
-- **Bare-metal/NAS updaten:** `bash deploy/update.sh` (maakt back-up, haalt code op,
-  `npm ci`, herstart de systemd-service, rolt terug bij een mislukte start).
+- **Bare-metal/NAS updaten:** `bash deploy/update.sh` (back-up, nieuwe versie eerst als
+  schaduw-instantie testen, pas dan overschakelen; rolt terug als de nieuwe versie niet gezond is).
 - **Docker updaten:** de meegeleverde **Watchtower**-service werkt de container
   automatisch bij; images worden door CI naar **GHCR** gepusht.
 - **Update-checker & schijf/back-up/integriteit:** in het admin-dashboard onder

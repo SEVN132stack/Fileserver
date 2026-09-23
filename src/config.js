@@ -49,6 +49,18 @@ export const config = {
     host: process.env.SFTP_HOST || '0.0.0.0',
   },
 
+  // FTPS (v3.45): uit zolang FTPS_PORT niet gezet is. Alleen versleuteld en passief.
+  ftps: {
+    port: parseInt(process.env.FTPS_PORT || '0', 10),
+    host: process.env.FTPS_HOST || '0.0.0.0',
+    implicit: bool(process.env.FTPS_IMPLICIT, false),
+    pasvMin: parseInt(process.env.FTPS_PASV_MIN || '50000', 10),
+    pasvMax: parseInt(process.env.FTPS_PASV_MAX || '50100', 10),
+    pasvAddress: process.env.FTPS_PASV_ADDRESS || '', // publiek IP achter NAT
+    certPath: abs(process.env.FTPS_CERT || 'tls/ftps-cert.pem'),
+    keyPath: abs(process.env.FTPS_KEY || 'tls/ftps-key.pem'),
+  },
+
   // HTTPS voor de web UI. Als ingeschakeld en er geen cert bestaat, wordt er
   // automatisch een self-signed certificaat gegenereerd.
   tls: {
@@ -585,7 +597,7 @@ export const config = {
   // Max. brongrootte voor een ZIP-achtergrondtaak (bytes).
   jobMaxZipBytes: parseInt(process.env.JOB_MAX_ZIP_BYTES || String(20 * 1073741824), 10),
 
-  version: '3.44.0',
+  version: '3.45.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
