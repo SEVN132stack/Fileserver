@@ -350,6 +350,12 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Scan-naar-map / hot-folder (periodieke import van een host-map, na virusscan)
 - ✅ Chat-bot (Slack/Teams/Discord): inkomende `list`/`search`/`help`-commando's
 
+## Clients & toegang (v3.39)
+
+- ✅ QR-apparaatkoppeling (eenmalig, goedkeuring vereist, claim-geheim)
+- ✅ Netwerkschijf-profielen (rclone/Windows/macOS/Linux/sshfs) + diagnose
+- ✅ Mobiele PWA: touch-layout + offline upload-wachtrij
+
 ## Delen & externe samenwerking (v3.38)
 
 - ✅ Klantportalen (gebrand, bladeren/downloaden/aanleveren, wachtwoord + verval)

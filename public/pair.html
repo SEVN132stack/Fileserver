@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="no-referrer">
+  <title>Apparaat koppelen</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 1rem; box-sizing: border-box; }
+    .box { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 1.5rem; max-width: 380px; width: 100%; text-align: center; }
+    h1 { font-size: 1.2rem; margin-top: 0; }
+    input { width: 100%; box-sizing: border-box; padding: .6rem; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; margin: .6rem 0; font-size: 1rem; }
+    button { background: #38bdf8; color: #04283a; border: 0; border-radius: 6px; padding: .7rem 1.2rem; font-weight: 600; font-size: 1rem; cursor: pointer; width: 100%; }
+    .muted { color: #94a3b8; font-size: .9rem; }
+    .code { font-family: monospace; font-size: 1.1rem; letter-spacing: .1em; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>📱 Apparaat koppelen</h1>
+    <div id="step1">
+      <p class="muted">Geef dit apparaat een herkenbare naam. Daarna keur je de koppeling goed op het apparaat waar je al bent ingelogd.</p>
+      <input id="name" placeholder="bijv. Telefoon van Sam" maxlength="40">
+      <button id="go">Koppeling aanvragen</button>
+    </div>
+    <div id="step2" hidden>
+      <p>Wachten op goedkeuring…</p>
+      <p class="muted">Controleer op je andere apparaat of deze aanvraag van jou is en keur hem goed.</p>
+      <p class="muted">Controlecode: <span class="code" id="check"></span></p>
+    </div>
+    <p id="msg" class="muted"></p>
+  </div>
+  <script>
+    const code = location.hash.slice(1);
+    // Verwijder de code direct uit de adresbalk/geschiedenis.
+    history.replaceState(null, '', location.pathname);
+    const msg = (t) => { document.getElementById('msg').textContent = t; };
+    if (!code) { document.getElementById('step1').hidden = true; msg('Geen koppelcode gevonden. Scan de QR-code opnieuw.'); }
+    let secret = '';
+    document.getElementById('go').onclick = async () => {
+      const r = await fetch('/api/pair/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, name: document.getElementById('name').value }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return msg(d.error || 'Koppelen mislukt.');
+      secret = d.claimSecret;
+      document.getElementById('check').textContent = code.slice(0, 4).toUpperCase();
+      document.getElementById('step1').hidden = true;
+      document.getElementById('step2').hidden = false;
+      poll();
+    };
+    async function poll() {
+      const r = await fetch('/api/pair/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, claimSecret: secret }) });
+      const d = await r.json().catch(() => ({}));
+      if (d.status === 'approved') { msg('✅ Gekoppeld! Je wordt doorgestuurd…'); setTimeout(() => { location.href = '/'; }, 800); return; }
+      if (d.status === 'denied') { document.getElementById('step2').hidden = true; msg('❌ De koppeling is afgewezen.'); return; }
+      if (d.status === 'invalid' || !r.ok) { document.getElementById('step2').hidden = true; msg('De koppeling is verlopen. Start opnieuw.'); return; }
+      setTimeout(poll, 2000);
+    }
+  </script>
+</body>
+</html>

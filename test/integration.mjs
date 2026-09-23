@@ -1756,6 +1756,47 @@ try {
       dl.ok && dlText === 'inhoud' && trav.status === 400 && up.ok && up.saved.includes('levering.txt') && landed && blocked.status === 403 && secretHidden);
   }
 
+  // 134. Netwerkschijf-profielen: profielen zonder wachtwoord + download + diagnose.
+  {
+    const mp = await (await fetch(H + '/api/mount-profiles', { headers: jar() })).json();
+    const rc = mp.profiles.find((x) => x.id === 'rclone-webdav');
+    const dl = await fetch(H + '/api/mount-profiles/rclone-sftp/download', { headers: jar() });
+    const dlBody = await dl.text();
+    const noSecrets = mp.profiles.every((x) => !/pass\s*=\s*[^<\s]/.test(x.body)) && !JSON.stringify(mp).includes('testpass123');
+    ok('netwerkschijf-profielen: rclone/windows/macos/linux/sshfs + download + diagnose, zonder wachtwoord',
+      rc && rc.body.includes('/webdav') && mp.profiles.some((x) => x.id === 'sshfs') && dl.ok && dlBody.includes('type = sftp') &&
+      /attachment/.test(dl.headers.get('content-disposition') || '') && Array.isArray(mp.diagnose.checks) && noSecrets);
+  }
+
+  // 135. QR-apparaatkoppeling: claim -> goedkeuring -> eenmalige sessie; geheim vereist.
+  {
+    const start = await (await fetch(H + '/api/pair/start', { method: 'POST', headers: jar() })).json();
+    const code = start.code;
+    const claim = await (await fetch(H + '/api/pair/claim', { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': 'TestPhone/1.0' }, body: JSON.stringify({ code, name: 'Testtelefoon' }) })).json();
+    const claim2 = await fetch(H + '/api/pair/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+    const before = await (await fetch(H + '/api/pair/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, claimSecret: claim.claimSecret }) })).json();
+    const pend = await (await fetch(H + '/api/pair/pending?code=' + encodeURIComponent(code), { headers: jar() })).json();
+    await fetch(H + '/api/pair/decide', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ code, approve: true }) });
+    const wrong = await fetch(H + '/api/pair/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, claimSecret: 'verkeerd' }) });
+    const okRes = await fetch(H + '/api/pair/status', { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': 'TestPhone/1.0' }, body: JSON.stringify({ code, claimSecret: claim.claimSecret }) });
+    const okBody = await okRes.json();
+    const sidCookie = (okRes.headers.get('set-cookie') || '').split(';')[0];
+    const who = await (await fetch(H + '/api/whoami', { headers: { Cookie: sidCookie } })).json();
+    const reuse = await fetch(H + '/api/pair/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, claimSecret: claim.claimSecret }) });
+    // Afwijzen levert geen sessie op.
+    const s2 = await (await fetch(H + '/api/pair/start', { method: 'POST', headers: jar() })).json();
+    const c2 = await (await fetch(H + '/api/pair/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: s2.code }) })).json();
+    await fetch(H + '/api/pair/decide', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ code: s2.code, approve: false }) });
+    const denied = await (await fetch(H + '/api/pair/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: s2.code, claimSecret: c2.claimSecret }) })).json();
+    // Met een API-sleutel/Basic-auth mag je geen koppeling starten.
+    const basic = await fetch(H + '/api/pair/start', { method: 'POST', headers: { Authorization: 'Basic ' + Buffer.from('mentionee:mentionpw123').toString('base64') } });
+    ok('QR-koppeling: claim eenmalig, goedkeuring vereist, geheim vereist, sessie eenmalig, afwijzen werkt, alleen browsersessie',
+      start.qr && start.qr.includes('<svg') && start.url.includes('/pair#') && claim.claimSecret && claim2.status === 404 &&
+      before.status === 'claimed' && pend.claim.name === 'Testtelefoon' && pend.claim.ua === 'TestPhone/1.0' &&
+      wrong.status === 404 && okBody.status === 'approved' && sidCookie.startsWith('sid=') && who.user === 'admin' &&
+      reuse.status === 404 && denied.status === 'denied' && basic.status === 403);
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

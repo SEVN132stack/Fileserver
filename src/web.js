@@ -88,6 +88,8 @@ import * as templates from './templates.js';
 import * as lifecycle from './lifecycle.js';
 import * as sharePresets from './share-presets.js';
 import * as portals from './portals.js';
+import * as pairing from './device-pairing.js';
+import * as mountProfiles from './mount-profiles.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
 import { passwordPwnedCount, isExpired } from './users.js';
@@ -858,6 +860,35 @@ export function createWebServer() {
     // Token is een gevalideerde random string, maar escape defensief tegen reflectie.
     const safeToken = encodeURIComponent(req.params.token);
     res.send('<p style="font-family:sans-serif">✅ Bedankt, je bestanden zijn ontvangen. <a href="/s/' + safeToken + '">Meer uploaden</a></p>');
+  });
+
+  // --- v3.39: QR-apparaatkoppeling (publieke kant: nieuw apparaat) ---
+  app.get('/pair', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'pair.html')));
+  app.post('/api/pair/claim', express.json({ limit: '4kb' }), (req, res) => {
+    if (!rateHit(`pairclaim:${clientIp(req)}`, 20, 600000).allowed) return res.status(429).json({ error: 'Te veel pogingen' });
+    const r = pairing.claim((req.body || {}).code, { ua: req.headers['user-agent'] || '', ip: clientIp(req), name: (req.body || {}).name || '' });
+    if (!r) return res.status(404).json({ error: 'Code ongeldig, al gebruikt of verlopen' });
+    res.json({ ok: true, claimSecret: r.claimSecret, expires: r.expires });
+  });
+  app.post('/api/pair/status', express.json({ limit: '4kb' }), (req, res) => {
+    if (!rateHit(`pairpoll:${clientIp(req)}`, 120, 60000).allowed) return res.status(429).json({ error: 'Te veel verzoeken' });
+    const b = req.body || {};
+    const r = pairing.poll(b.code, b.claimSecret);
+    if (r.status === 'invalid') return res.status(404).json({ status: 'invalid' });
+    if (r.status !== 'approved') return res.json({ status: r.status });
+    const user = r.user;
+    if (!userExists(user) || isExpired(user)) return res.status(403).json({ status: 'denied' });
+    // Het goedgekeurde apparaat wordt als vertrouwd geregistreerd.
+    const ip = clientIp(req); const ua = req.headers['user-agent'] || '';
+    const deviceId = createHash('sha256').update(ua + '|' + ip).digest('hex').slice(0, 16);
+    recordDevice(user, { id: deviceId, ua, ip });
+    trustDevice(user, deviceId, true);
+    rememberDevice(user, deviceId);
+    const sid = createSession(user, { ip, ua });
+    res.set('Set-Cookie', `sid=${sid}; ${cookieAttrs('Strict')}`);
+    recordLogin(user);
+    audit('web', user, 'login', { method: 'qr-pairing', ip, device: (r.claim && r.claim.name) || '' });
+    res.json({ status: 'approved' });
   });
 
   // --- v3.38: klantportalen (publiek, token + optioneel wachtwoord) ---
@@ -2279,6 +2310,48 @@ export function createWebServer() {
     const r = rules.setRuleEnabled(req.user, req.params.id, !!req.body.enabled);
     if (!r) return res.status(404).json({ error: 'Regel niet gevonden' });
     res.json({ ok: true, rule: r });
+  });
+
+  // --- v3.39: QR-koppeling (ingelogde kant) ---
+  // Alleen een echte browsersessie mag koppelen (geen API-sleutel/Basic-auth, geen impersonatie).
+  const interactiveSession = (req) => {
+    const t = tokenFromReq(req);
+    return !!(t && getSession(t)) && !req.impersonating && !req.apiScope;
+  };
+  app.post('/api/pair/start', async (req, res) => {
+    if (!interactiveSession(req)) return res.status(403).json({ error: 'Koppelen kan alleen vanuit een ingelogde browsersessie' });
+    try {
+      const { code, expires } = pairing.startPairing(req.user);
+      const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+      const url = `${base}/pair#${code}`;
+      audit('web', req.user, 'pair_start', {});
+      res.json({ code, url, expires, qr: await qrSvg(url) });
+    } catch (err) { res.status(429).json({ error: err.message }); }
+  });
+  app.get('/api/pair/pending', (req, res) => {
+    const p = pairing.pendingFor(req.user, req.query.code);
+    if (!p) return res.status(404).json({ error: 'Onbekende of verlopen koppeling' });
+    res.json(p);
+  });
+  app.post('/api/pair/decide', express.json(), (req, res) => {
+    if (!interactiveSession(req)) return res.status(403).json({ error: 'Alleen vanuit een ingelogde browsersessie' });
+    const r = pairing.decide(req.user, (req.body || {}).code, !!(req.body || {}).approve);
+    if (!r) return res.status(404).json({ error: 'Niets om te beslissen' });
+    audit('web', req.user, r.status === 'approved' ? 'pair_approve' : 'pair_deny', { ip: r.claim && r.claim.ip });
+    res.json({ ok: true, status: r.status });
+  });
+
+  // --- v3.39: desktop-koppelprofielen + diagnose ---
+  app.get('/api/mount-profiles', (req, res) => {
+    const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+    res.json({ profiles: mountProfiles.profiles(req.user, base), diagnose: mountProfiles.diagnose(base) });
+  });
+  app.get('/api/mount-profiles/:id/download', (req, res) => {
+    const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+    const p = mountProfiles.profiles(req.user, base).find((x) => x.id === req.params.id && x.file);
+    if (!p) return res.status(404).json({ error: 'Profiel niet gevonden' });
+    res.setHeader('Content-Disposition', `attachment; filename="${p.file}"`);
+    res.type('text/plain').send(p.body);
   });
 
   // --- v3.38: deel-presets en portaalbeheer ---
