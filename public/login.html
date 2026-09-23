@@ -5,15 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Inloggen — SFTP Fileserver</title>
   <link rel="manifest" href="/manifest.json" />
+  <script>(function(){try{var s=localStorage.getItem('style')||{dark:'donker',light:'licht',auto:'systeem'}[localStorage.getItem('theme')]||localStorage.getItem('styleDefault')||'systeem';if(s==='systeem')s=matchMedia('(prefers-color-scheme: light)').matches?'licht':'donker';document.documentElement.setAttribute('data-style',s);}catch(e){}})();</script>
+  <link rel="stylesheet" href="/themes.css" />
   <style>
     body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
-      font-family:system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
-    .card { background:#1e293b; padding:2rem; border-radius:12px; width:320px; }
+      font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); }
+    .card { background:var(--panel); padding:2rem; border-radius:12px; width:320px; }
     h1 { font-size:1.2rem; margin:0 0 1.2rem; }
-    label { display:block; font-size:.85rem; color:#94a3b8; margin:.7rem 0 .2rem; }
-    input { width:100%; padding:.6rem; border-radius:6px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; }
-    button { width:100%; margin-top:1.2rem; padding:.65rem; border:0; border-radius:6px; background:#38bdf8; color:#04283a; font-weight:700; cursor:pointer; }
-    .err { color:#f87171; font-size:.85rem; margin-top:.8rem; min-height:1rem; }
+    label { display:block; font-size:.85rem; color:var(--muted); margin:.7rem 0 .2rem; }
+    input { width:100%; padding:.6rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); }
+    button { width:100%; margin-top:1.2rem; padding:.65rem; border:0; border-radius:6px; background:var(--accent); color:var(--accent-contrast); font-weight:700; cursor:pointer; }
+    .err { color:var(--danger); font-size:.85rem; margin-top:.8rem; min-height:1rem; }
     #totp { display:none; }
   </style>
 </head>
@@ -27,10 +29,10 @@
       <input id="password" type="password" autocomplete="current-password" />
       <div id="totp"><label>2FA-code</label><input id="token" inputmode="numeric" autocomplete="one-time-code" /></div>
       <button type="submit">Inloggen</button>
-      <a id="sso" href="/api/oidc/login" style="display:none;margin-top:.8rem;text-align:center;color:#38bdf8">Inloggen met SSO</a>
-      <button type="button" id="passkeyLogin" style="width:100%;margin-top:.6rem;background:#334155;color:#e2e8f0;display:none">🔑 Inloggen met passkey</button>
-      <button type="button" id="magicLink" style="width:100%;margin-top:.6rem;background:#334155;color:#e2e8f0">✉️ Stuur inloglink</button>
-      <a href="/reset.html" style="display:block;margin-top:.8rem;text-align:center;color:#94a3b8;font-size:.85rem">Wachtwoord vergeten?</a>
+      <a id="sso" href="/api/oidc/login" style="display:none;margin-top:.8rem;text-align:center;color:var(--accent)">Inloggen met SSO</a>
+      <button type="button" id="passkeyLogin" style="width:100%;margin-top:.6rem;background:var(--border);color:var(--text);display:none">🔑 Inloggen met passkey</button>
+      <button type="button" id="magicLink" style="width:100%;margin-top:.6rem;background:var(--border);color:var(--text)">✉️ Stuur inloglink</button>
+      <a href="/reset.html" style="display:block;margin-top:.8rem;text-align:center;color:var(--muted);font-size:.85rem">Wachtwoord vergeten?</a>
       <div class="err" id="err"></div>
     </form>
   </div>

@@ -15,6 +15,7 @@ const DEFAULTS = {
   appName: config.branding.appName,
   logoUrl: config.branding.logoUrl,
   accent: config.branding.accent,
+  defaultStyle: 'systeem', // licht | donker | zakelijk | systeem
 };
 
 // Getypeerd schema zodat de admin-UI de instellingen dynamisch kan renderen.
@@ -28,6 +29,7 @@ const SCHEMA = [
   { key: 'appName', type: 'text', label: 'App-naam (huisstijl)', max: 60 },
   { key: 'logoUrl', type: 'text', label: 'Logo-URL', max: 500 },
   { key: 'accent', type: 'text', label: 'Accentkleur (CSS)', max: 40 },
+  { key: 'defaultStyle', type: 'enum', label: 'Standaardstijl van de app (gebruikers kunnen zelf kiezen)', options: ['systeem', 'licht', 'donker', 'zakelijk'] },
 ];
 
 export function settingsSchema() { return SCHEMA; }

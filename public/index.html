@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SFTP Fileserver</title>
   <link rel="manifest" href="/manifest.json" />
+  <script>(function(){try{var s=localStorage.getItem('style')||{dark:'donker',light:'licht',auto:'systeem'}[localStorage.getItem('theme')]||localStorage.getItem('styleDefault')||'systeem';if(s==='systeem')s=matchMedia('(prefers-color-scheme: light)').matches?'licht':'donker';document.documentElement.setAttribute('data-style',s);}catch(e){}})();</script>
   <meta name="theme-color" content="#0f172a" />
   <style>
     :root { --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --text:#e2e8f0; --muted:#94a3b8; --danger:#f87171; --border:#334155; }
@@ -94,6 +95,8 @@
     }
     @media (pointer: coarse) { .name { min-height:40px; } }
   </style>
+  <link rel="stylesheet" href="/themes.css" />
+  <link rel="stylesheet" href="/shell.css" />
 </head>
 <body>
   <a href="#rows" class="skip-link">Naar de bestandenlijst</a>
@@ -188,5 +191,6 @@
   <script src="/rsync.js"></script>
   <script src="/webauthn.js"></script>
   <script src="/app.js"></script>
+  <script src="/shell.js"></script>
 </body>
 </html>

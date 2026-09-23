@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.42.0] - 2026-09-23
+
+### Nieuw — nieuwe look
+- **Meerdere stijlen**: *Licht & rustig*, *Donker & modern*, *Zakelijk* en *Systeem* (volgt licht/donker van het apparaat). Iedere gebruiker kiest zelf via de zijbalk (Weergave → Stijl); de beheerder stelt de standaard in (instelling `defaultStyle`). Hoog contrast gaat altijd voor.
+- **Opgeruimde indeling**: zijbalk met navigatie (Bestanden, Werken, Account & beveiliging, Weergave) in plaats van ~28 knoppen in de kop; zoeken in de topbalk.
+- Werkbalk met *Nieuwe map*, *Nieuw bestand*, menu *Uploaden* (bestanden/map/foto) en menu *Hulpmiddelen*.
+- Per bestand één hoofdactie (downloaden/ZIP) plus een **⋯-menu** met alle andere acties.
+- **Selectiebalk** verschijnt bij geselecteerde bestanden (downloaden, verplaatsen, taggen, verwijderen).
+- **Commandopalet** (Ctrl/⌘+K): zoek en start elke functie of open een map.
+- Mobiel: zijbalk als uitschuifmenu, geen horizontale scroll.
+- Login-, registratie-, reset- en beheerpagina's volgen dezelfde stijl.
+
 ## [3.41.1] - 2026-09-23
 
 ### Opgelost (security-review v3.37–v3.41)
