@@ -195,6 +195,13 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Data-intelligentie (v3.40)
+
+- **Duplicaten-assistent** — per groep een exemplaar bewaren (oudste/nieuwste/kortste pad/voorkeursmap), met hash-herverificatie vóór verwijderen.
+- **Opruimadvies** — terug te winnen ruimte per categorie, met bulk-acties (🧹).
+- **Zoeken in inhoud** — full-text met contextfragmenten, ook in Office- en OCR-tekst (🔍).
+- **Slimme collecties** — opgeslagen zoekopdrachten met filters (type/tag/classificatie/grootte/datum), live bijgewerkt.
+
 ## Clients & toegang (v3.39)
 
 - **QR-apparaatkoppeling** — nieuw apparaat koppelen via QR; alleen na expliciete goedkeuring op een ingelogd apparaat (📲 in de header).

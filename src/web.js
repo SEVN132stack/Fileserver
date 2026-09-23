@@ -10,7 +10,7 @@ import https from 'node:https';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
-import { resolveWithin, dirSize, toClientPath } from './paths.js';
+import { resolveWithin, dirSize, toClientPath, invalidateDirSize } from './paths.js';
 import {
   homeDir, verifyPassword, userExists, getUser, role, isAdmin, isReadonly,
   quota, sharedWith, listUsers, addUser, updateUser, deleteUser, listUsernames,
@@ -90,6 +90,8 @@ import * as sharePresets from './share-presets.js';
 import * as portals from './portals.js';
 import * as pairing from './device-pairing.js';
 import * as mountProfiles from './mount-profiles.js';
+import * as intelligence from './intelligence.js';
+import { walkFiles } from './analysis.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
 import { passwordPwnedCount, isExpired } from './users.js';
@@ -1993,6 +1995,61 @@ export function createWebServer() {
 
   // Duplicaten & opschoon-suggesties.
   app.get('/api/duplicates', (req, res) => res.json(findDuplicates(req.home)));
+
+  // --- v3.40: data-intelligentie ---
+  // Verplaats één bestand naar de prullenbak met dezelfde metadata-opruiming als /api/delete.
+  const trashOne = (req, p) => {
+    const abs = resolveWithin(req.home, p);
+    const trash = path.join(req.home, config.trashName);
+    fs.mkdirSync(trash, { recursive: true });
+    fs.renameSync(abs, path.join(trash, Date.now() + '_' + path.basename(abs)));
+    permalinks.removeForPath(req.user, p); tags.removePath(req.user, p); locks.removePath(req.home, p);
+    expiry.removePath(req.home, p); ocr.removePath(req.home, p); vision.removePath(req.home, p);
+    reviews.removePath(req.home, p); labels.removePath(req.home, p);
+    recordMutation(req.user, 'delete');
+    audit('web', req.user, 'delete', { path: p, via: 'dedupe' });
+  };
+  const collectDownloaded = (user) => {
+    const downloaded = new Set();
+    try {
+      for (const line of tailLines(config.auditLog, 50000)) {
+        let e; try { e = JSON.parse(line); } catch { continue; }
+        if (e.user === user && e.action === 'download' && e.path) downloaded.add(e.path);
+      }
+    } catch { /* geen log */ }
+    return downloaded;
+  };
+  app.get('/api/duplicates/plan', (req, res) => {
+    try { res.json(intelligence.planDedupe(req.home, { strategy: req.query.strategy || 'oldest', prefer: req.query.prefer || '' })); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/duplicates/apply', requireWrite, express.json({ limit: '2mb' }), (req, res) => {
+    const r = intelligence.applyDedupe(req.home, (req.body || {}).items, {
+      isProtected: (rel) => !!locks.lockOwner(req.home, rel) || !!retention.retainedUntil(req.home, rel),
+      trash: (rel) => trashOne(req, rel),
+    });
+    if (r.removed) { invalidateDirSize(req.home); emitToUser(req.user, 'change', { action: 'dedupe' }); }
+    audit('web', req.user, 'dedupe_apply', { removed: r.removed, reclaimed: r.reclaimed, skipped: r.skipped.length });
+    res.json({ ok: true, ...r });
+  });
+  app.get('/api/cleanup-advice', (req, res) => {
+    const days = Math.max(1, Math.min(3650, parseInt(req.query.oldDays, 10) || 365));
+    const mb = Math.max(1, Math.min(100000, parseInt(req.query.largeMb, 10) || 100));
+    res.json(intelligence.cleanupAdvice(req.home, collectDownloaded(req.user), { oldDays: days, largeBytes: mb * 1048576 }));
+  });
+  app.get('/api/search/snippets', (req, res) => {
+    if (!rateHit(`snip:${req.user}`, 30, 60000).allowed) return res.status(429).json({ error: 'Te veel zoekopdrachten' });
+    res.json(intelligence.searchSnippets(req.home, req.query.q || ''));
+  });
+  app.get('/api/saved-searches/:id/items', (req, res) => {
+    const item = savedsearch.listSaved(req.user).find((x) => x.id === req.params.id);
+    if (!item) return res.status(404).json({ error: 'Collectie niet gevonden' });
+    const items = savedsearch.evaluate(walkFiles(req.home), item, {
+      tagsOf: (rel) => tags.getTags(req.user, rel),
+      labelOf: (rel) => labels.getLabel(req.home, rel),
+    });
+    res.json({ collection: item, items });
+  });
   app.get('/api/cleanup-suggestions', (req, res) => {
     // Bepaal welke bestanden ooit gedownload zijn uit het audit-log van deze gebruiker.
     const downloaded = new Set();

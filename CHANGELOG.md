@@ -1,5 +1,26 @@
 # Changelog
 
+## [3.40.0] - 2026-09-23
+
+### Toegevoegd (Batch T — Data-intelligentie)
+
+- **Duplicaten-opruimassistent**: kies per duplicaatgroep welk exemplaar blijft (oudste,
+  nieuwste, kortste pad of een voorkeursmap), bekijk het voorstel met het terug te winnen
+  volume en voer het uit. Vlak vóór het verwijderen wordt opnieuw gecontroleerd dat elk bestand
+  nog byte-identiek is aan het bewaarde exemplaar (SHA-256); vergrendelde en
+  onder-bewaarplicht staande bestanden worden overgeslagen. Kopieën gaan naar de prullenbak
+  (herstelbaar). `GET /api/duplicates/plan`, `POST /api/duplicates/apply`.
+- **Opruimadvies**: één overzicht per categorie (grote, oude en nooit gedownloade bestanden,
+  duplicaten, prullenbak, oude versies) met het terug te winnen volume, instelbare drempels en
+  bulk-verplaatsen naar de prullenbak (`GET /api/cleanup-advice`).
+- **Full-text zoeken met fragmenten**: treffers in tekst-, code- en Office-bestanden en in
+  OCR-tekst, met tot drie niet-overlappende contextfragmenten per bestand en het aantal treffers;
+  de treffer wordt veilig gemarkeerd. Begrensd op bestandsgrootte en aantal bestanden, met
+  rate-limiting (`GET /api/search/snippets`).
+- **Slimme collecties**: opgeslagen zoekopdrachten kunnen nu filters hebben (type, tag,
+  classificatie, min/max-grootte, gewijzigd binnen of ouder dan N dagen). Ze worden live
+  geëvalueerd (`GET /api/saved-searches/:id/items`); ongeldige filters worden geweigerd.
+
 ## [3.39.0] - 2026-09-23
 
 ### Toegevoegd (Batch S — Clients & toegang)

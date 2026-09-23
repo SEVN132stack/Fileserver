@@ -565,7 +565,7 @@ export const config = {
   portalsFile: abs(process.env.PORTALS_FILE || 'portals.json'),
   portalUploadDir: process.env.PORTAL_UPLOAD_DIR || 'Aangeleverd', // submap in de portaalmap
 
-  version: '3.39.0',
+  version: '3.40.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
