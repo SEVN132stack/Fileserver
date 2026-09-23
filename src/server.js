@@ -23,6 +23,9 @@ import { startCertMonitor } from './cert-monitor.js';
 import { startDigestScheduler } from './digest.js';
 import { startSelfTestScheduler } from './selftest.js';
 import { startScheduler as startHotfolderScheduler } from './hotfolder.js';
+import { startScheduler as startScheduledReports } from './scheduled-reports.js';
+import { startScheduler as startLifecycleScheduler } from './lifecycle.js';
+import { notifyUser } from './notifications.js';
 import { emitToUser } from './events.js';
 
 // Startpunt: bereidt opslag, host key en gebruikers voor en start beide servers.
@@ -51,6 +54,8 @@ startCertMonitor();
 startDigestScheduler();
 startSelfTestScheduler();
 startHotfolderScheduler((user) => emitToUser(user, 'change', { action: 'hotfolder' }));
+startScheduledReports();
+startLifecycleScheduler((user) => (title, body) => notifyUser(user, title, body));
 
 startWebServer();
 startSftpServer();

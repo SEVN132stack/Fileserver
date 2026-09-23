@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.37.0] - 2026-09-23
+
+### Toegevoegd (Batch Q — Automatisering & workflows)
+
+- **Uitgebreide workflow-engine**: upload-regels ondersteunen nu extra condities
+  (`nameContains`, min/max-grootte) en een `label`-actie (classificatie), plus een
+  aan/uit-schakelaar per regel (`POST /api/rules/:id/enabled`).
+- **Geplande rapporten**: een admin plant periodieke rapporten (overzicht of SLA) die per
+  e-mail of als tekstbestand in de `Rapporten`-map worden geleverd; met "nu draaien".
+  Endpoints onder `/api/admin/scheduled-reports`.
+- **Map-/projectsjablonen**: een admin definieert benoemde sjablonen (mappen + bestanden) die
+  een gebruiker in één klik in een doelmap instantieert (`/api/templates`,
+  `/api/templates/:id/apply`).
+- **Bestandsverloop-workflow (op inactiviteit)**: per-gebruiker beleid per map — na
+  `warnDays` een waarschuwing, na `archiveDays` verplaatsen naar `Archief`, na `deleteDays`
+  verwijderen; vergrendelde en onder-bewaarplicht staande bestanden worden altijd overgeslagen.
+  `/api/lifecycle` (+ `preview`/`run`).
+
 ## [3.36.0] - 2026-08-25
 
 ### Toegevoegd (Batch P — Beheer & observability)

@@ -195,6 +195,13 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Automatisering & workflows (v3.37)
+
+- **Workflow-engine** — upload-regels met condities (pad/ext/naam-bevat/grootte) en acties (tag/verplaats/notificeer/classificatie), per regel aan/uit.
+- **Geplande rapporten** — periodiek overzicht/SLA per e-mail of naar de `Rapporten`-map (`/api/admin/scheduled-reports`).
+- **Map-/projectsjablonen** — vaste structuur in één klik aanmaken (`/api/templates`).
+- **Verloop-workflow** — inactieve bestanden waarschuwen → archiveren → verwijderen; respecteert locks/bewaarplicht (`/api/lifecycle`).
+
 ## Beheer & observability (v3.36)
 
 - **Opslag-dashboard** — grafieken van opslaggroei, top-opslag per gebruiker en actieve gebruikers (`GET /api/admin/dashboard`).

@@ -59,3 +59,7 @@ signatures.json
 file-tasks.json
 vision-index.json
 email-inbox.json
+
+scheduled-reports.json
+templates.json
+lifecycle.json

@@ -767,20 +767,34 @@ async function showSecurity() {
     <table><tr><th>IP</th><th>#</th><th>Land(en)</th><th>Laatst</th></tr>${(f.ipHistory||[]).map(iprow).join('')||'<tr><td colspan="4" class="muted">Geen data.</td></tr>'}</table>`);
 }
 async function showAutomation() {
-  const [rl, sub, dg] = await Promise.all([api('/api/rules'), api('/api/subscriptions'), api('/api/digest')]);
+  const [rl, sub, dg, tp, lc] = await Promise.all([api('/api/rules'), api('/api/subscriptions'), api('/api/digest'), api('/api/templates'), api('/api/lifecycle')]);
   const rules = (await rl.json()).rules || [];
   const subs = (await sub.json()).subscriptions || [];
   const pref = (await dg.json()).frequency || 'off';
-  const rrow = r => `<tr><td>${esc(r.prefix)}${r.ext?' *'+esc(r.ext):''}</td><td>${esc(r.action)}${r.arg?' → '+esc(r.arg):''}</td><td><button class="danger" data-ruledel="${esc(r.id)}">×</button></td></tr>`;
+  const tpls = (await tp.json()).templates || [];
+  const pols = (await lc.json()).policies || [];
+  const cond = r => [r.prefix, r.ext?'*'+r.ext:'', r.contains?'"'+r.contains+'"':'', r.minKb?'≥'+r.minKb+'kB':'', r.maxKb?'≤'+r.maxKb+'kB':''].filter(Boolean).join(' ');
+  const rrow = r => `<tr style="${r.enabled?'':'opacity:.5'}"><td>${esc(cond(r))}</td><td>${esc(r.action)}${r.arg?' → '+esc(r.arg):''}</td><td><button data-ruletoggle="${esc(r.id)}" data-on="${r.enabled?1:0}">${r.enabled?'aan':'uit'}</button> <button class="danger" data-ruledel="${esc(r.id)}">×</button></td></tr>`;
   const srow = s => `<li>${esc(s.prefix)} <button class="danger" data-subdel="${esc(s.id)}">×</button></li>`;
   const opt = v => `<option value="${v}"${pref===v?' selected':''}>${v}</option>`;
-  openModal(`<h3>⚙️ Automatisering & notificaties</h3>
+  const trow = t => `<li>${esc(t.name)} (${t.entries.length}) <button data-tplapply="${esc(t.id)}">hier toepassen</button></li>`;
+  const prow = p => `<tr><td>${esc(p.path)}</td><td>${p.warnDays||'-'}/${p.archiveDays||'-'}/${p.deleteDays||'-'}</td><td><button class="danger" data-lcdel="${esc(p.id)}">×</button></td></tr>`;
+  openModal(`<h3>⚙️ Automatisering & workflows</h3>
     <h4>Regels (bij upload)</h4>
-    <table><tr><th>Als pad/ext</th><th>Actie</th><th></th></tr>${rules.map(rrow).join('')||'<tr><td colspan="3" class="muted">Geen regels.</td></tr>'}</table>
+    <table><tr><th>Conditie</th><th>Actie</th><th></th></tr>${rules.map(rrow).join('')||'<tr><td colspan="3" class="muted">Geen regels.</td></tr>'}</table>
     <div style="margin-top:.4rem;display:flex;gap:.3rem;flex-wrap:wrap;align-items:center">
-      <input id="rPrefix" placeholder="/map" style="width:90px"><input id="rExt" placeholder=".pdf" style="width:60px">
-      <select id="rAction"><option value="tag">tag</option><option value="move">verplaats</option><option value="notify">notificeer</option></select>
-      <input id="rArg" placeholder="tag of doelmap" style="width:110px"><button data-ruleadd>Regel toevoegen</button></div>
+      <input id="rPrefix" placeholder="/map" style="width:80px"><input id="rExt" placeholder=".pdf" style="width:55px">
+      <input id="rContains" placeholder="naam bevat" style="width:90px"><input id="rMin" type="number" placeholder="≥kB" style="width:60px"><input id="rMax" type="number" placeholder="≤kB" style="width:60px">
+      <select id="rAction"><option value="tag">tag</option><option value="move">verplaats</option><option value="notify">notificeer</option><option value="label">classificatie</option></select>
+      <input id="rArg" placeholder="waarde" style="width:100px"><button data-ruleadd>Regel toevoegen</button></div>
+    <h4 style="margin-top:1rem">📁 Map-sjablonen</h4>
+    <ul style="list-style:none;padding:0">${tpls.map(trow).join('')||'<li class="muted">Geen sjablonen (admin definieert ze).</li>'}</ul>
+    <div class="muted" style="font-size:.8rem">Toepassen maakt de structuur aan in de huidige map (${esc(cwd||'/')}).</div>
+    <h4 style="margin-top:1rem">♻️ Verloop-workflow (inactiviteit)</h4>
+    <table><tr><th>Map</th><th>waarschuw/archiveer/wis (dagen)</th><th></th></tr>${pols.map(prow).join('')||'<tr><td colspan="3" class="muted">Geen beleid.</td></tr>'}</table>
+    <div style="margin-top:.4rem;display:flex;gap:.3rem;flex-wrap:wrap;align-items:center">
+      <input id="lcPath" placeholder="/map" style="width:90px"><input id="lcWarn" type="number" placeholder="waarsch." style="width:70px"><input id="lcArch" type="number" placeholder="archiveer" style="width:75px"><input id="lcDel" type="number" placeholder="wis" style="width:55px">
+      <button data-lcadd>Beleid toevoegen</button> <button data-lcrun>Nu uitvoeren</button></div>
     <h4 style="margin-top:1rem">Gevolgde mappen</h4>
     <ul style="list-style:none;padding:0">${subs.map(srow).join('')||'<li class="muted">Geen abonnementen.</li>'}</ul>
     <div><input id="subPrefix" placeholder="/map" style="width:110px"><button data-subadd>Map volgen</button></div>
@@ -790,8 +804,13 @@ async function showAutomation() {
 const autoBtn = document.getElementById('autoBtn'); if (autoBtn) autoBtn.onclick = showAutomation;
 document.addEventListener('click', async (e) => {
   const t = e.target;
-  if (t.hasAttribute && t.hasAttribute('data-ruleadd')) { await api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefix:document.getElementById('rPrefix').value||'/',ext:document.getElementById('rExt').value,action:document.getElementById('rAction').value,arg:document.getElementById('rArg').value})}); return showAutomation(); }
+  if (t.hasAttribute && t.hasAttribute('data-ruleadd')) { await api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefix:document.getElementById('rPrefix').value||'/',ext:document.getElementById('rExt').value,contains:document.getElementById('rContains').value,minKb:document.getElementById('rMin').value,maxKb:document.getElementById('rMax').value,action:document.getElementById('rAction').value,arg:document.getElementById('rArg').value})}); return showAutomation(); }
   if (t.dataset.ruledel) { await api('/api/rules/'+encodeURIComponent(t.dataset.ruledel),{method:'DELETE'}); return showAutomation(); }
+  if (t.dataset.ruletoggle) { await api('/api/rules/'+encodeURIComponent(t.dataset.ruletoggle)+'/enabled',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:t.dataset.on!=='1'})}); return showAutomation(); }
+  if (t.dataset.tplapply) { const r=await (await api('/api/templates/'+encodeURIComponent(t.dataset.tplapply)+'/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:cwd||'/'})})).json(); alert(r.ok?('Aangemaakt: '+r.created+' item(s)'):('Fout: '+(r.error||''))); load(); }
+  if (t.hasAttribute && t.hasAttribute('data-lcadd')) { await api('/api/lifecycle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:document.getElementById('lcPath').value||'/',warnDays:document.getElementById('lcWarn').value,archiveDays:document.getElementById('lcArch').value,deleteDays:document.getElementById('lcDel').value})}); return showAutomation(); }
+  if (t.dataset.lcdel) { await api('/api/lifecycle/'+encodeURIComponent(t.dataset.lcdel),{method:'DELETE'}); return showAutomation(); }
+  if (t.hasAttribute && t.hasAttribute('data-lcrun')) { const r=await (await api('/api/lifecycle/run',{method:'POST'})).json(); alert('Gewaarschuwd: '+r.warned+' · gearchiveerd: '+r.archived+' · gewist: '+r.deleted); load(); }
   if (t.hasAttribute && t.hasAttribute('data-subadd')) { await api('/api/subscriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefix:document.getElementById('subPrefix').value||'/'})}); return showAutomation(); }
   if (t.dataset.subdel) { await api('/api/subscriptions/'+encodeURIComponent(t.dataset.subdel),{method:'DELETE'}); return showAutomation(); }
   if (t.hasAttribute && t.hasAttribute('data-digestsave')) { await api('/api/digest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({frequency:document.getElementById('digestFreq').value})}); alert('Opgeslagen.'); }

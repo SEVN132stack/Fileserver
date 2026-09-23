@@ -221,6 +221,29 @@
       <div style="margin-top:1rem"><button id="saveSettings">Opslaan</button> <button id="runCleanup">Nu opschonen</button></div>
     </div>
 
+    <h2>Geplande rapporten</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <table id="schedRepTable"></table>
+      <div style="margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+        <select id="srType"><option value="overview">overzicht</option><option value="sla">beschikbaarheid (SLA)</option></select>
+        <select id="srCadence"><option value="daily">dagelijks</option><option value="weekly" selected>wekelijks</option><option value="monthly">maandelijks</option></select>
+        <select id="srDest"><option value="email">e-mail</option><option value="folder">map (Rapporten)</option></select>
+        <input id="srTarget" placeholder="e-mailadres (bij e-mail)" style="width:180px">
+        <button id="srAdd">Toevoegen</button>
+      </div>
+    </div>
+
+    <h2>Map-sjablonen</h2>
+    <div class="card" style="margin-bottom:2rem">
+      <table id="tplTable"></table>
+      <div style="margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+        <input id="tplName" placeholder="sjabloonnaam" style="width:140px">
+        <input id="tplEntries" placeholder="regels: docs/ , README.txt , src/ (map eindigt op /)" style="flex:1;min-width:220px">
+        <button id="tplAdd">Sjabloon opslaan</button>
+      </div>
+      <div class="l">Gebruikers passen sjablonen toe via ⚙️ Automatisering in de hoofd-UI.</div>
+    </div>
+
     <h2>Groepen</h2>
     <table id="groupTable"></table>
     <div style="display:flex;gap:.5rem;margin-bottom:2rem">
@@ -470,8 +493,7 @@
       alert('Instellingen opgeslagen'); loadSettings(); loadOverview();
     };
 
-    const card = (label, value) => `<div class="card"><div class="v">${esc(String(value))}</div><div class="l">${esc(label)}</div></div>`;
-    // Beschikbaarheid (SLA).
+    const card = (label, value) => `<div class="card"><div class="v">${esc(String(value))}</div><div class="l">${esc(label)}</div></div>`;    // Beschikbaarheid (SLA).
     async function loadSla() {
       const days = document.getElementById('slaDays').value;
       const s = await (await j('/api/admin/sla?days='+days)).json();
@@ -498,6 +520,31 @@
       barChart(document.getElementById('dashStorage'), top.map((u,i)=>({label:u.user.slice(0,8),value:Math.round(u.used/1048576),color:['#38bdf8','#818cf8','#4ade80','#facc15','#f472b6','#fb923c','#22d3ee','#a78bfa'][i%8]})));
       document.getElementById('dashActive').textContent = d.activeUsers24h;
     }
+    // Geplande rapporten.
+    async function loadSchedReports() {
+      const { reports } = await (await j('/api/admin/scheduled-reports')).json();
+      document.getElementById('schedRepTable').innerHTML = '<tr><th>Type</th><th>Cadans</th><th>Bestemming</th><th>Laatst</th><th></th></tr>' +
+        (reports.length?reports.map(r=>`<tr><td>${esc(r.type)}</td><td>${esc(r.cadence)}</td><td>${esc(r.dest)}${r.target?' → '+esc(r.target):''}</td><td>${r.lastRun?new Date(r.lastRun).toLocaleString():'—'}</td><td><button data-srrun="${esc(r.id)}">nu</button> <button class="danger" data-srdel="${esc(r.id)}">×</button></td></tr>`).join(''):'<tr><td colspan="5">Geen rapporten.</td></tr>');
+    }
+    document.getElementById('srAdd').onclick = async () => { await j('/api/admin/scheduled-reports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:document.getElementById('srType').value,cadence:document.getElementById('srCadence').value,dest:document.getElementById('srDest').value,target:document.getElementById('srTarget').value})}); loadSchedReports(); };
+    // Map-sjablonen.
+    async function loadTemplates() {
+      const { templates } = await (await j('/api/templates')).json();
+      document.getElementById('tplTable').innerHTML = '<tr><th>Naam</th><th>Onderdelen</th><th></th></tr>' +
+        (templates.length?templates.map(t=>`<tr><td>${esc(t.name)}</td><td>${t.entries.map(e=>esc(e.path)+(e.type==='dir'?'/':'')).join(', ')}</td><td><button class="danger" data-tpldel="${esc(t.id)}">×</button></td></tr>`).join(''):'<tr><td colspan="3">Geen sjablonen.</td></tr>');
+    }
+    document.getElementById('tplAdd').onclick = async () => {
+      const name=document.getElementById('tplName').value.trim(); if(!name)return;
+      const entries=document.getElementById('tplEntries').value.split(',').map(s=>s.trim()).filter(Boolean).map(p=>p.endsWith('/')?{path:p.replace(/\/$/,''),type:'dir'}:{path:p,type:'file',content:''});
+      await j('/api/admin/templates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,entries})});
+      document.getElementById('tplName').value=''; document.getElementById('tplEntries').value=''; loadTemplates();
+    };
+    document.addEventListener('click', async (e) => {
+      const d=e.target.dataset||{};
+      if (d.srrun) { await j('/api/admin/scheduled-reports/'+encodeURIComponent(d.srrun)+'/run',{method:'POST'}); alert('Rapport uitgevoerd.'); loadSchedReports(); }
+      if (d.srdel) { await j('/api/admin/scheduled-reports/'+encodeURIComponent(d.srdel),{method:'DELETE'}); loadSchedReports(); }
+      if (d.tpldel) { await j('/api/admin/templates/'+encodeURIComponent(d.tpldel),{method:'DELETE'}); loadTemplates(); }
+    });
     document.getElementById('runCleanup').onclick = async () => { const r=await (await j('/api/admin/cleanup',{method:'POST'})).json(); alert('Opgeschoond: '+r.removed+' item(s)'); };
     async function loadGroups() {
       const { groups } = await (await j('/api/admin/groups')).json();
@@ -676,7 +723,7 @@
       if (d.mntdel) { await j('/api/admin/maintenance/'+encodeURIComponent(d.mntdel),{method:'DELETE'}); loadIncidents(); }
     });
 
-    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit(); loadAnalytics(); loadHooks(); loadSnaps(); loadIncidents(); loadWebhookSubs(); loadEventHooks(); loadSla(); loadDashboard();
+    loadSettings(); loadGroups(); loadStorageReport(); loadPermalinks(); loadUpdate(); loadDisk(); loadInvites(); loadJit(); loadAnalytics(); loadHooks(); loadSnaps(); loadIncidents(); loadWebhookSubs(); loadEventHooks(); loadSla(); loadDashboard(); loadSchedReports(); loadTemplates();
 
     // Live-verversing: elke 3s een sample voor de grafieken + direct verversen
     // bij activiteit (SSE). De tabellen worden lichtjes gedebounced ververst.
