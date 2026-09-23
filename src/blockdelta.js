@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { config } from './config.js';
@@ -32,20 +33,26 @@ function drop(id) {
   sessions.delete(id);
 }
 
-// Hash per blok van een bestaand bestand (streamend, blok voor blok).
-export function blockHashes(absFile, blockSize) {
+// Hash per blok van een bestaand bestand. Asynchroon en blok voor blok, zodat
+// een zeer groot bestand de event loop (en daarmee de hele server) niet blokkeert.
+export async function blockHashes(absFile, blockSize) {
   const out = [];
-  let fd; try { fd = fs.openSync(absFile, 'r'); } catch { return out; }
+  let fh; try { fh = await fsp.open(absFile, 'r'); } catch { return out; }
   try {
     const buf = Buffer.allocUnsafe(blockSize);
-    let n;
-    while ((n = fs.readSync(fd, buf, 0, blockSize, null)) > 0) out.push(createHash('sha256').update(buf.subarray(0, n)).digest('hex'));
-  } finally { fs.closeSync(fd); }
+    let pos = 0;
+    for (;;) {
+      const { bytesRead } = await fh.read(buf, 0, blockSize, pos);
+      if (!bytesRead) break;
+      out.push(createHash('sha256').update(buf.subarray(0, bytesRead)).digest('hex'));
+      pos += bytesRead;
+    }
+  } finally { await fh.close(); }
   return out;
 }
 
 // Start een sessie. Retourneert de indexen van de blokken die de client moet sturen.
-export function start(user, absTarget, relTarget, { size, sha256, blockSize, blocks }) {
+export async function start(user, absTarget, relTarget, { size, sha256, blockSize, blocks }) {
   sweep();
   const bs = parseInt(blockSize, 10);
   const total = Number(size);
@@ -59,23 +66,28 @@ export function start(user, absTarget, relTarget, { size, sha256, blockSize, blo
   if (!Array.isArray(blocks) || blocks.length !== n || !blocks.every((h) => HEX.test(String(h)))) throw new Error('Bloklijst klopt niet met de grootte');
   let open = 0; for (const s of sessions.values()) if (s.user === user) open++;
   if (open >= 5) throw new Error('Te veel lopende delta-uploads');
-  const old = fs.existsSync(absTarget) && fs.statSync(absTarget).isFile() ? blockHashes(absTarget, bs) : [];
-  const need = [];
-  for (let i = 0; i < n; i++) if (old[i] !== blocks[i]) need.push(i);
+  // Reserveer de sessieplek vóór het (asynchrone) hashen, zodat parallelle starts de limiet niet omzeilen.
   const id = randomBytes(12).toString('hex');
   const dir = path.join(sessionDir(), id);
-  fs.mkdirSync(dir, { recursive: true });
-  sessions.set(id, { id, user, absTarget, relTarget, size: total, sha256, bs, blocks, need: new Set(need), got: new Set(), dir, created: Date.now() });
+  const sess = { id, user, absTarget, relTarget, size: total, sha256, bs, blocks, need: new Set(), got: new Set(), dir, created: Date.now(), ready: false };
+  sessions.set(id, sess);
+  let old;
+  try { old = fs.existsSync(absTarget) && fs.statSync(absTarget).isFile() ? await blockHashes(absTarget, bs) : []; }
+  catch (err) { sessions.delete(id); throw err; }
+  const need = [];
+  for (let i = 0; i < n; i++) if (old[i] !== blocks[i]) need.push(i);
+  await fsp.mkdir(dir, { recursive: true });
+  sess.need = new Set(need); sess.ready = true;
   return { id, need, reuse: n - need.length, blockSize: bs };
 }
 
 export function getSession(user, id) {
   const s = sessions.get(String(id || ''));
-  return s && s.user === user ? s : null;
+  return s && s.user === user && s.ready ? s : null;
 }
 
 // Ontvang één (gewijzigd) blok; de hash wordt direct gecontroleerd.
-export function putBlock(user, id, index, buf) {
+export async function putBlock(user, id, index, buf) {
   const s = getSession(user, id);
   if (!s) throw new Error('Sessie niet gevonden');
   const i = parseInt(index, 10);
@@ -83,7 +95,7 @@ export function putBlock(user, id, index, buf) {
   const expectLen = i === Math.ceil(s.size / s.bs) - 1 ? s.size - i * s.bs : s.bs;
   if (buf.length !== expectLen) throw new Error('Onjuiste bloklengte');
   if (createHash('sha256').update(buf).digest('hex') !== s.blocks[i]) throw new Error('Blok-hash klopt niet');
-  fs.writeFileSync(path.join(s.dir, String(i)), buf);
+  await fsp.writeFile(path.join(s.dir, String(i)), buf);
   s.got.add(i);
   return { received: s.got.size, needed: s.need.size };
 }
@@ -97,27 +109,31 @@ export async function finish(user, id, { verify, beforeReplace } = {}) {
   for (const i of s.need) if (!s.got.has(i)) throw new Error(`Blok ${i} ontbreekt nog`);
   const n = s.size === 0 ? 0 : Math.ceil(s.size / s.bs);
   const tmp = path.join(s.dir, 'assembled');
-  const out = fs.openSync(tmp, 'w');
+  // Voorkom dat twee gelijktijdige finish-aanroepen dezelfde sessie samenstellen.
+  if (s.finishing) throw new Error('Wordt al afgerond');
+  s.finishing = true;
+  const out = await fsp.open(tmp, 'w');
   const whole = createHash('sha256');
-  let oldFd = null;
+  let oldFh = null;
   try {
     const buf = Buffer.allocUnsafe(s.bs);
     for (let i = 0; i < n; i++) {
       let chunk;
-      if (s.need.has(i)) chunk = fs.readFileSync(path.join(s.dir, String(i)));
+      if (s.need.has(i)) chunk = await fsp.readFile(path.join(s.dir, String(i)));
       else {
-        if (oldFd === null) oldFd = fs.openSync(s.absTarget, 'r');
-        const len = fs.readSync(oldFd, buf, 0, s.bs, i * s.bs);
-        chunk = buf.subarray(0, len);
+        if (oldFh === null) oldFh = await fsp.open(s.absTarget, 'r');
+        const { bytesRead } = await oldFh.read(buf, 0, s.bs, i * s.bs);
+        chunk = buf.subarray(0, bytesRead);
         // Het oude bestand kan sinds de start gewijzigd zijn: hergebruik alleen als de hash nog klopt.
-        if (createHash('sha256').update(chunk).digest('hex') !== s.blocks[i]) throw new Error('Bestaand bestand is intussen gewijzigd; start de upload opnieuw');
+        if (createHash('sha256').update(chunk).digest('hex') !== s.blocks[i]) { s.finishing = false; throw new Error('Bestaand bestand is intussen gewijzigd; start de upload opnieuw'); }
       }
       whole.update(chunk);
-      fs.writeSync(out, chunk);
+      await out.write(chunk);
     }
-  } finally {
-    fs.closeSync(out);
-    if (oldFd !== null) fs.closeSync(oldFd);
+  } catch (err) { s.finishing = false; throw err; }
+  finally {
+    await out.close();
+    if (oldFh !== null) await oldFh.close();
   }
   const digest = whole.digest('hex');
   if (s.sha256 && digest !== s.sha256) { drop(id); throw new Error('Controlesom van het samengestelde bestand klopt niet'); }
@@ -132,7 +148,7 @@ export async function finish(user, id, { verify, beforeReplace } = {}) {
     if (err.code !== 'EXDEV') throw err;
     // Andere schijf/volume: kopieer naar een tijdelijke naam naast het doel en hernoem dan atomair.
     const side = s.absTarget + '.delta-' + s.id;
-    fs.copyFileSync(tmp, side); fs.renameSync(side, s.absTarget);
+    await fsp.copyFile(tmp, side); fs.renameSync(side, s.absTarget);
   }
   const result = { ok: true, path: s.relTarget, size: s.size, sha256: digest, sentBlocks: s.need.size, reusedBlocks: n - s.need.size };
   drop(id);

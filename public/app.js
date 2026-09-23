@@ -502,8 +502,11 @@ async function oqAdd(items) {
   } catch { return 0; }
 }
 async function oqDel(id) { try { const db = await oqDb(); db.transaction('q', 'readwrite').objectStore('q').delete(id); } catch { /* nvt */ } }
+// Alleen items van de ingelogde gebruiker (een gedeelde browser mag bestanden
+// van gebruiker A nooit in het account van gebruiker B uploaden).
+async function oqMine() { const u = me && me.user; return u ? (await oqAll()).filter(x => x.user === u) : []; }
 async function oqBadge() {
-  const n = (await oqAll()).length;
+  const n = (await oqMine()).length;
   let b = document.getElementById('oqBadge');
   if (!n) { if (b) b.remove(); return; }
   if (!b) { b = document.createElement('div'); b.id = 'oqBadge'; b.style.cssText = 'position:fixed;bottom:1rem;right:1rem;background:#f59e0b;color:#000;padding:.5rem .8rem;border-radius:8px;z-index:50;font-size:.9rem'; document.body.appendChild(b); }
@@ -511,10 +514,12 @@ async function oqBadge() {
 }
 let oqFlushing = false;
 async function oqFlush() {
-  if (oqFlushing || !navigator.onLine) return;
+  if (oqFlushing || !navigator.onLine || !me || !me.user) return;
   oqFlushing = true;
   try {
-    for (const it of await oqAll()) {
+    // Ruim items zonder eigenaar of ouder dan 7 dagen op (nooit uploaden naar een onbekend account).
+    for (const x of await oqAll()) if (!x.user || Date.now() - (x.at || 0) > 7 * 86400000) await oqDel(x.id);
+    for (const it of await oqMine()) {
       const fd = new FormData(); fd.append('files', it.blob, it.name);
       try {
         const r = await fetch('/api/upload?path=' + encodeURIComponent(it.path), { method: 'POST', body: fd });
@@ -527,7 +532,8 @@ async function oqFlush() {
 window.addEventListener('online', oqFlush);
 setTimeout(() => { oqBadge(); oqFlush(); }, 1500);
 async function queueOffline(files, relPaths) {
-  const items = files.map((f, i) => ({ path: cwd, name: (relPaths && relPaths[i]) || f.name, blob: f, at: Date.now() }));
+  if (!me || !me.user) { alert('Offline en niet ingelogd: upload niet mogelijk.'); return; }
+  const items = files.map((f, i) => ({ user: me.user, path: cwd, name: (relPaths && relPaths[i]) || f.name, blob: f, at: Date.now() }));
   const added = await oqAdd(items);
   oqBadge();
   alert(added === items.length ? `Je bent offline: ${added} bestand(en) in de wachtrij gezet.` : `Offline-wachtrij vol: ${added} van ${items.length} bestand(en) bewaard.`);
@@ -1110,7 +1116,7 @@ async function pairTick(code) {
     stopPairPoll();
     area.insertAdjacentHTML('beforeend', `<div id="pairDecide" style="border:1px solid var(--border);border-radius:8px;padding:.6rem;margin-top:.5rem">
       <b>Koppelverzoek</b><br>Naam: ${esc(p.claim.name||'(geen)')}<br>Browser: <span class="muted">${esc(p.claim.ua)}</span><br>IP: ${esc(p.claim.ip)}<br>
-      Controlecode: <b>${esc(code.slice(0,4).toUpperCase())}</b> <span class="muted">(moet overeenkomen met het scherm van het nieuwe apparaat)</span><br>
+      Controlecode: <b>${esc(p.checkCode||'')}</b> <span class="muted">(moet overeenkomen met het scherm van het nieuwe apparaat)</span><br>
       <button data-pairdecide="${esc(code)}" data-approve="1" style="margin-top:.4rem">✅ Goedkeuren</button> <button class="danger" data-pairdecide="${esc(code)}" data-approve="0">Afwijzen</button></div>`);
   }
 }

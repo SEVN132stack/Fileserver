@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 
 // QR-apparaatkoppeling. Stroom:
 // 1. Een ingelogd apparaat start een koppeling -> korte, eenmalige code (+ QR).
@@ -43,7 +43,10 @@ export function claim(code, { ua = '', ip = '', name = '' } = {}) {
   p.status = 'claimed';
   p.claim = { ua: String(ua).slice(0, 300), ip: String(ip).slice(0, 64), name: String(name).replace(/[^\w .-]/g, '').slice(0, 40), at: Date.now() };
   p.claimSecret = randomBytes(24).toString('base64url');
-  return { claimSecret: p.claimSecret, expires: p.expires };
+  // Controlecode afgeleid van het claim-geheim (dat alleen het claimende apparaat
+  // kent), NIET van de QR-code: wie de QR meekijkt en zelf claimt, toont een andere code.
+  p.checkCode = createHash('sha256').update(p.claimSecret).digest('hex').slice(0, 6).toUpperCase();
+  return { claimSecret: p.claimSecret, checkCode: p.checkCode, expires: p.expires };
 }
 
 // Het ingelogde apparaat bekijkt de status van zijn eigen koppeling.
@@ -51,7 +54,7 @@ export function pendingFor(user, code) {
   sweep();
   const p = pairings.get(String(code || ''));
   if (!p || p.user !== user) return null;
-  return { status: p.status, claim: p.claim, expires: p.expires };
+  return { status: p.status, claim: p.claim, checkCode: p.checkCode || null, expires: p.expires };
 }
 
 export function decide(user, code, approve) {

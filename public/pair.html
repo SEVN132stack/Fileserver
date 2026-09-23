@@ -43,7 +43,7 @@
       const d = await r.json().catch(() => ({}));
       if (!r.ok) return msg(d.error || 'Koppelen mislukt.');
       secret = d.claimSecret;
-      document.getElementById('check').textContent = code.slice(0, 4).toUpperCase();
+      document.getElementById('check').textContent = d.checkCode;
       document.getElementById('step1').hidden = true;
       document.getElementById('step2').hidden = false;
       poll();

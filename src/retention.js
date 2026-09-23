@@ -24,9 +24,23 @@ export function setRetention(home, p, untilMs) {
 }
 
 // Is dit pad nu onder retentie (en dus onwijzigbaar)? Geeft de einddatum of 0.
+// Bewaarplicht geldt voor de hele boom: een pad is beschermd als het zelf, een
+// bovenliggende map óf iets eronder onder retentie staat. Zo kun je een bestand
+// onder bewaarplicht niet omzeilen door de map eromheen te hernoemen/verwijderen,
+// en beschermt bewaarplicht op een map ook de inhoud.
 export function retainedUntil(home, p) {
-  const until = readAll()[key(home, p)] || 0;
-  return until > Date.now() ? until : 0;
+  const all = readAll();
+  const now = Date.now();
+  const norm = ('/' + String(p || '')).replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+  const prefix = home + '|';
+  let max = 0;
+  for (const [k, until] of Object.entries(all)) {
+    if (until <= now || !k.startsWith(prefix)) continue;
+    const kp = k.slice(prefix.length).replace(/\/$/, '') || '/';
+    const hit = kp === norm || kp === '/' || norm === '/' || norm.startsWith(kp + '/') || kp.startsWith(norm + '/');
+    if (hit && until > max) max = until;
+  }
+  return max;
 }
 
 // Retentie opheffen. Bewust voorbehouden aan een admin (via een apart endpoint

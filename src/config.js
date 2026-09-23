@@ -564,6 +564,8 @@ export const config = {
   sharePresetsFile: abs(process.env.SHARE_PRESETS_FILE || 'share-presets.json'),
   portalsFile: abs(process.env.PORTALS_FILE || 'portals.json'),
   portalUploadDir: process.env.PORTAL_UPLOAD_DIR || 'Aangeleverd', // submap in de portaalmap
+  // Harde limiet per bestand voor anonieme portaal-uploads (ook als MAX_UPLOAD_BYTES onbeperkt is).
+  portalMaxUploadBytes: parseInt(process.env.PORTAL_MAX_UPLOAD_BYTES || String(2 * 1073741824), 10),
 
   // --- v3.41 (prestaties & schaal) ---
   // Achtergrondtaken: gelijktijdig draaiende taken en bewaartermijn van resultaten.
@@ -574,7 +576,7 @@ export const config = {
   // Max. brongrootte voor een ZIP-achtergrondtaak (bytes).
   jobMaxZipBytes: parseInt(process.env.JOB_MAX_ZIP_BYTES || String(20 * 1073741824), 10),
 
-  version: '3.41.0',
+  version: '3.41.1',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

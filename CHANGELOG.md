@@ -1,5 +1,47 @@
 # Changelog
 
+## [3.41.1] - 2026-09-23
+
+### Opgelost (security-review v3.37–v3.41)
+
+**Hoog**
+- **SFTP omzeilde bewaarplicht (WORM), locks en E2E-verplichte mappen** (bestond al langer).
+  Via SFTP kon een gebruiker bestanden onder bewaarplicht overschrijven, verwijderen of
+  hernoemen, terwijl web, WebDAV en tus dat blokkeerden. SFTP weigert nu schrijven, verwijderen
+  en hernoemen van beschermde paden, net als de andere kanalen.
+- **Bewaarplicht gold alleen op het exacte pad** (bestond al langer). Een map met een
+  bewaarplichtig bestand kon worden hernoemd of naar de prullenbak verplaatst, en `bulk/move`
+  controleerde bewaarplicht helemaal niet. Bewaarplicht geldt nu voor de hele boom (het pad, alle
+  bovenliggende mappen en alles eronder), op alle kanalen.
+- **Portaal-upload bufferde anonieme uploads in het geheugen.** Met de standaard
+  `MAX_UPLOAD_BYTES=0` kon iedereen met een portaallink het RAM volschrijven. Uploads gaan nu naar
+  een tijdelijke map op schijf, met een harde limiet (`PORTAL_MAX_UPLOAD_BYTES`, standaard 2 GB;
+  max. 20 bestanden). Tijdelijke bestanden worden altijd opgeruimd.
+- **Delta-upload blokkeerde de event loop.** Hashen en samenstellen gebeurden synchroon, waardoor
+  één groot bestand de hele server stil kon leggen. Dat is nu volledig asynchroon. Een sessie wordt
+  gereserveerd vóór het hashen en een dubbele `finish` wordt geweigerd.
+
+**Middel**
+- **Offline upload-wachtrij**: items zijn nu gekoppeld aan de gebruiker. Op een gedeelde browser
+  worden bestanden van gebruiker A nooit meer in het account van gebruiker B geüpload. Items
+  zonder eigenaar of ouder dan 7 dagen worden opgeruimd.
+- **Classificatie ging verloren bij automatische verplaatsingen**: labels verhuizen nu mee bij
+  verloop-archivering, map-organisatie, de verplaats-regel en `bulk/move`. Het label van een map
+  geldt nu ook voor de bestanden erin (strengste label telt), dus die kunnen niet meer publiek
+  gedeeld worden.
+- **Full-text zoeken** heeft nu een leesbudget van 256 MB per zoekopdracht.
+- **DLP-blokkade** (`DLP_ACTION=block`) geldt nu ook voor delta- en portaal-uploads.
+
+**Laag**
+- **QR-controlecode** is nu afgeleid van het claim-geheim in plaats van de QR-code. Wie de QR
+  meekijkt en zelf claimt, toont dus een andere code.
+- **Portaalwachtwoord** wordt alleen nog via de `X-Portal-Password`-header geaccepteerd, niet via
+  `?pw=` (dat komt in logs terecht).
+- **Map-sjablonen** respecteren het quotum.
+- **Verloop-workflow** verplaatst naar de prullenbak (herstelbaar) in plaats van definitief te
+  wissen.
+- **Koppelprofielen** gebruiken een genormaliseerde basis-URL in plaats van de ruwe Host-header.
+
 ## [3.41.0] - 2026-09-23
 
 ### Toegevoegd (Batch U — Prestaties & schaal)
