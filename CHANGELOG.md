@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.44.0] - 2026-09-23
+
+### Nieuw
+- **Gasttoegang**: nodig iemand zonder account uit voor één submap (⋯-menu van een map → 🎟️, of zijbalk → Gasttoegang). De gast krijgt een eenmalige link (7 dagen geldig, optioneel per e-mail), ziet alleen die map (alleen-lezen of lezen + uploaden) en het account verloopt automatisch (1–90 dagen). Gasten hebben geen wachtwoord, dus geen SFTP/WebDAV; alle andere API's zijn voor hen geblokkeerd. Eigenaar ziet laatst-actief, kan een nieuwe link maken of intrekken en krijgt een melding bij de eerste login.
+- **Leesbevestigingen**: zet ze aan per bestand of map (⋯ → 📬). Openen/downloaden door iemand anders via gedeelde map, gast, deellink of permalink wordt vastgelegd; de eerste keer per lezer volgt een melding.
+- **Betere preview**: Markdown met inhoudsopgave (kopjes, taken, citaten, codeblokken), CSV/TSV als sorteerbare en filterbare tabel (herkent `;`, `,`, tab; getallen in NL-notatie) en syntax-highlighting met regelnummers voor veelgebruikte talen.
+- Gedeelde mappen: navigeren in submappen.
+
 ## [3.43.0] - 2026-09-23
 
 ### Beveiliging

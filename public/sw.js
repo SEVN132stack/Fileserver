@@ -1,10 +1,10 @@
 // Service worker voor de PWA. Cachet de app-schil (stale-while-revalidate) zodat
 // de UI ook offline laadt, met een offline-fallback voor navigatie. API-,
 // download- en WebDAV-verzoeken gaan altijd naar het netwerk.
-const CACHE = 'fileserver-v4';
+const CACHE = 'fileserver-v5';
 const SHELL = [
   '/', '/index.html', '/app.js', '/login.html', '/manifest.json', '/offline.html',
-  '/crypto.js', '/keyring.js', '/rsync.js', '/webauthn.js', '/themes.css', '/shell.css', '/shell.js',
+  '/crypto.js', '/keyring.js', '/rsync.js', '/webauthn.js', '/themes.css', '/shell.css', '/shell.js', '/preview.js',
 ];
 
 self.addEventListener('install', (e) => {
