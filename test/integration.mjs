@@ -71,6 +71,7 @@ process.env.TEMPLATES_FILE = path.join(tmp, 'templates.json');
 process.env.LIFECYCLE_FILE = path.join(tmp, 'lifecycle.json');
 process.env.SHARE_PRESETS_FILE = path.join(tmp, 'share-presets.json');
 process.env.PORTALS_FILE = path.join(tmp, 'portals.json');
+process.env.PORTAL_MAX_UPLOAD_BYTES = '200000'; // kleine cap om de portaal-uploadlimiet te testen
 process.env.EVENT_HOOKS_FILE = path.join(tmp, 'event-hooks.json');
 process.env.WEBHOOK_SUBS_FILE = path.join(tmp, 'webhook-subs.json');
 process.env.COLD_STORE_MIN_BYTES = '0';
@@ -1921,6 +1922,119 @@ try {
       JSON.stringify(st.need) === '[1]' && st.reuse === 3 && wrongBlock.status === 400 && notNeeded.status === 400 && good.ok &&
       fin.ok && fin.sentBlocks === 1 && fin.reusedBlocks === 3 && same && versioned &&
       JSON.stringify(st2.need) === '[2]' && fin2.status === 400 && untouched && locked.status === 423);
+  }
+
+  // 143. Security: SFTP respecteert bewaarplicht (ook op mapniveau), locks en E2E-mappen.
+  {
+    const retentionMod = await import('../src/retention.js');
+    const locksMod = await import('../src/locks.js');
+    const e2eMod = await import('../src/e2e-folders.js');
+    const { homeDir: hd } = await import('../src/users.js');
+    addUser({ username: 'wormtest', password: 'wormtestpw1', role: 'user' });
+    const bh = hd('wormtest');
+    fs.mkdirSync(path.join(bh, 'wormmap'), { recursive: true });
+    fs.writeFileSync(path.join(bh, 'wormmap', 'contract.txt'), 'origineel');
+    fs.writeFileSync(path.join(bh, 'slot.txt'), 'slot');
+    retentionMod.setRetention(bh, '/wormmap', Date.now() + 86400000);
+    locksMod.lock(bh, '/slot.txt', 'admin');
+    e2eMod.setE2E(bh, '/kluis', true); fs.mkdirSync(path.join(bh, 'kluis'), { recursive: true });
+    const r = await new Promise((res) => {
+      const c = new ssh2.Client(); const out = {};
+      c.on('ready', () => c.sftp(async (e, s) => {
+        const p = (fn) => new Promise((ok2) => fn((err) => ok2(!err)));
+        out.unlink = await p((cb) => s.unlink('/wormmap/contract.txt', cb));
+        out.renameDir = await p((cb) => s.rename('/wormmap', '/weg', cb));
+        out.rmdir = await p((cb) => s.rmdir('/wormmap', cb));
+        out.overwrite = await p((cb) => s.writeFile('/wormmap/contract.txt', 'GEWIJZIGD', cb));
+        out.locked = await p((cb) => s.writeFile('/slot.txt', 'x', cb));
+        out.plainInE2E = await p((cb) => s.writeFile('/kluis/open.txt', 'x', cb));
+        out.encInE2E = await p((cb) => s.writeFile('/kluis/ok.enc', 'x', cb));
+        c.end(); res(out);
+      }));
+      c.on('error', () => res(null));
+      c.connect({ host: '127.0.0.1', port: 2239, username: 'wormtest', password: 'wormtestpw1' });
+    });
+    ok('security: SFTP blokkeert WORM (ook map), locks en onversleuteld in E2E-map',
+      r && !r.unlink && !r.renameDir && !r.rmdir && !r.overwrite && !r.locked && !r.plainInE2E && r.encInE2E &&
+      fs.readFileSync(path.join(bh, 'wormmap', 'contract.txt'), 'utf8') === 'origineel');
+  }
+
+  // 144. Security: web-delete/bulk-move van een map met bewaarplichtig bestand erin wordt geweigerd.
+  {
+    const retentionMod = await import('../src/retention.js');
+    const home = path.join(config.storageDir, 'admin');
+    fs.mkdirSync(path.join(home, 'archiefWORM'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'archiefWORM', 'jaarstuk.pdf'), 'x');
+    retentionMod.setRetention(home, '/archiefWORM/jaarstuk.pdf', Date.now() + 86400000);
+    await fetch(H + '/api/delete', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/archiefWORM' }) });
+    await fetch(H + '/api/bulk/move', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ paths: ['/archiefWORM/jaarstuk.pdf'], dest: '/elders' }) });
+    const ren = await fetch(H + '/api/rename', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ from: '/archiefWORM', to: '/nieuwenaam' }) });
+    ok('security: map met bewaarplichtig bestand niet te wissen/verplaatsen/hernoemen',
+      fs.existsSync(path.join(home, 'archiefWORM', 'jaarstuk.pdf')) && ren.status === 423);
+  }
+
+  // 145. Security: label van een map geldt voor bestanden erin (geen publieke deel-link).
+  {
+    const labelsMod = await import('../src/labels.js');
+    const home = path.join(config.storageDir, 'admin');
+    fs.mkdirSync(path.join(home, 'hr'), { recursive: true }); fs.writeFileSync(path.join(home, 'hr', 'salaris.xlsx'), 'x');
+    labelsMod.setLabel(home, '/hr', 'vertrouwelijk', 'admin');
+    const sh = await fetch(H + '/api/share', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/hr/salaris.xlsx' }) });
+    ok('security: map-label beschermt bestanden erin tegen publiek delen', sh.status === 403);
+  }
+
+  // 146. Security: anonieme portaal-upload heeft een harde groottegrens (niet in het geheugen).
+  {
+    const pd = path.join(config.storageDir, 'admin', 'klantB'); fs.mkdirSync(pd, { recursive: true });
+    const cr = await (await fetch(H + '/api/portals', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ name: 'Klant B', path: '/klantB', allowUpload: true }) })).json();
+    const fd = new FormData(); fd.append('files', new Blob([Buffer.alloc(300000, 1)]), 'groot.bin');
+    const big = await fetch(H + '/api/portal/' + cr.token + '/upload', { method: 'POST', body: fd });
+    const qpw = await fetch(H + '/api/portal/' + cr.token + '?pw=iets');
+    const tmpDir = path.join(os.tmpdir(), 'fs-portal-up');
+    const leftovers = fs.existsSync(tmpDir) ? fs.readdirSync(tmpDir).length : 0;
+    ok('security: portaal-upload begrensd + tijdelijke bestanden opgeruimd',
+      big.status === 413 && !fs.existsSync(path.join(pd, config.portalUploadDir, 'groot.bin')) && leftovers === 0 && qpw.ok);
+  }
+
+  // 147. Security: QR-controlecode komt van het claim-geheim, niet van de QR-code.
+  {
+    const st = await (await fetch(H + '/api/pair/start', { method: 'POST', headers: jar() })).json();
+    const cl = await (await fetch(H + '/api/pair/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: st.code }) })).json();
+    const pend = await (await fetch(H + '/api/pair/pending?code=' + encodeURIComponent(st.code), { headers: jar() })).json();
+    ok('security: QR-controlecode afgeleid van claim-geheim',
+      /^[0-9A-F]{6}$/.test(cl.checkCode) && pend.checkCode === cl.checkCode && !st.code.toUpperCase().startsWith(cl.checkCode));
+  }
+
+  // 148. Verloop-workflow: verwijderen gaat naar prullenbak; archiveren behoudt het label.
+  {
+    const labelsMod = await import('../src/labels.js');
+    const home = path.join(config.storageDir, 'admin');
+    const old = new Date(Date.now() - 800 * 86400000);
+    for (const [dir, n] of [['verloopA', 'arch.txt'], ['verloopB', 'wis.txt']]) {
+      fs.mkdirSync(path.join(home, dir), { recursive: true });
+      fs.writeFileSync(path.join(home, dir, n), n); fs.utimesSync(path.join(home, dir, n), old, old);
+    }
+    labelsMod.setLabel(home, '/verloopA/arch.txt', 'geheim', 'admin');
+    await fetch(H + '/api/lifecycle', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/verloopA', archiveDays: 100 }) });
+    await fetch(H + '/api/lifecycle', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/verloopB', deleteDays: 100 }) });
+    await fetch(H + '/api/lifecycle/run', { method: 'POST', headers: jar() });
+    const archived = path.posix.join('/', config.lifecycleArchiveDir, '/verloopA/arch.txt');
+    const inTrash = fs.readdirSync(path.join(home, config.trashName)).some((n) => n.endsWith('_wis.txt'));
+    ok('verloop-workflow: wissen naar prullenbak, label blijft bij archiveren',
+      labelsMod.getLabel(home, archived) === 'geheim' && inTrash && !fs.existsSync(path.join(home, 'verloopB', 'wis.txt')));
+  }
+
+  // 149. Security: DLP-blokkade geldt ook voor delta-uploads.
+  {
+    const { createHash } = await import('node:crypto');
+    const origDlp = config.dlp.action; config.dlp.action = 'block';
+    const body = Buffer.from('Betaling met kaart 4111 1111 1111 1111 graag verwerken.');
+    const h = createHash('sha256').update(body).digest('hex');
+    const st = await (await fetch(H + '/api/upload/delta/start', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/kaart.txt', size: body.length, blockSize: 262144, blocks: [h] }) })).json();
+    await fetch(H + `/api/upload/delta/${st.id}/0`, { method: 'PUT', headers: jar({ 'Content-Type': 'application/octet-stream' }), body });
+    const fin = await fetch(H + `/api/upload/delta/${st.id}/finish`, { method: 'POST', headers: jar() });
+    config.dlp.action = origDlp;
+    ok('security: DLP blokkeert ook delta-uploads', fin.status === 400 && !fs.existsSync(path.join(config.storageDir, 'admin', 'kaart.txt')));
   }
 
   console.log(`\n${passed} tests geslaagd.`);

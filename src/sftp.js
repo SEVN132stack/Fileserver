@@ -10,6 +10,9 @@ import { isBlockedIp } from './geoblock.js';
 import { audit } from './audit.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
+import { retainedUntil } from './retention.js';
+import { lockOwner } from './locks.js';
+import { isE2ERequired } from './e2e-folders.js';
 
 const { Server, utils } = ssh2;
 const { STATUS_CODE: SFTP_STATUS_CODE, OPEN_MODE: SFTP_OPEN_MODE } = utils.sftp;
@@ -86,6 +89,14 @@ export function startSftpServer() {
       const resolve = (p) => resolveWithin(home, p);
       const toClientPath = (abs) => toClient(home, abs);
       const readonly = isReadonly(username);
+      // Is dit (client-)pad beschermd? checkE2E: ook weigeren als het in een
+      // E2E-verplichte map terechtkomt zonder .enc-extensie (schrijven/hernoemen-naar).
+      const blocked = (rel, checkE2E) => {
+        if (retainedUntil(home, rel)) return true;
+        if (lockOwner(home, rel)) return true;
+        if (checkE2E && isE2ERequired(home, path.posix.dirname(rel)) && !/\.enc$/i.test(rel)) return true;
+        return false;
+      };
 
       client.on('session', (accept) => {
         const session = accept();
@@ -111,8 +122,10 @@ export function startSftpServer() {
             } catch {
               return sftp.status(reqid, SFTP_STATUS_CODE.FAILURE);
             }
-            const reading = flags & SFTP_OPEN_MODE.READ;
+            // Schrijven = alles wat niet puur lezen is (ook READ|WRITE).
+            const reading = (flags & SFTP_OPEN_MODE.READ) && !(flags & (SFTP_OPEN_MODE.WRITE | SFTP_OPEN_MODE.APPEND | SFTP_OPEN_MODE.CREAT | SFTP_OPEN_MODE.TRUNC));
             if (!reading && readonly) return sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED);
+            if (!reading && blocked(toClientPath(abs), true)) return sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED);
             // Quota: weiger schrijven als de home-map al over het quotum zit.
             if (!reading) {
               const q = quota(username);
@@ -216,8 +229,17 @@ export function startSftpServer() {
             if (readonly) { sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED); return true; }
             return false;
           };
+          // Weiger wijzigingen aan beschermde paden: bewaarplicht (WORM), locks van een
+          // andere gebruiker, en onversleutelde bestanden in E2E-verplichte mappen.
+          const denyIfProtected = (reqid, ...paths) => {
+            for (const p of paths) {
+              let rel; try { rel = toClientPath(resolve(p)); } catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); return true; }
+              if (blocked(rel, false)) { sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED); return true; }
+            }
+            return false;
+          };
           sftp.on('REMOVE', (reqid, p) => {
-            if (denyIfReadonly(reqid)) return;
+            if (denyIfReadonly(reqid) || denyIfProtected(reqid, p)) return;
             try { fs.unlinkSync(resolve(p)); recordMutation(username, 'delete'); checkHoneypot(username, p, 'delete'); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
@@ -227,12 +249,13 @@ export function startSftpServer() {
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('RMDIR', (reqid, p) => {
-            if (denyIfReadonly(reqid)) return;
+            if (denyIfReadonly(reqid) || denyIfProtected(reqid, p)) return;
             try { fs.rmSync(resolve(p), { recursive: true, force: true }); recordMutation(username, 'delete'); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('RENAME', (reqid, oldPath, newPath) => {
-            if (denyIfReadonly(reqid)) return;
+            if (denyIfReadonly(reqid) || denyIfProtected(reqid, oldPath, newPath)) return;
+            try { if (blocked(toClientPath(resolve(newPath)), true)) return sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED); } catch { return sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
             try { fs.renameSync(resolve(oldPath), resolve(newPath)); recordMutation(username, 'rename'); checkHoneypot(username, oldPath, 'rename'); audit('sftp', username, 'rename', { from: oldPath, to: newPath }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });

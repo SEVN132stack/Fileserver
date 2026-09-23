@@ -31,8 +31,24 @@ export function setLabel(home, p, label, user) {
 }
 
 // Mag dit bestand publiek gedeeld worden? (vertrouwelijk en hoger niet)
+// Het label van een map geldt ook voor alles erin: het strengste label van het
+// pad zelf of een bovenliggende map is bepalend.
+export function effectiveLabel(home, p) {
+  const all = readAll();
+  const parts = String(p || '/').split('/').filter(Boolean);
+  let best = null;
+  for (let i = parts.length; i >= 0; i--) {
+    const cand = '/' + parts.slice(0, i).join('/');
+    for (const k of [cand, cand === '/' ? '' : cand + '/']) {
+      const l = all[key(home, k)];
+      if (l && (!best || RANK[l] > RANK[best])) best = l;
+    }
+  }
+  return best;
+}
+
 export function mayShare(home, p) {
-  const label = getLabel(home, p);
+  const label = effectiveLabel(home, p);
   return !label || RANK[label] < RANK.vertrouwelijk;
 }
 

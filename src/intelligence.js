@@ -103,6 +103,7 @@ export function cleanupAdvice(home, downloaded = new Set(), { largeBytes = 100 *
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|xml|html?|css|js|mjs|ts|py|java|c|h|cpp|go|rs|rb|php|sh|ya?ml|ini|conf|log|sql|tex|rtf)$/i;
 const MAX_FILE = 5 * 1048576;
 const MAX_SCAN = 3000;
+const MAX_BYTES_PER_QUERY = 256 * 1048576; // totaal leesbudget per zoekopdracht
 
 function fileText(home, rel, abs, name) {
   if (TEXT_EXT.test(name)) {
@@ -130,9 +131,11 @@ export function searchSnippets(home, q, { limit = 50 } = {}) {
   const needle = query.toLowerCase();
   const files = walkFiles(home).slice(0, MAX_SCAN);
   const results = [];
-  let scanned = 0;
+  let scanned = 0; let budget = MAX_BYTES_PER_QUERY; let truncated = false;
   for (const f of files) {
     if (results.length >= limit) break;
+    if (budget <= 0) { truncated = true; break; }
+    budget -= Math.min(f.size, 20 * 1048576);
     const name = path.basename(f.rel);
     let text = '';
     try { text = fileText(home, f.rel, f.full, name); } catch { continue; }
@@ -152,5 +155,5 @@ export function searchSnippets(home, q, { limit = 50 } = {}) {
     results.push({ path: f.rel, matches: count, snippets, qlen: needle.length });
   }
   results.sort((a, b) => b.matches - a.matches);
-  return { results, scanned };
+  return { results, scanned, truncated };
 }

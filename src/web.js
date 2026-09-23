@@ -872,7 +872,7 @@ export function createWebServer() {
     if (!rateHit(`pairclaim:${clientIp(req)}`, 20, 600000).allowed) return res.status(429).json({ error: 'Te veel pogingen' });
     const r = pairing.claim((req.body || {}).code, { ua: req.headers['user-agent'] || '', ip: clientIp(req), name: (req.body || {}).name || '' });
     if (!r) return res.status(404).json({ error: 'Code ongeldig, al gebruikt of verlopen' });
-    res.json({ ok: true, claimSecret: r.claimSecret, expires: r.expires });
+    res.json({ ok: true, claimSecret: r.claimSecret, checkCode: r.checkCode, expires: r.expires });
   });
   app.post('/api/pair/status', express.json({ limit: '4kb' }), (req, res) => {
     if (!rateHit(`pairpoll:${clientIp(req)}`, 120, 60000).allowed) return res.status(429).json({ error: 'Te veel verzoeken' });
@@ -901,7 +901,8 @@ export function createWebServer() {
     if (!rateHit(`portal:${clientIp(req)}`, 120, 60000).allowed) { res.status(429).json({ error: 'Te veel verzoeken' }); return null; }
     const portal = portals.getPortal(req.params.token);
     if (!portal) { res.status(404).json({ error: 'Portaal niet gevonden' }); return null; }
-    const pw = req.get('X-Portal-Password') || req.query.pw || '';
+    // Alleen via header: een wachtwoord in de query-string belandt in proxy-/serverlogs.
+    const pw = req.get('X-Portal-Password') || '';
     if (!portals.checkPassword(portal, pw)) {
       // Wachtwoordpogingen extra beperken (brute-force).
       if (!rateHit(`portalpw:${clientIp(req)}`, 20, 600000).allowed) { res.status(429).json({ error: 'Te veel pogingen' }); return null; }
@@ -931,37 +932,51 @@ export function createWebServer() {
     audit('web', portal.owner, 'portal_download', { token: req.params.token.slice(0, 8), path: req.query.path, ip: clientIp(req) });
     res.download(abs, path.basename(abs));
   });
-  const portalUpload = multer({ storage: multer.memoryStorage(), limits: mlimits });
-  app.post('/api/portal/:token/upload', (req, res, next) => { const p = portalGuard(req, res); if (!p) return; req.portal = p; next(); }, portalUpload.array('files'), async (req, res) => {
-    const portal = req.portal;
-    if (!portal.allowUpload) return res.status(403).json({ error: 'Aanleveren niet toegestaan' });
-    const files = req.files || [];
-    const incoming = files.reduce((n, f) => n + f.size, 0);
-    const q = quota(portal.owner);
-    if (q > 0 && dirSize(homeDir(portal.owner)) + incoming > q) return res.status(413).json({ error: 'Opslaglimiet van de eigenaar bereikt' });
-    const { base } = portals.resolveInPortal(portal, '');
-    const dest = path.join(base, config.portalUploadDir);
-    fs.mkdirSync(dest, { recursive: true });
-    const saved = []; const rejected = [];
-    for (const f of files) {
-      const safe = path.basename(f.originalname).replace(/[^\w.\- ]+/g, '_').slice(0, 200) || 'bestand';
-      const tmp = path.join(os.tmpdir(), 'portal-' + randomBytes(8).toString('hex'));
-      fs.writeFileSync(tmp, f.buffer);
-      let clean = true; try { clean = (await scanFile(tmp)).clean !== false; } catch { /* scan niet beschikbaar */ }
-      if (!clean) { fs.rmSync(tmp, { force: true }); rejected.push(safe); continue; }
-      let target = path.join(dest, safe);
-      if (fs.existsSync(target)) { const ext = path.extname(safe); target = path.join(dest, path.basename(safe, ext) + '-' + randomBytes(3).toString('hex') + ext); }
-      fs.copyFileSync(tmp, target); fs.rmSync(tmp, { force: true });
-      saved.push(path.basename(target));
-    }
-    if (saved.length) {
-      portals.bump(req.params.token, 'uploads');
-      notifications.notifyUser(portal.owner, 'Nieuwe aanlevering via portaal', `${saved.length} bestand(en) in portaal "${portal.name}".`);
-      emitToUser(portal.owner, 'change', { action: 'portal_upload' });
-    }
-    audit('web', portal.owner, 'portal_upload', { token: req.params.token.slice(0, 8), saved: saved.length, rejected: rejected.length, ip: clientIp(req) });
-    res.json({ ok: true, saved, rejected });
+  // Anonieme uploads nooit in het geheugen bufferen: naar een tijdelijke map op schijf,
+  // met een harde grootte- en aantalslimiet (ook als MAX_UPLOAD_BYTES=0 / onbeperkt is).
+  const portalUpload = multer({
+    dest: path.join(os.tmpdir(), 'fs-portal-up'),
+    limits: { fileSize: config.maxUploadBytes > 0 ? Math.min(config.maxUploadBytes, config.portalMaxUploadBytes) : config.portalMaxUploadBytes, files: 20, fields: 10 },
   });
+  const cleanupTmp = (files) => { for (const f of files || []) { try { fs.rmSync(f.path, { force: true }); } catch { /* weg */ } } };
+  app.post('/api/portal/:token/upload', (req, res, next) => { const p = portalGuard(req, res); if (!p) return; if (!p.allowUpload) return res.status(403).json({ error: 'Aanleveren niet toegestaan' }); req.portal = p; next(); },
+    (req, res, next) => portalUpload.array('files')(req, res, (err) => {
+      if (err) { cleanupTmp(req.files); return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Bestand te groot' : 'Upload mislukt' }); }
+      next();
+    }),
+    async (req, res) => {
+      const portal = req.portal;
+      const files = req.files || [];
+      try {
+        const incoming = files.reduce((n, f) => n + f.size, 0);
+        const q = quota(portal.owner);
+        if (q > 0 && dirSize(homeDir(portal.owner)) + incoming > q) return res.status(413).json({ error: 'Opslaglimiet van de eigenaar bereikt' });
+        const { base } = portals.resolveInPortal(portal, '');
+        const dest = path.join(base, config.portalUploadDir);
+        fs.mkdirSync(dest, { recursive: true });
+        const saved = []; const rejected = [];
+        for (const f of files) {
+          const safe = path.basename(f.originalname).replace(/[^\w.\- ]+/g, '_').slice(0, 200) || 'bestand';
+          let clean = true; try { clean = (await scanFile(f.path)).clean !== false; } catch { /* scan niet beschikbaar */ }
+          if (!clean) { rejected.push(safe); continue; }
+          // DLP-beleid geldt ook voor externe aanleveringen.
+          const dlp = scanFileForDlp(f.path, safe);
+          if (dlp && config.dlp.action === 'block') { audit('web', portal.owner, 'dlp_hit', { file: safe, types: dlp.types, via: 'portal' }); rejected.push(safe); continue; }
+          let target = path.join(dest, safe);
+          if (fs.existsSync(target)) { const ext = path.extname(safe); target = path.join(dest, path.basename(safe, ext) + '-' + randomBytes(3).toString('hex') + ext); }
+          fs.copyFileSync(f.path, target);
+          saved.push(path.basename(target));
+        }
+        if (saved.length) {
+          invalidateDirSize(homeDir(portal.owner));
+          portals.bump(req.params.token, 'uploads');
+          notifications.notifyUser(portal.owner, 'Nieuwe aanlevering via portaal', `${saved.length} bestand(en) in portaal "${portal.name}".`);
+          emitToUser(portal.owner, 'change', { action: 'portal_upload' });
+        }
+        audit('web', portal.owner, 'portal_upload', { token: req.params.token.slice(0, 8), saved: saved.length, rejected: rejected.length, ip: clientIp(req) });
+        res.json({ ok: true, saved, rejected });
+      } finally { cleanupTmp(files); }
+    });
 
   // --- Alles hieronder vereist authenticatie ---
   app.use('/api', (req, res, next) => (req.path === '/events' ? next() : apiLimiter(req, res, next)));
@@ -1338,6 +1353,7 @@ export function createWebServer() {
           expiry.movePath(req.home, from, to);
           ocr.movePath(req.home, from, to);
           vision.movePath(req.home, from, to);
+          labels.movePath(req.home, from, to);
         },
       });
       audit('web', req.user, 'organize-apply', { moved: result.moved });
@@ -1680,7 +1696,7 @@ export function createWebServer() {
           move: (rel, destDir) => {
             const from = resolveWithin(req.home, rel);
             const to = resolveWithin(req.home, path.posix.join(destDir || '/', path.basename(rel)));
-            try { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.renameSync(from, to); tags.movePath(req.user, rel, toClientPath(req.home, to)); return toClientPath(req.home, to); } catch { return rel; }
+            try { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.renameSync(from, to); tags.movePath(req.user, rel, toClientPath(req.home, to)); labels.movePath(req.home, rel, toClientPath(req.home, to)); return toClientPath(req.home, to); } catch { return rel; }
           },
           notify: (rel) => notifications.notifyUser(req.user, 'Automatiseringsregel', `Regel toegepast op ${rel}`),
           label: (rel, label) => { try { labels.setLabel(req.home, rel, label, req.user); } catch { /* ongeldig label */ } },
@@ -1850,6 +1866,7 @@ export function createWebServer() {
       let moved = 0;
       for (const p of req.body.paths || []) {
         if (locks.lockOwner(req.home, p)) continue;
+        if (retention.retainedUntil(req.home, p)) continue; // bewaarplicht: niet verplaatsen
         const abs = resolveWithin(req.home, p);
         if (path.resolve(abs) === path.resolve(req.home)) continue;
         const dest = path.join(targetDir, path.basename(abs));
@@ -1861,6 +1878,7 @@ export function createWebServer() {
         expiry.movePath(req.home, p, destRel);
         ocr.movePath(req.home, p, destRel);
         vision.movePath(req.home, p, destRel);
+        labels.movePath(req.home, p, destRel);
         moved++;
       }
       recordMutation(req.user, 'rename');
@@ -2071,7 +2089,7 @@ export function createWebServer() {
     if (e2eFolders.isE2ERequired(req.home, path.posix.dirname(rel)) && !/\.enc$/i.test(rel)) return [422, 'Deze map vereist end-to-end-versleutelde bestanden (.enc)'];
     return null;
   };
-  app.post('/api/upload/delta/start', requireWrite, express.json({ limit: '12mb' }), (req, res) => {
+  app.post('/api/upload/delta/start', requireWrite, express.json({ limit: '12mb' }), async (req, res) => {
     try {
       const b = req.body || {};
       const rel = String(b.path || '');
@@ -2081,11 +2099,11 @@ export function createWebServer() {
       const q = quota(req.user);
       const oldSize = fs.existsSync(abs) ? fs.statSync(abs).size : 0;
       if (q > 0 && dirSize(req.home) - oldSize + Number(b.size || 0) > q) return res.status(413).json({ error: 'Quota overschreden' });
-      res.json(blockdelta.start(req.user, abs, rel, b));
+      res.json(await blockdelta.start(req.user, abs, rel, b));
     } catch (err) { res.status(400).json({ error: err.message }); }
   });
-  app.put('/api/upload/delta/:id/:index', requireWrite, express.raw({ type: '*/*', limit: 17 * 1048576 }), (req, res) => {
-    try { res.json(blockdelta.putBlock(req.user, req.params.id, req.params.index, Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0))); }
+  app.put('/api/upload/delta/:id/:index', requireWrite, express.raw({ type: '*/*', limit: 17 * 1048576 }), async (req, res) => {
+    try { res.json(await blockdelta.putBlock(req.user, req.params.id, req.params.index, Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0))); }
     catch (err) { res.status(400).json({ error: err.message }); }
   });
   app.post('/api/upload/delta/:id/finish', requireWrite, async (req, res) => {
@@ -2095,6 +2113,8 @@ export function createWebServer() {
           const g = deltaGuard(req, s.relTarget); if (g) return g[1];
           const sc = await scanFile(tmp);
           if (!sc.clean) { audit('web', req.user, 'upload_blocked', { path: s.relTarget, reason: 'malware', via: 'delta' }); return 'Upload geweigerd: malware gedetecteerd'; }
+          const dlp = scanFileForDlp(tmp, s.relTarget);
+          if (dlp && config.dlp.action === 'block') { audit('web', req.user, 'dlp_hit', { file: s.relTarget, types: dlp.types, via: 'delta' }); return 'Upload geweigerd: gevoelige gegevens (DLP)'; }
           return null;
         },
         beforeReplace: (s) => { if (fs.existsSync(s.absTarget)) snapshot(req.home, s.absTarget); },
@@ -2513,12 +2533,15 @@ export function createWebServer() {
   });
 
   // --- v3.39: desktop-koppelprofielen + diagnose ---
+  const safeBase = (req) => {
+    try { return new URL(config.appBaseUrl || `${req.protocol}://${req.get('host')}`).origin; } catch { return 'http://localhost'; }
+  };
   app.get('/api/mount-profiles', (req, res) => {
-    const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+    const base = safeBase(req);
     res.json({ profiles: mountProfiles.profiles(req.user, base), diagnose: mountProfiles.diagnose(base) });
   });
   app.get('/api/mount-profiles/:id/download', (req, res) => {
-    const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+    const base = safeBase(req);
     const p = mountProfiles.profiles(req.user, base).find((x) => x.id === req.params.id && x.file);
     if (!p) return res.status(404).json({ error: 'Profiel niet gevonden' });
     res.setHeader('Content-Disposition', `attachment; filename="${p.file}"`);
@@ -2570,6 +2593,10 @@ export function createWebServer() {
   });
   app.delete('/api/admin/templates/:id', requireAdmin, (req, res) => res.json({ ok: templates.deleteTemplate(req.params.id) }));
   app.post('/api/templates/:id/apply', requireWrite, express.json(), (req, res) => {
+    const tpl = templates.getTemplate(req.params.id);
+    const q = quota(req.user);
+    const bytes = tpl ? tpl.entries.reduce((n, e) => n + Buffer.byteLength(e.content || ''), 0) : 0;
+    if (q > 0 && dirSize(req.home) + bytes > q) return res.status(413).json({ error: 'Quota overschreden' });
     const r = templates.applyTemplate(req.home, req.body.path || '/', req.params.id, req.user);
     if (r.error) return res.status(r.status || 400).json({ error: r.error });
     emitToUser(req.user, 'change', { action: 'template' });

@@ -7,13 +7,16 @@ import { homeDir } from './users.js';
 import { resolveWithin } from './paths.js';
 import * as locks from './locks.js';
 import * as retention from './retention.js';
+import * as labels from './labels.js';
+import * as tags from './tags.js';
 import { audit } from './audit.js';
 
 // Bestandsverloop-workflow op basis van inactiviteit. Per gebruiker één of meer
 // beleidsregels op een map: bestanden die langer dan `warnDays` niet gewijzigd
 // zijn geven een waarschuwing, na `archiveDays` gaan ze naar de Archief-map, en
 // na `deleteDays` worden ze verwijderd. Vergrendelde en onder-bewaarplicht
-// staande bestanden worden altijd overgeslagen.
+// staande bestanden worden altijd overgeslagen. Verwijderen gaat naar de
+// prullenbak (herstelbaar).
 
 function readAll() { return readJson(config.lifecycleFile, () => ({})); }
 function writeAll(obj) { writeJson(config.lifecycleFile, obj, { mode: 0o600 }); }
@@ -104,12 +107,24 @@ export function runForUser(user, notify) {
           if (typeof notify === 'function') notify('Bestand verloopt binnenkort', `${it.rel} is ${it.ageDays} dagen ongewijzigd.`);
           warned++;
         } else if (it.action === 'archive') {
+          const toRel = path.posix.join('/', config.lifecycleArchiveDir, it.rel);
           const from = resolveWithin(home, it.rel);
-          const to = resolveWithin(home, path.posix.join('/', config.lifecycleArchiveDir, it.rel));
+          const to = resolveWithin(home, toRel);
           fs.mkdirSync(path.dirname(to), { recursive: true });
-          if (!fs.existsSync(to)) { fs.renameSync(from, to); archived++; }
+          if (!fs.existsSync(to)) {
+            fs.renameSync(from, to);
+            // Classificatie en tags verhuizen mee, zodat een gearchiveerd "geheim"
+            // bestand niet ongemerkt deelbaar wordt.
+            labels.movePath(home, it.rel, toRel); tags.movePath(user, it.rel, toRel);
+            archived++;
+          }
         } else if (it.action === 'delete') {
-          fs.rmSync(resolveWithin(home, it.rel), { force: true });
+          // Naar de prullenbak (herstelbaar) i.p.v. definitief wissen; de gewone
+          // prullenbak-opschoning ruimt het later op.
+          const trash = path.join(home, config.trashName);
+          fs.mkdirSync(trash, { recursive: true });
+          fs.renameSync(resolveWithin(home, it.rel), path.join(trash, Date.now() + '_' + path.basename(it.rel)));
+          labels.removePath(home, it.rel); tags.removePath(user, it.rel);
           deleted++;
         }
       } catch { skipped.push(it.rel); }
