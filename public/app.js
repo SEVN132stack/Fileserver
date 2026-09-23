@@ -795,6 +795,13 @@ async function showDuplicates() {
     return `<div style="border:1px solid var(--border);border-radius:6px;padding:.4rem .6rem;margin:.4rem 0"><b>${(g.size/1024).toFixed(1)} KB × ${g.paths.length}</b><ul style="list-style:none;padding:0;margin:.3rem 0">${rows}</ul></div>`;
   };
   openModal(`<h3>🧬 Duplicaten</h3>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:.6rem;margin-bottom:.6rem">
+      <b>Opruimassistent</b> — bewaar per groep één exemplaar:
+      <select id="dupStrat"><option value="oldest">oudste</option><option value="newest">nieuwste</option><option value="shortest">kortste pad</option><option value="prefer">in voorkeursmap</option></select>
+      <input id="dupPrefer" placeholder="/voorkeursmap" style="width:130px">
+      <button data-dupplan>Voorstel maken</button>
+      <div id="dupPlanOut" class="muted" style="margin-top:.4rem"></div>
+    </div>
     <p class="muted">Verspild: ${(d.wasted/1e6).toFixed(1)} MB in ${groups.length} groepen.
     <button data-dedup style="margin-left:.5rem">Automatisch dedupliceren (reflink)</button></p>
     <div style="max-width:80vw;max-height:66vh;overflow:auto">${groups.length ? groups.map(fmt).join('') : '<p class="muted">Geen duplicaten gevonden.</p>'}</div>`);
@@ -802,12 +809,23 @@ async function showDuplicates() {
 // Opgeslagen zoekopdrachten / slimme mappen.
 async function showSaved() {
   const { searches } = await (await api('/api/saved-searches')).json();
-  const rows = searches.length ? searches.map(s =>
-    `<li style="margin:.3rem 0"><button class="ghost" data-savedrun="${esc(s.id)}">🔎 ${esc(s.name)}</button> <span class="muted">"${esc(s.query)}"${s.content?' (inhoud)':''}</span> <button class="danger" data-saveddel="${esc(s.id)}">×</button></li>`).join('') : '<li class="muted">Nog geen opgeslagen zoekopdrachten.</li>';
-  openModal(`<h3>⭐ Opgeslagen zoekopdrachten</h3><ul style="list-style:none;padding:0">${rows}</ul>
-    <div style="margin-top:.6rem;border-top:1px solid var(--border);padding-top:.5rem">
-      <input id="savName" placeholder="naam" style="width:110px"> <input id="savQuery" placeholder="zoekterm" style="width:130px">
-      <label class="muted"><input type="checkbox" id="savContent"> inhoud</label> <button data-savedadd>Opslaan</button></div>`);
+  const fdesc = f => Object.entries(f||{}).map(([k,v])=>`${k}=${v}`).join(', ');
+  const rows = searches.length ? searches.map(s => {
+    const smart = s.filters && Object.keys(s.filters).length;
+    return `<li style="margin:.3rem 0">${smart?`<button class="ghost" data-colopen="${esc(s.id)}">📂 ${esc(s.name)}</button>`:`<button class="ghost" data-savedrun="${esc(s.id)}">🔎 ${esc(s.name)}</button>`} <span class="muted">${s.query?'"'+esc(s.query)+'"':''}${s.content?' (inhoud)':''}${smart?' ['+esc(fdesc(s.filters))+']':''}</span> <button class="danger" data-saveddel="${esc(s.id)}">×</button></li>`;
+  }).join('') : '<li class="muted">Nog geen opgeslagen zoekopdrachten.</li>';
+  openModal(`<h3>⭐ Zoekopdrachten & slimme collecties</h3><ul style="list-style:none;padding:0">${rows}</ul>
+    <div style="margin-top:.6rem;border-top:1px solid var(--border);padding-top:.5rem;display:grid;gap:.35rem">
+      <div><input id="savName" placeholder="naam" style="width:110px"> <input id="savQuery" placeholder="zoekterm (optioneel bij filters)" style="width:190px">
+      <label class="muted"><input type="checkbox" id="savContent"> inhoud</label></div>
+      <div class="muted">Filters (maken er een live slimme collectie van):</div>
+      <div style="display:flex;gap:.3rem;flex-wrap:wrap">
+        <select id="savType"><option value="">elk type</option><option>document</option><option>afbeelding</option><option>video</option><option>audio</option><option>archief</option></select>
+        <input id="savTag" placeholder="tag" style="width:80px"><select id="savLabel"><option value="">elke classificatie</option><option>openbaar</option><option>intern</option><option>vertrouwelijk</option><option>geheim</option></select>
+        <input id="savMin" type="number" min="0" placeholder="≥kB" style="width:65px"><input id="savMax" type="number" min="0" placeholder="≤kB" style="width:65px">
+        <input id="savNew" type="number" min="0" placeholder="gewijzigd ≤ dagen" style="width:120px"><input id="savOld" type="number" min="0" placeholder="ouder dan dagen" style="width:115px">
+      </div>
+      <div><button data-savedadd>Opslaan</button></div></div>`);
 }
 let savedList = [];
 const dupBtn = document.getElementById('dupBtn'); if (dupBtn) dupBtn.onclick = showDuplicates;
@@ -818,8 +836,10 @@ document.addEventListener('click', async (e) => {
   if (t.hasAttribute && t.hasAttribute('data-dedup')) { t.textContent='Bezig…'; const r = await (await api('/api/dedup',{method:'POST'})).json(); alert(r.supported===false?'Bestandssysteem ondersteunt geen reflinks.':`${r.reflinked} bestanden gededupliceerd (${(r.saved/1e6).toFixed(1)} MB).`); return showDuplicates(); }
   if (t.hasAttribute && t.hasAttribute('data-savedadd')) {
     const name = document.getElementById('savName').value.trim(), query = document.getElementById('savQuery').value.trim();
-    if (!name || !query) return; const content = document.getElementById('savContent').checked;
-    const r = await api('/api/saved-searches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,query,content,path:'/'})});
+    const v = id => document.getElementById(id).value;
+    const filters = { type: v('savType'), tag: v('savTag').trim(), label: v('savLabel'), minKb: v('savMin'), maxKb: v('savMax'), modifiedWithinDays: v('savNew'), olderThanDays: v('savOld') };
+    if (!name) return; const content = document.getElementById('savContent').checked;
+    const r = await api('/api/saved-searches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,query,content,path:'/',filters})});
     if(!r.ok){const ee=await r.json().catch(()=>({}));alert(ee.error||'Mislukt');} return showSaved();
   }
   if (t.dataset.saveddel) { await api('/api/saved-searches/'+encodeURIComponent(t.dataset.saveddel),{method:'DELETE'}); return showSaved(); }
@@ -832,6 +852,72 @@ document.addEventListener('click', async (e) => {
     load();
   }
 });
+// Duplicaten-assistent, opruimadvies, inhoud-zoeken en slimme collecties (Batch T).
+let dupPlan = null;
+const fmtMB = n => (n/1048576).toFixed(n > 10485760 ? 0 : 1) + ' MB';
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (t.hasAttribute && t.hasAttribute('data-dupplan')) {
+    const q = '?strategy=' + enc(document.getElementById('dupStrat').value) + '&prefer=' + enc(document.getElementById('dupPrefer').value);
+    const r = await api('/api/duplicates/plan' + q); const d = await r.json();
+    if (!r.ok) return alert(d.error || 'Mislukt');
+    dupPlan = d.plan;
+    const n = d.plan.reduce((a, g) => a + g.remove.length, 0);
+    const preview = d.plan.slice(0, 8).map(g => `<li>behoud <b>${esc(g.keep)}</b>, weg: ${g.remove.map(esc).join(', ')}</li>`).join('');
+    document.getElementById('dupPlanOut').innerHTML = n ? `${n} kopie(ën) naar de prullenbak, ${fmtMB(d.reclaim)} terug te winnen.<ul>${preview}</ul>${d.plan.length>8?'<div>…</div>':''}<button data-dupapply>Voorstel uitvoeren</button> <span>(vergrendelde, bewaarplichtige en intussen gewijzigde bestanden worden overgeslagen)</span>` : 'Geen duplicaten.';
+  }
+  if (t.hasAttribute && t.hasAttribute('data-dupapply') && dupPlan) {
+    if (!confirm('Kopieën naar de prullenbak verplaatsen? (herstelbaar)')) return;
+    const r = await (await api('/api/duplicates/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: dupPlan }) })).json();
+    alert(`${r.removed} kopie(ën) opgeruimd (${fmtMB(r.reclaimed||0)}); ${r.skipped.length} overgeslagen.`); dupPlan = null; load(); return showDuplicates();
+  }
+  if (t.dataset && t.dataset.colopen) {
+    const r = await (await api('/api/saved-searches/' + enc(t.dataset.colopen) + '/items')).json();
+    const rows = (r.items||[]).map(i => `<tr><td>${esc(i.path)}</td><td>${(i.size/1024).toFixed(1)} kB</td><td>${new Date(i.mtime).toLocaleDateString()}</td></tr>`).join('');
+    openModal(`<h3>📂 ${esc(r.collection.name)}</h3><p class="muted">${(r.items||[]).length} bestand(en), live bijgewerkt.</p><table><tr><th>Pad</th><th>Grootte</th><th>Gewijzigd</th></tr>${rows||'<tr><td colspan="3" class="muted">Geen bestanden.</td></tr>'}</table><button data-savedback style="margin-top:.5rem">← terug</button>`);
+  }
+  if (t.hasAttribute && t.hasAttribute('data-savedback')) return showSaved();
+  if (t.hasAttribute && t.hasAttribute('data-cleantrash')) {
+    const paths = [...document.querySelectorAll('input[data-cleanpick]:checked')].map(x => decodeURIComponent(x.dataset.cleanpick));
+    if (!paths.length || !confirm(`${paths.length} bestand(en) naar de prullenbak verplaatsen?`)) return;
+    await api('/api/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths }) });
+    load(); return showCleanup();
+  }
+  if (t.hasAttribute && t.hasAttribute('data-cleanrefresh')) return showCleanup();
+  if (t.hasAttribute && t.hasAttribute('data-snipgo')) return runSnippets();
+});
+async function showCleanup() {
+  openModal('<h3>🧹 Opruimadvies</h3><p class="muted">Bezig met analyseren…</p>');
+  const oldDays = (document.getElementById('clOld')||{}).value || 365, largeMb = (document.getElementById('clLarge')||{}).value || 100;
+  const d = await (await api(`/api/cleanup-advice?oldDays=${enc(oldDays)}&largeMb=${enc(largeMb)}`)).json();
+  const total = d.categories.reduce((a, c) => a + (['large','old','never'].includes(c.id) ? 0 : c.reclaim), 0);
+  const cat = c => `<details style="margin:.35rem 0"${c.items.length?'':' disabled'}><summary><b>${esc(c.label)}</b> — ${fmtMB(c.reclaim)} ${c.count?`(${c.count})`:''}</summary>
+    ${c.items.length?`<div style="max-height:30vh;overflow:auto"><table>${c.items.map(i=>`<tr><td><input type="checkbox" data-cleanpick="${enc(i.path)}"></td><td>${esc(i.path)}</td><td>${fmtMB(i.size)}</td></tr>`).join('')}</table></div>`:
+      c.id==='duplicates'?'<div class="muted">Gebruik de 🧬 duplicaten-assistent.</div>':c.id==='trash'?'<div class="muted">Leeg de prullenbak via het prullenbak-tabblad.</div>':c.id==='versions'?'<div class="muted">Oude versies worden automatisch beperkt (KEEP_VERSIONS).</div>':''}</details>`;
+  openModal(`<h3>🧹 Opruimadvies</h3>
+    <p class="muted">${d.totalFiles} bestanden, ${fmtMB(d.totalBytes)} in gebruik. Direct terug te winnen (duplicaten, prullenbak, versies): <b>${fmtMB(total)}</b>.</p>
+    <div class="muted">Groot vanaf <input id="clLarge" type="number" min="1" value="${esc(String(largeMb))}" style="width:70px"> MB · ouder dan <input id="clOld" type="number" min="1" value="${esc(String(oldDays))}" style="width:70px"> dagen <button data-cleanrefresh>Vernieuwen</button></div>
+    ${d.categories.map(cat).join('')}
+    <button class="danger" data-cleantrash style="margin-top:.5rem">Geselecteerde naar prullenbak</button>`);
+}
+async function showSnippets() {
+  openModal(`<h3>🔍 Zoeken in bestandsinhoud</h3>
+    <div><input id="snipQ" placeholder="zoekterm (min. 2 tekens)" style="width:240px"> <button data-snipgo>Zoeken</button></div>
+    <p class="muted">Doorzoekt tekst-, code-, Office-bestanden en OCR-tekst; toont fragmenten met de treffer.</p><div id="snipOut"></div>`);
+  document.getElementById('snipQ').addEventListener('keydown', ev => { if (ev.key === 'Enter') runSnippets(); });
+  document.getElementById('snipQ').focus();
+}
+async function runSnippets() {
+  const q = document.getElementById('snipQ').value.trim(); const out = document.getElementById('snipOut');
+  if (q.length < 2) return; out.textContent = 'Zoeken…';
+  const r = await api('/api/search/snippets?q=' + enc(q)); const d = await r.json();
+  if (!r.ok) { out.textContent = d.error || 'Mislukt'; return; }
+  // Veilig markeren: escape eerst elk deel, dan <mark> om de treffer.
+  const hl = sn => esc(sn.text.slice(0, sn.offset)) + '<mark>' + esc(sn.text.slice(sn.offset, sn.offset + q.length)) + '</mark>' + esc(sn.text.slice(sn.offset + q.length));
+  out.innerHTML = d.results.length ? d.results.map(x => `<div style="border-bottom:1px solid var(--border);padding:.4rem 0"><b>${esc(x.path)}</b> <span class="muted">(${x.matches}×)</span>${x.snippets.map(sn=>`<div class="muted" style="font-size:.85rem">${hl(sn)}</div>`).join('')}</div>`).join('') : `<p class="muted">Niets gevonden (${d.scanned} bestanden doorzocht).</p>`;
+}
+const cleanBtn = document.getElementById('cleanBtn'); if (cleanBtn) cleanBtn.onclick = showCleanup;
+const snipBtn = document.getElementById('snipBtn'); if (snipBtn) snipBtn.onclick = showSnippets;
 async function showSecurity() {
   const [devsR, forR] = await Promise.all([api('/api/devices'), api('/api/session-forensics')]);
   const devs = (await devsR.json()).devices || [];

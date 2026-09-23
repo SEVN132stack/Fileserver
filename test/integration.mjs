@@ -1797,6 +1797,58 @@ try {
       reuse.status === 404 && denied.status === 'denied' && basic.status === 403);
   }
 
+  // 136. Duplicaten-assistent: plan met voorkeursmap; lock en intussen-gewijzigd worden overgeslagen.
+  {
+    const locks = await import('../src/locks.js');
+    const home = path.join(config.storageDir, 'admin');
+    const d = path.join(home, 'dupT'); fs.mkdirSync(path.join(d, 'keep'), { recursive: true });
+    const body = 'DUPLICAAT-INHOUD-1234567890';
+    for (const n of ['keep/x.bin', 'y.bin', 'z.bin', 'w.bin']) fs.writeFileSync(path.join(d, n), body);
+    locks.lock(home, '/dupT/z.bin', 'admin');
+    const plan = await (await fetch(H + '/api/duplicates/plan?strategy=prefer&prefer=' + encodeURIComponent('/dupT/keep'), { headers: jar() })).json();
+    const mine = plan.plan.find((g) => g.keep === '/dupT/keep/x.bin');
+    fs.writeFileSync(path.join(d, 'w.bin'), 'DUPLICAAT-INHOUD-0000000000'); // zelfde lengte, andere inhoud: hash-herverificatie moet dit afvangen
+    const ap = await (await fetch(H + '/api/duplicates/apply', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ items: [mine] }) })).json();
+    ok('duplicaten-assistent: voorkeursmap + lock/gewijzigd overgeslagen + naar prullenbak',
+      mine && mine.remove.length === 3 && ap.removed === 1 && !fs.existsSync(path.join(d, 'y.bin')) &&
+      fs.existsSync(path.join(d, 'z.bin')) && fs.existsSync(path.join(d, 'w.bin')) && fs.existsSync(path.join(d, 'keep', 'x.bin')) &&
+      ap.skipped.includes('/dupT/z.bin') && ap.skipped.includes('/dupT/w.bin'));
+  }
+
+  // 137. Opruimadvies: categorieën met terug te winnen volume.
+  {
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'groot.bin'), Buffer.alloc(2 * 1048576));
+    const adv = await (await fetch(H + '/api/cleanup-advice?largeMb=1', { headers: jar() })).json();
+    const large = adv.categories.find((c) => c.id === 'large');
+    ok('opruimadvies: categorieën + reclaim + items',
+      adv.totalFiles > 0 && adv.categories.length === 6 && large.items.some((i) => i.path === '/groot.bin') && large.reclaim >= 2 * 1048576 &&
+      adv.categories.some((c) => c.id === 'trash' && c.reclaim > 0));
+  }
+
+  // 138. Full-text zoeken met fragmenten.
+  {
+    fs.writeFileSync(path.join(config.storageDir, 'admin', 'notities.md'), 'Intro tekst.\nHet CONTRACT met klant X loopt af op 1 januari. Het contract wordt verlengd.\nEinde.');
+    const r = await (await fetch(H + '/api/search/snippets?q=contract', { headers: jar() })).json();
+    const hit = r.results.find((x) => x.path === '/notities.md');
+    const sn = hit && hit.snippets[0];
+    ok('full-text zoeken: treffers met contextfragment',
+      hit && hit.matches === 2 && sn.text.toLowerCase().slice(sn.offset, sn.offset + 8) === 'contract' && sn.text.includes('klant X'));
+  }
+
+  // 139. Slimme collecties: filters (type + tag) live geëvalueerd.
+  {
+    for (const n of ['col-a.pdf', 'col-b.pdf', 'col-c.jpg']) fs.writeFileSync(path.join(config.storageDir, 'admin', n), 'x');
+    await fetch(H + '/api/tags', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/col-a.pdf', tags: ['klant'] }) });
+    await fetch(H + '/api/tags', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/col-c.jpg', tags: ['klant'] }) });
+    const sv = await (await fetch(H + '/api/saved-searches', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ name: 'Klantdocs', filters: { type: 'document', tag: 'klant' } }) })).json();
+    const id = (sv.search || sv.item || sv.saved || {}).id || (await (await fetch(H + '/api/saved-searches', { headers: jar() })).json()).searches.find((x) => x.name === 'Klantdocs').id;
+    const ev = await (await fetch(H + '/api/saved-searches/' + id + '/items', { headers: jar() })).json();
+    const paths = ev.items.map((i) => i.path);
+    const bad = await fetch(H + '/api/saved-searches', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ name: 'Leeg', filters: { type: 'bestaatniet' } }) });
+    ok('slimme collecties: type + tag-filter, ongeldige filter geweigerd',
+      paths.includes('/col-a.pdf') && !paths.includes('/col-b.pdf') && !paths.includes('/col-c.jpg') && bad.status === 400);
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

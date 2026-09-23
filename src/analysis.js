@@ -69,3 +69,7 @@ export function cleanupSuggestions(home, downloaded = new Set(), { largeBytes = 
     .map((f) => ({ path: f.rel, size: f.size }));
   return { large, old, neverDownloaded, totalFiles: files.length };
 }
+
+// Herbruikbare helpers (o.a. voor de duplicaten-assistent en het opruimadvies).
+export function walkFiles(home) { const out = []; walk(home, '', out); return out; }
+export { sha256 as sha256File };
