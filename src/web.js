@@ -25,6 +25,8 @@ import { audit, verifyChain, tailLines } from './audit.js';
 import { blockReason } from './geoblock.js';
 import * as jit from './jit.js';
 import { recordDownload } from './anomaly.js';
+import { onLogin as loginAnomaly, onDownload as loginBurst } from './login-anomaly.js';
+import { searchAudit, exportAudit } from './audit-search.js';
 import * as savedsearch from './savedsearch.js';
 import * as labels from './labels.js';
 import { suggestName } from './naming.js';
@@ -487,6 +489,7 @@ export function createWebServer() {
     metrics.inc('fileserver_logins_total');
     emitAdmin('activity', { kind: 'login', user: username });
     audit('web', username, 'login', { ip, country: countryOf(req) });
+    try { loginAnomaly(username, { ip, country: countryOf(req) }); } catch (err) { console.error('[login-anomaly]', err.message); }
     res.json({ ok: true, role: role(username), mustChangePassword: isPasswordExpired(username) });
   });
 
@@ -532,6 +535,7 @@ export function createWebServer() {
     res.set('Set-Cookie', `sid=${sid}; ${cookieAttrs('Lax')}`);
     recordLogin(user);
     audit('web', user, 'login', { method: 'magic' });
+    try { loginAnomaly(user, { ip: clientIp(req), country: countryOf(req) }); } catch { /* nvt */ }
     res.redirect('/');
   });
 
@@ -891,6 +895,7 @@ export function createWebServer() {
     const sid = createSession(user, { ip, ua });
     res.set('Set-Cookie', `sid=${sid}; ${cookieAttrs('Strict')}`);
     recordLogin(user);
+    try { loginAnomaly(user, { ip, country: countryOf(req) }); } catch { /* nvt */ }
     audit('web', user, 'login', { method: 'qr-pairing', ip, device: (r.claim && r.claim.name) || '' });
     res.json({ status: 'approved' });
   });
@@ -1139,14 +1144,14 @@ export function createWebServer() {
         audit('web', req.user, 'download', { path: req.query.path, country: countryOf(req), cold: true });
         recordRecent(req.user, req.query.path || '');
         const buf = coldstore.decompress(cold);
-        recordDownload(req.user, buf.length);
+        recordDownload(req.user, buf.length); loginBurst(req.user, buf.length);
         res.setHeader('Content-Disposition', `attachment; filename="${path.basename(file).replace(/[\r\n"]/g, '')}"`);
         return res.end(buf);
       }
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).json({ error: 'Niet gevonden' });
       audit('web', req.user, 'download', { path: req.query.path, country: countryOf(req) });
       recordRecent(req.user, req.query.path || '');
-      recordDownload(req.user, fs.statSync(file).size);
+      { const sz = fs.statSync(file).size; recordDownload(req.user, sz); loginBurst(req.user, sz); }
       checkHoneypot(req.user, req.query.path || '', 'download');
       metrics.inc('fileserver_downloads_total');
       metrics.inc('fileserver_bytes_downloaded_total', fs.statSync(file).size);
@@ -3087,6 +3092,23 @@ export function createWebServer() {
     if (!fs.existsSync(config.auditLog)) return res.json({ lines: [] });
     const lines = tailLines(config.auditLog, 200).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
     res.json({ lines });
+  });
+  // Doorzoekbaar audit-log met filters (gebruiker, actie, kanaal, periode, tekst).
+  app.get('/api/admin/audit/search', requireAdmin, async (req, res) => {
+    try { res.json(await searchAudit(req.query)); } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+  // Export (CSV/JSON) met SHA-256 van de inhoud en de ketencontrole.
+  app.get('/api/admin/audit/export', requireAdmin, async (req, res) => {
+    const fmt = req.query.format === 'csv' ? 'csv' : 'json';
+    try {
+      const x = await exportAudit(req.query, fmt, req.user);
+      audit('web', req.user, 'audit_export', { format: fmt, count: x.meta.count, sha256: x.sha256, chainOk: x.meta.chain.ok });
+      res.set('Content-Type', x.contentType);
+      res.set('Content-Disposition', `attachment; filename="audit-${new Date().toISOString().slice(0, 10)}.${fmt}"`);
+      res.set('X-Export-Sha256', x.sha256);
+      res.set('X-Audit-Chain', x.meta.chain.ok ? `intact;${x.meta.chain.checked}` : `broken;${x.meta.chain.brokenAt}`);
+      res.send(x.body);
+    } catch (err) { res.status(500).json({ error: err.message }); }
   });
   // Verifieer de onvervalsbaarheid van het audit-log (hash-keten).
   app.get('/api/admin/audit/verify', requireAdmin, (req, res) => {

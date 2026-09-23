@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.43.0] - 2026-09-23
+
+### Beveiliging
+- **Virus- en DLP-controle voor SFTP, WebDAV en tus**: elke upload via deze kanalen gaat door dezelfde controle als web-uploads (`src/inspect.js`). Geïnfecteerd of geblokkeerd → quarantaine + alarm; SFTP geeft dan *permission denied* bij het sluiten.
+- **Eerlijke taakwachtrij**: achtergrondtaken worden per gebruiker om de beurt ingepland, zodat één gebruiker met veel taken anderen niet blokkeert.
+- **Doorzoekbaar audit-log**: filteren op tekst, gebruiker, actie, kanaal en periode (ook in geroteerde logs). Export naar CSV of JSON met SHA-256 van de export en de uitkomst van de hash-ketencontrole (`X-Export-Sha256`, `X-Audit-Chain`); de export zelf wordt geaudit. CSV is beschermd tegen formule-injectie.
+- **Meldingen bij verdachte logins**: nieuw land, onmogelijke reis (ander land binnen `LOGIN_TRAVEL_HOURS`) en massadownload kort na inloggen (`LOGIN_BURST_*`). Land via `GEO_HEADER`. Alarm + audit (`login_anomaly`).
+
 ## [3.42.0] - 2026-09-23
 
 ### Nieuw — nieuwe look

@@ -37,6 +37,7 @@ process.env.OCR_FILE = path.join(tmp, 'ocr-index.json');
 process.env.ACCESS_REQUESTS_FILE = path.join(tmp, 'access-requests.json');
 process.env.USER_TASKS_FILE = path.join(tmp, 'user-tasks.json');
 process.env.AUTO_TAG = 'true';
+process.env.LOGIN_HISTORY_FILE = path.join(tmp, 'login-history.json');
 process.env.INVITES_FILE = path.join(tmp, 'invites.json');
 process.env.WEBHOOK_QUEUE_FILE = path.join(tmp, 'webhook-queue.json');
 process.env.SNAPSHOTS_DIR = path.join(tmp, 'snapshots');
@@ -2035,6 +2036,75 @@ try {
     const fin = await fetch(H + `/api/upload/delta/${st.id}/finish`, { method: 'POST', headers: jar() });
     config.dlp.action = origDlp;
     ok('security: DLP blokkeert ook delta-uploads', fin.status === 400 && !fs.existsSync(path.join(config.storageDir, 'admin', 'kaart.txt')));
+  }
+
+  // 150. Audit-log doorzoeken + export met SHA-256 en ketencontrole.
+  {
+    const sr = await (await fetch(H + '/api/admin/audit/search?action=login&user=admin', { headers: jar() })).json();
+    const allLogin = sr.entries.length > 0 && sr.entries.every((e) => e.action.includes('login') && e.user === 'admin');
+    const none = await (await fetch(H + '/api/admin/audit/search?q=bestaat-zeker-niet-xyz', { headers: jar() })).json();
+    const ex = await fetch(H + '/api/admin/audit/export?format=csv&action=login', { headers: jar() });
+    const body = await ex.text();
+    const { createHash } = await import('node:crypto');
+    const shaOk = ex.headers.get('x-export-sha256') === createHash('sha256').update(body).digest('hex');
+    const js = await (await fetch(H + '/api/admin/audit/export?format=json&limit=5', { headers: jar() })).json();
+    const { toCsv } = await import('../src/audit-search.js');
+    const safe = toCsv([{ ts: 't', channel: 'web', user: '=cmd()', action: 'x' }]).includes("'=cmd()");
+    const bobDenied = (await fetch(H + '/api/admin/audit/search', { headers: { Cookie: 'sid=ongeldig' } })).status === 401;
+    ok('audit: zoeken met filters, export met SHA-256 en ketenstatus, CSV-injectie geneutraliseerd',
+      allLogin && none.total === 0 && body.startsWith('ts,channel') && shaOk && /^intact;/.test(ex.headers.get('x-audit-chain') || '') &&
+      js.meta && js.meta.chain.ok && js.entries.length <= 5 && safe && bobDenied);
+  }
+
+  // 151. Login-anomalieën: nieuw land, onmogelijke reis en massadownload na login.
+  {
+    const la = await import('../src/login-anomaly.js');
+    const seen = []; la.setAnomalyListener((a) => seen.push(a.kind));
+    const t0 = Date.now();
+    const first = la.onLogin('reiziger', { ip: '1.1.1.1', country: 'NL', now: t0 - 10 * 3600000 });
+    const same = la.onLogin('reiziger', { ip: '1.1.1.2', country: 'NL', now: t0 - 3600000 });
+    const jump = la.onLogin('reiziger', { ip: '9.9.9.9', country: 'BR', now: t0 });
+    const origC = config.loginBurstCount; config.loginBurstCount = 3;
+    la.onLogin('schraper', { ip: '2.2.2.2', now: t0 });
+    const hits = [1, 2, 3, 4].map(() => la.onDownload('schraper', 10, t0 + 1000));
+    const late = (la.onLogin('laat', { now: t0 }), [1, 2, 3, 4, 5].map(() => la.onDownload('laat', 1, t0 + 3600000)));
+    config.loginBurstCount = origC;
+    // Via HTTP: een login met landheader wordt geregistreerd.
+    await fetch(H + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', [config.geoHeader]: 'NL' }, body: JSON.stringify({ username: 'wormtest', password: 'wormtestpw1' }) });
+    const auditHas = fs.readFileSync(config.auditLog, 'utf8').includes('"login_anomaly"');
+    ok('login-anomalie: nieuw land + onmogelijke reis + massadownload na login gedetecteerd',
+      first.length === 0 && same.length === 0 && jump.includes('nieuw land') && jump.includes('onmogelijke reis') &&
+      hits.join() === 'false,false,false,true' && late.every((x) => !x) && seen.includes('massadownload na login') &&
+      la.knownCountries('wormtest').includes('NL') && auditHas);
+  }
+
+  // 152. Eerlijke taakwachtrij: een tweede gebruiker hoeft niet achter 6 taken van een ander te wachten.
+  {
+    const jobsMod = await import('../src/jobs.js');
+    const order = [];
+    jobsMod._registerTestType('traag', async (job) => { order.push(job.user); await new Promise((r) => setTimeout(r, 40)); return {}; });
+    const ids = [];
+    for (let i = 0; i < 6; i++) ids.push(jobsMod.enqueue('veel', 'traag').id);
+    ids.push(jobsMod.enqueue('weinig', 'traag').id);
+    for (const id of ids) await jobsMod.waitFor(id, 10000);
+    ok('taakwachtrij: eerlijke verdeling tussen gebruikers', order.length === 7 && order.indexOf('weinig') <= 2);
+  }
+
+  // 153. SFTP-uploads worden na het sluiten gecontroleerd (DLP-blokkade → quarantaine).
+  {
+    const origDlp = config.dlp.action; config.dlp.action = 'block';
+    const { homeDir: hd } = await import('../src/users.js');
+    const r = await new Promise((res) => {
+      const c = new ssh2.Client();
+      c.on('ready', () => c.sftp((e, s) => {
+        s.writeFile('/kaartsftp.txt', 'Kaart 4111 1111 1111 1111 voor betaling.', (err) => { c.end(); res({ err: !!err }); });
+      }));
+      c.on('error', () => res(null));
+      c.connect({ host: '127.0.0.1', port: 2239, username: 'wormtest', password: 'wormtestpw1' });
+    });
+    config.dlp.action = origDlp;
+    ok('security: SFTP-upload met gevoelige data wordt geweigerd en verwijderd',
+      r && r.err && !fs.existsSync(path.join(hd('wormtest'), 'kaartsftp.txt')));
   }
 
   console.log(`\n${passed} tests geslaagd.`);

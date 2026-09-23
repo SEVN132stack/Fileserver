@@ -259,7 +259,14 @@
       <div class="card"><div class="l">Grootste mappen</div><table id="bigDirs"></table></div>
     </div>
 
-    <h2>Audit-log (laatste 200)</h2>
+    <h2>Audit-log</h2>
+    <form id="auditForm" style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.6rem">
+      <input name="q" placeholder="Zoektekst" /><input name="user" placeholder="Gebruiker" size="10" /><input name="action" placeholder="Actie (bv. login)" size="14" />
+      <select name="channel"><option value="">Alle kanalen</option><option>web</option><option>sftp</option><option>webdav</option><option>security</option></select>
+      <label>van <input type="date" name="from" /></label><label>t/m <input type="date" name="to" /></label>
+      <button type="submit">Zoeken</button><button type="button" id="auditCsv">Export CSV</button><button type="button" id="auditJson">Export JSON</button>
+    </form>
+    <div id="auditInfo" style="color:var(--muted);font-size:.85rem;margin-bottom:.3rem"></div>
     <pre id="audit"></pre>
   </main>
   <script>
@@ -592,6 +599,12 @@
     };
 
     const fmtB = (n) => n>1e9?(n/1e9).toFixed(1)+' GB':n>1e6?(n/1e6).toFixed(1)+' MB':(n/1e3).toFixed(0)+' KB';
+    function auditQs(){ const fd=new FormData(document.getElementById('auditForm')); const p=new URLSearchParams(); for(const [k,v] of fd){ if(!v) continue; p.set(k, k==='to'? v+'T23:59:59.999Z' : v); } return p; }
+    const fmtAudit=(l)=>`${l.ts} [${l.channel}] ${l.user||'-'} ${l.action} ${JSON.stringify(Object.fromEntries(Object.entries(l).filter(([k])=>!['ts','channel','user','action','hash','prev'].includes(k))))}`;
+    document.getElementById('auditForm').onsubmit = async (e) => { e.preventDefault(); const r=await (await j('/api/admin/audit/search?'+auditQs())).json(); document.getElementById('audit').textContent=r.entries.map(fmtAudit).reverse().join('\n'); document.getElementById('auditInfo').textContent=`${r.total} treffer(s)`+(r.truncated?` — nieuwste ${r.entries.length} getoond`:''); };
+    async function auditExport(fmt){ const qs=auditQs(); qs.set('format',fmt); qs.set('limit','10000'); const r=await j('/api/admin/audit/export?'+qs); const blob=await r.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`audit.${fmt}`; a.click(); document.getElementById('auditInfo').textContent=`Export SHA-256: ${r.headers.get('X-Export-Sha256')} — keten: ${r.headers.get('X-Audit-Chain')}`; }
+    document.getElementById('auditCsv').onclick=()=>auditExport('csv');
+    document.getElementById('auditJson').onclick=()=>auditExport('json');
     document.getElementById('btnAuditVerify').onclick = async () => { mo('Audit-log verifiëren…'); const r=await (await j('/api/admin/audit/verify')).json(); mo(r.ok?`Audit-log intact: ${r.checked} regel(s) geverifieerd, keten ongebroken.`:`⚠ Audit-log GEWIJZIGD! Onderbroken bij regel ${r.brokenAt}: ${r.reason}`); };
     document.getElementById('btnRestoreTest').onclick = async () => { mo('Herstel-test…'); const r=await (await j('/api/admin/backup-restore-test',{method:'POST'})).json(); mo(r.ok?`Back-up herstelbaar: ${r.file} (${r.entries} entries${r.encrypted?', versleuteld':''}).`:`Herstel-test MISLUKT: ${r.reason||''}`); };
     document.getElementById('btnReindex').onclick = async () => { mo('Zoekindex herbouwen…'); const r=await (await j('/api/admin/search/reindex',{method:'POST'})).json(); mo(`Zoekindex herbouwd: ${r.files} bestand(en), ${r.tokens} unieke termen.`); };
