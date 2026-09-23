@@ -82,6 +82,9 @@ import * as emailUpload from './email-upload.js';
 import * as hotfolder from './hotfolder.js';
 import * as chatbot from './chatbot.js';
 import * as insights from './insights.js';
+import * as scheduledReports from './scheduled-reports.js';
+import * as templates from './templates.js';
+import * as lifecycle from './lifecycle.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
 import { passwordPwnedCount, isExpired } from './users.js';
@@ -1563,6 +1566,7 @@ export function createWebServer() {
       if (vision.canDetect(f.originalname)) vision.runVision(req.home, relUp, f.path);
       // Regelgebaseerde automatisering: tag/verplaats/notificeer op basis van pad+extensie.
       try {
+        let sizeBytes = 0; try { sizeBytes = fs.statSync(f.path).size; } catch { /* nvt */ }
         rules.applyRules(req.user, relUp, {
           tag: (rel, tag) => { const cur = tags.getTags(req.user, rel); tags.setTags(req.user, rel, [...new Set([...cur, tag])]); },
           move: (rel, destDir) => {
@@ -1571,7 +1575,8 @@ export function createWebServer() {
             try { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.renameSync(from, to); tags.movePath(req.user, rel, toClientPath(req.home, to)); return toClientPath(req.home, to); } catch { return rel; }
           },
           notify: (rel) => notifications.notifyUser(req.user, 'Automatiseringsregel', `Regel toegepast op ${rel}`),
-        });
+          label: (rel, label) => { try { labels.setLabel(req.home, rel, label, req.user); } catch { /* ongeldig label */ } },
+        }, { sizeBytes });
       } catch { /* regels mogen upload niet breken */ }
       runPostUpload(f.path);
     }
@@ -2199,6 +2204,50 @@ export function createWebServer() {
     catch (err) { res.status(400).json({ error: err.message }); }
   });
   app.delete('/api/rules/:id', requireWrite, (req, res) => res.json({ ok: rules.deleteRule(req.user, req.params.id) }));
+  app.post('/api/rules/:id/enabled', requireWrite, express.json(), (req, res) => {
+    const r = rules.setRuleEnabled(req.user, req.params.id, !!req.body.enabled);
+    if (!r) return res.status(404).json({ error: 'Regel niet gevonden' });
+    res.json({ ok: true, rule: r });
+  });
+
+  // --- v3.37: geplande rapporten (admin) ---
+  app.get('/api/admin/scheduled-reports', requireAdmin, (req, res) => res.json({ reports: scheduledReports.listReports() }));
+  app.post('/api/admin/scheduled-reports', requireAdmin, express.json(), (req, res) => {
+    try { res.json({ ok: true, report: scheduledReports.addReport(req.body || {}, req.user) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/admin/scheduled-reports/:id', requireAdmin, (req, res) => res.json({ ok: scheduledReports.deleteReport(req.params.id) }));
+  app.post('/api/admin/scheduled-reports/:id/run', requireAdmin, async (req, res) => {
+    const job = scheduledReports.listReports().find((r) => r.id === req.params.id);
+    if (!job) return res.status(404).json({ error: 'Rapport niet gevonden' });
+    try { res.json(await scheduledReports.runReport(job)); }
+    catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // --- v3.37: map-/projectsjablonen ---
+  app.get('/api/templates', (req, res) => res.json({ templates: templates.listTemplates() }));
+  app.post('/api/admin/templates', requireAdmin, express.json(), (req, res) => {
+    try { res.json({ ok: true, template: templates.addTemplate(req.body || {}, req.user) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/admin/templates/:id', requireAdmin, (req, res) => res.json({ ok: templates.deleteTemplate(req.params.id) }));
+  app.post('/api/templates/:id/apply', requireWrite, express.json(), (req, res) => {
+    const r = templates.applyTemplate(req.home, req.body.path || '/', req.params.id, req.user);
+    if (r.error) return res.status(r.status || 400).json({ error: r.error });
+    emitToUser(req.user, 'change', { action: 'template' });
+    res.json(r);
+  });
+
+  // --- v3.37: bestandsverloop-workflow (per gebruiker) ---
+  app.get('/api/lifecycle', (req, res) => res.json({ policies: lifecycle.listPolicies(req.user) }));
+  app.post('/api/lifecycle', requireWrite, express.json(), (req, res) => res.json({ ok: true, policy: lifecycle.addPolicy(req.user, req.body || {}) }));
+  app.delete('/api/lifecycle/:id', requireWrite, (req, res) => res.json({ ok: lifecycle.deletePolicy(req.user, req.params.id) }));
+  app.get('/api/lifecycle/preview', (req, res) => res.json(lifecycle.preview(req.user)));
+  app.post('/api/lifecycle/run', requireWrite, (req, res) => {
+    const r = lifecycle.runForUser(req.user, (title, body) => { try { notifications.notifyUser(req.user, title, body); } catch { /* nvt */ } });
+    emitToUser(req.user, 'change', { action: 'lifecycle' });
+    res.json({ ok: true, ...r });
+  });
 
   // Map-abonnementen.
   app.get('/api/subscriptions', (req, res) => res.json({ subscriptions: subscriptions.listSubscriptions(req.user) }));

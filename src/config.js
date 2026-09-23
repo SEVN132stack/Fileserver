@@ -548,7 +548,18 @@ export const config = {
   // beschikbaarheidsberekening.
   slaDowntimeSeverities: (process.env.SLA_DOWNTIME_SEVERITIES || 'major,critical').split(',').map((s) => s.trim()).filter(Boolean),
 
-  version: '3.36.0',
+  // --- v3.37 (automatisering & workflows) ---
+  // Geplande rapporten: definities (type/cadans/bestemming) door een admin.
+  scheduledReportsFile: abs(process.env.SCHEDULED_REPORTS_FILE || 'scheduled-reports.json'),
+  scheduledReportsDir: process.env.SCHEDULED_REPORTS_DIR || 'Rapporten', // submap in admin-home bij dest=folder
+  // Map-/projectsjablonen.
+  templatesFile: abs(process.env.TEMPLATES_FILE || 'templates.json'),
+  // Bestandsverloop-workflow (op basis van inactiviteit). Beleid in lifecycleFile.
+  lifecycleFile: abs(process.env.LIFECYCLE_FILE || 'lifecycle.json'),
+  lifecycleIntervalHours: parseInt(process.env.LIFECYCLE_INTERVAL_HOURS || '24', 10),
+  lifecycleArchiveDir: process.env.LIFECYCLE_ARCHIVE_DIR || 'Archief', // submap in home
+
+  version: '3.37.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {

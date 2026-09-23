@@ -66,6 +66,9 @@ process.env.HOTFOLDER_USER = 'admin';
 process.env.HOTFOLDER_INTERVAL_SEC = '3600'; // scheduler slaapt; test roept scanOnce handmatig
 process.env.CHAT_BOT_TOKEN = 'testbottoken';
 process.env.CHAT_BOT_USER = 'admin';
+process.env.SCHEDULED_REPORTS_FILE = path.join(tmp, 'scheduled-reports.json');
+process.env.TEMPLATES_FILE = path.join(tmp, 'templates.json');
+process.env.LIFECYCLE_FILE = path.join(tmp, 'lifecycle.json');
 process.env.EVENT_HOOKS_FILE = path.join(tmp, 'event-hooks.json');
 process.env.WEBHOOK_SUBS_FILE = path.join(tmp, 'webhook-subs.json');
 process.env.COLD_STORE_MIN_BYTES = '0';
@@ -1654,6 +1657,58 @@ try {
     const res = await (await fetch(H + '/api/admin/sla?days=30', { headers: jar() })).json();
     ok('SLA-dashboard: downtime verlaagt uptime + MTTR na oplossen',
       openCalc.uptimePct < 100 && res.uptimePct < 100 && res.mttrMs > 0 && Array.isArray(res.timeline) && res.timeline.length === 30);
+  }
+
+  // 128. Workflow-engine: uitgebreide condities (nameContains) + label-actie + enable-toggle.
+  {
+    const rules = await import('../src/rules.js');
+    const labels = await import('../src/labels.js');
+    const home = path.join(config.storageDir, 'admin');
+    const r = await (await fetch(H + '/api/rules', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ prefix: '/', contains: 'factuur', action: 'label', arg: 'vertrouwelijk' }) })).json();
+    let applied = rules.applyRules('admin', '/facturen/factuur-2026.pdf', { label: (rel, lab) => labels.setLabel(home, rel, lab, 'admin') });
+    const gotLabel = labels.getLabel(home, '/facturen/factuur-2026.pdf') === 'vertrouwelijk';
+    const noMatch = rules.applyRules('admin', '/overig/brief.pdf', { label: () => { throw new Error('mag niet'); } }).applied.length === 0;
+    await fetch(H + '/api/rules/' + r.rule.id + '/enabled', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ enabled: false }) });
+    const afterDisable = rules.applyRules('admin', '/facturen/factuur-x.pdf', { label: () => { throw new Error('uit'); } }).applied.length === 0;
+    ok('workflow-engine: nameContains + label-actie + enable-toggle',
+      r.ok && applied.applied.some((a) => a.action === 'label') && gotLabel && noMatch && afterDisable);
+  }
+
+  // 129. Geplande rapporten: taak aanmaken en nu draaien (dest=folder -> tekstbestand).
+  {
+    const add = await (await fetch(H + '/api/admin/scheduled-reports', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ type: 'overview', cadence: 'weekly', dest: 'folder' }) })).json();
+    const run = await (await fetch(H + '/api/admin/scheduled-reports/' + add.report.id + '/run', { method: 'POST', headers: jar() })).json();
+    const dir = path.join(config.storageDir, 'admin', config.scheduledReportsDir);
+    const made = fs.existsSync(dir) && fs.readdirSync(dir).some((n) => n.startsWith('overview-') && n.endsWith('.txt'));
+    ok('geplande rapporten: aanmaken + nu draaien schrijft bestand',
+      add.ok && run.ok && made);
+  }
+
+  // 130. Map-sjablonen: admin definieert, gebruiker instantieert een structuur.
+  {
+    const tpl = await (await fetch(H + '/api/admin/templates', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ name: 'Project', entries: [{ path: 'docs', type: 'dir' }, { path: 'README.txt', type: 'file', content: 'hallo' }] }) })).json();
+    const app = await (await fetch(H + '/api/templates/' + tpl.template.id + '/apply', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/NieuwProject' }) })).json();
+    const base = path.join(config.storageDir, 'admin', 'NieuwProject');
+    ok('map-sjablonen: definiëren + instantiëren',
+      tpl.ok && app.ok && fs.existsSync(path.join(base, 'docs')) && fs.readFileSync(path.join(base, 'README.txt'), 'utf8') === 'hallo');
+  }
+
+  // 131. Verloop-workflow: oude bestanden archiveren/verwijderen, vergrendelde overslaan.
+  {
+    const locks = await import('../src/locks.js');
+    const home = path.join(config.storageDir, 'admin');
+    const od = path.join(home, 'oud'); fs.mkdirSync(od, { recursive: true });
+    const oldTime = new Date(Date.now() - 400 * 86400000);
+    for (const n of ['te-archiveren.txt', 'te-wissen.txt', 'vergrendeld.txt']) { const f = path.join(od, n); fs.writeFileSync(f, 'x'); fs.utimesSync(f, oldTime, oldTime); }
+    locks.lock(home, '/oud/vergrendeld.txt', 'admin');
+    // Beleid: archiveer >100 dagen; verwijder alleen 'te-wissen' door een tweede, strengere policy op subpad.
+    await fetch(H + '/api/lifecycle', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/oud', archiveDays: 100 }) });
+    const prev = await (await fetch(H + '/api/lifecycle/preview', { headers: jar() })).json();
+    const run = await (await fetch(H + '/api/lifecycle/run', { method: 'POST', headers: jar() })).json();
+    const archived = fs.existsSync(path.join(home, config.lifecycleArchiveDir, 'oud', 'te-archiveren.txt'));
+    const lockedStayed = fs.existsSync(path.join(od, 'vergrendeld.txt'));
+    ok('verloop-workflow: archiveren + vergrendelde overslaan',
+      Array.isArray(prev.items) && prev.items.length >= 2 && run.archived >= 2 && archived && lockedStayed && run.skipped.includes('/oud/vergrendeld.txt'));
   }
 
   console.log(`\n${passed} tests geslaagd.`);

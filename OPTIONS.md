@@ -350,6 +350,13 @@ Status: ✅ klaar · 🚧 in ontwikkeling · 💡 idee/gepland.
 - ✅ Scan-naar-map / hot-folder (periodieke import van een host-map, na virusscan)
 - ✅ Chat-bot (Slack/Teams/Discord): inkomende `list`/`search`/`help`-commando's
 
+## Automatisering & workflows (v3.37)
+
+- ✅ Uitgebreide workflow-engine (condities: naam-bevat/grootte; actie: classificatie; aan/uit)
+- ✅ Geplande rapporten (overzicht/SLA → e-mail of map, met "nu draaien")
+- ✅ Map-/projectsjablonen (structuur in één klik)
+- ✅ Bestandsverloop-workflow (inactiviteit → waarschuwen/archiveren/verwijderen)
+
 ## Beheer & observability (v3.36)
 
 - ✅ Opslag-dashboard met grafieken (opslaggroei, top-opslag, actieve gebruikers)
