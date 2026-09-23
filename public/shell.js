@@ -183,7 +183,9 @@
     for (const b of btns.filter((x) => x !== primary)) {
       const ico = b.textContent.trim(); const lbl = labelFor(b);
       b.textContent = '';
-      b.append(el('span', { class: 'ico' }, ico.length <= 3 ? ico : '•'), el('span', { class: 'lbl' }, lbl));
+      const icoEl = el('span', { class: 'ico' }); icoEl.textContent = ico.length <= 3 ? ico : '•';
+      const lblEl = el('span', { class: 'lbl' }); lblEl.textContent = lbl;
+      b.append(icoEl, lblEl);
       m.append(b);
     }
     actions.textContent = '';

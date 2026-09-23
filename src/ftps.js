@@ -32,6 +32,10 @@ import { inspectUpload } from './inspect.js';
 const LINE_MAX = 4096;
 const IDLE_MS = 5 * 60000;
 const DATA_WAIT_MS = 30000;
+const PREAUTH_MS = 60000;      // zonder geslaagde login na 1 minuut verbreken
+const MAX_PER_IP = 8;          // gelijktijdige sessies per IP
+const MAX_TOTAL = 200;         // gelijktijdige sessies in totaal
+const perIp = new Map(); let total = 0;
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export async function ftpsCredentials() {
@@ -78,7 +82,8 @@ class Session {
     this.ip = (socket.remoteAddress || '').replace(/^::ffff:/, '');
     this.user = null; this.pendingUser = null; this.home = null; this.cwd = '/';
     this.rnfr = null; this.rest = 0; this.pasv = null; this.busy = false; this.closed = false;
-    this.buf = '';
+    this.buf = ''; this.tlsPending = false;
+    this.preauth = setTimeout(() => { if (!this.user) { this.reply(421, 'Te lang zonder login'); this.close(); } }, PREAUTH_MS);
     // Impliciet: TLS vanaf het eerste byte, met dezelfde context als de datakanalen
     // (anders faalt TLS-sessiehervatting, die veel clients op het datakanaal eisen).
     if (implicit) { socket = new tls.TLSSocket(socket, { isServer: true, secureContext }); socket.on('error', () => this.close()); }
@@ -100,18 +105,24 @@ class Session {
 
   close() {
     if (this.closed) return; this.closed = true;
+    clearTimeout(this.preauth);
+    const n = (perIp.get(this.ip) || 1) - 1; if (n > 0) perIp.set(this.ip, n); else perIp.delete(this.ip); total = Math.max(0, total - 1);
     this.closePasv();
     try { this.sock.destroy(); } catch { /* weg */ }
   }
   closePasv() { if (this.pasv) { try { this.pasv.server.close(); } catch { /* weg */ } try { this.pasv.socket && this.pasv.socket.destroy(); } catch { /* weg */ } this.pasv = null; } }
 
   onData(d) {
+    if (this.tlsPending) return;
     this.buf += d;
     if (this.buf.length > LINE_MAX && !this.buf.includes('\n')) { this.reply(500, 'Regel te lang'); return this.close(); }
     let i;
     while ((i = this.buf.indexOf('\n')) >= 0) {
       const line = this.buf.slice(0, i).replace(/\r$/, ''); this.buf = this.buf.slice(i + 1);
       this.queue = (this.queue || Promise.resolve()).then(() => this.handle(line)).catch(() => this.reply(451, 'Interne fout'));
+      // Na 'AUTH' wordt alle verdere onversleutelde invoer genegeerd tot de TLS-
+      // handshake (anders kan een aanvaller commando's in de TLS-sessie injecteren).
+      if (!this.secure && /^AUTH\s/i.test(line)) { this.tlsPending = true; this.buf = ''; break; }
     }
   }
 
@@ -178,14 +189,14 @@ class Session {
     if (cmd === 'SYST') return this.reply(215, 'UNIX Type: L8');
     if (cmd === 'OPTS') return this.reply(/^utf8 on$/i.test(arg) ? 200 : 501, /^utf8 on$/i.test(arg) ? 'UTF8 aan' : 'Niet ondersteund');
     if (cmd === 'AUTH') {
-      if (!/^(TLS|SSL|TLS-C)$/i.test(arg)) return this.reply(504, 'Alleen AUTH TLS');
       if (this.secure) return this.reply(503, 'Al versleuteld');
+      if (!/^(TLS|SSL|TLS-C)$/i.test(arg)) { this.tlsPending = false; return this.reply(504, 'Alleen AUTH TLS'); }
       this.reply(234, 'Start TLS');
       const raw = this.sock; raw.removeAllListeners('data'); raw.removeAllListeners('close'); raw.removeAllListeners('error'); raw.setTimeout(0);
       const s = new tls.TLSSocket(raw, { isServer: true, secureContext: this.ctx });
       s.once('secure', () => { this.secure = true; });
       s.on('error', () => this.close());
-      this.buf = '';
+      this.buf = ''; this.tlsPending = false;
       return this.attach(s);
     }
     if (!this.secure) { return this.reply(530, 'Versleuteling vereist: gebruik AUTH TLS'); }
@@ -360,6 +371,8 @@ export async function startFtpsServer() {
   const onConn = (implicit) => (sock) => {
     const ip = (sock.remoteAddress || '').replace(/^::ffff:/, '');
     if (isBanned(ip) || isBlockedIp(ip)) { sock.destroy(); return; }
+    if (total >= MAX_TOTAL || (perIp.get(ip) || 0) >= MAX_PER_IP) { try { sock.end('421 Te veel verbindingen\r\n'); } catch { /* weg */ } sock.destroy(); return; }
+    total++; perIp.set(ip, (perIp.get(ip) || 0) + 1);
     new Session(sock, secureContext, implicit); // eslint-disable-line no-new
   };
   const server = net.createServer(onConn(c.implicit));

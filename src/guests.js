@@ -84,7 +84,7 @@ export function sweepGuests(now = Date.now()) {
   for (const n of listUsernames()) {
     if (!isGuest(n)) continue;
     const u = getUser(n);
-    if (u.expires && u.expires < now) { try { removeGuest(u.guestOf, n); gone.push(n); } catch { try { deleteUser(n); gone.push(n); } catch { /* nvt */ } } }
+    if ((u.expires && u.expires < now) || !u.guestOf || !userExists(u.guestOf)) { try { removeGuest(u.guestOf, n); gone.push(n); } catch { try { deleteUser(n); gone.push(n); } catch { /* nvt */ } } }
   }
   return gone;
 }

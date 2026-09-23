@@ -4,6 +4,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { resolveWithin, dirSize } from './paths.js';
 import { config } from './config.js';
+import { isReadonly } from './users.js';
 import { quota } from './users.js';
 import { inspectUpload } from './inspect.js';
 import { audit } from './audit.js';
@@ -66,7 +67,8 @@ export async function handleWebdav(req, res) {
     return res.status(400).end();
   }
 
-  const readonly = req.userRole === 'readonly';
+  // Alleen-lezen: rol readonly/guest (ook via JIT-rol) of een alleen-lezen API-sleutel.
+  const readonly = req.userRole === 'readonly' || req.userRole === 'guest' || isReadonly(req.user) || !!req.apiReadonly;
   const method = req.method;
   const relPath = davPath(req);
 
