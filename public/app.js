@@ -380,6 +380,69 @@ async function decryptDownload(p) {
   } catch (e) { alert('Ontsleutelen mislukt (verkeerd wachtwoord?)'); }
 }
 
+// --- Offline upload-wachtrij (mobiele PWA) ---
+// Als het apparaat offline is (of het netwerk wegvalt tijdens een upload) worden
+// de bestanden in IndexedDB bewaard en automatisch verstuurd zodra de verbinding
+// terug is. Begrensd op 200 MB; zonder IndexedDB blijft alles gewoon werken.
+const OQ_MAX = 200 * 1024 * 1024;
+function oqDb() {
+  return new Promise((resolve, reject) => {
+    try {
+      const req = indexedDB.open('fs-offline-uploads', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('q', { keyPath: 'id', autoIncrement: true });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    } catch (e) { reject(e); }
+  });
+}
+async function oqAll() {
+  try { const db = await oqDb(); return await new Promise((res, rej) => { const r = db.transaction('q').objectStore('q').getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => rej(r.error); }); }
+  catch { return []; }
+}
+async function oqAdd(items) {
+  try {
+    const cur = await oqAll();
+    let used = cur.reduce((n, x) => n + (x.blob ? x.blob.size : 0), 0);
+    const db = await oqDb();
+    const tx = db.transaction('q', 'readwrite'); const st = tx.objectStore('q');
+    let added = 0;
+    for (const it of items) { if (used + it.blob.size > OQ_MAX) break; st.add(it); used += it.blob.size; added++; }
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+    return added;
+  } catch { return 0; }
+}
+async function oqDel(id) { try { const db = await oqDb(); db.transaction('q', 'readwrite').objectStore('q').delete(id); } catch { /* nvt */ } }
+async function oqBadge() {
+  const n = (await oqAll()).length;
+  let b = document.getElementById('oqBadge');
+  if (!n) { if (b) b.remove(); return; }
+  if (!b) { b = document.createElement('div'); b.id = 'oqBadge'; b.style.cssText = 'position:fixed;bottom:1rem;right:1rem;background:#f59e0b;color:#000;padding:.5rem .8rem;border-radius:8px;z-index:50;font-size:.9rem'; document.body.appendChild(b); }
+  b.textContent = `⏳ ${n} upload(s) in wachtrij — worden verstuurd zodra je online bent`;
+}
+let oqFlushing = false;
+async function oqFlush() {
+  if (oqFlushing || !navigator.onLine) return;
+  oqFlushing = true;
+  try {
+    for (const it of await oqAll()) {
+      const fd = new FormData(); fd.append('files', it.blob, it.name);
+      try {
+        const r = await fetch('/api/upload?path=' + encodeURIComponent(it.path), { method: 'POST', body: fd });
+        if (r.status === 401) break; // eerst opnieuw inloggen; wachtrij blijft staan
+        if (r.ok || r.status === 422 || r.status === 413) await oqDel(it.id); // verwerkt (of definitief geweigerd)
+      } catch { break; } // nog steeds offline
+    }
+  } finally { oqFlushing = false; oqBadge(); if (typeof load === 'function') load(); }
+}
+window.addEventListener('online', oqFlush);
+setTimeout(() => { oqBadge(); oqFlush(); }, 1500);
+async function queueOffline(files, relPaths) {
+  const items = files.map((f, i) => ({ path: cwd, name: (relPaths && relPaths[i]) || f.name, blob: f, at: Date.now() }));
+  const added = await oqAdd(items);
+  oqBadge();
+  alert(added === items.length ? `Je bent offline: ${added} bestand(en) in de wachtrij gezet.` : `Offline-wachtrij vol: ${added} van ${items.length} bestand(en) bewaard.`);
+}
+
 async function uploadFiles(files, relPaths) {
   if (!files.length) return;
   // Optionele client-side versleuteling vóór upload.
@@ -393,6 +456,7 @@ async function uploadFiles(files, relPaths) {
     }
     files = encFiles; relPaths = encRel;
   }
+  if (!navigator.onLine) return queueOffline(Array.from(files), relPaths);
   const bar = document.getElementById('progress'), fill = bar.firstElementChild;
   bar.style.display='block'; fill.style.width='0';
   const small = [], smallRel = [];
@@ -408,7 +472,8 @@ async function uploadFiles(files, relPaths) {
     xhr.open('POST', '/api/upload?path='+enc(cwd));
     xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) fill.style.width = (ev.loaded/ev.total*100)+'%'; };
     xhr.onload = () => { if (xhr.status===401) window.location='/login.html'; else if (xhr.status!==200 && xhr.status!==422) alert('Upload mislukt'); resolve(); };
-    xhr.onerror = () => { alert('Upload mislukt'); resolve(); };
+    // Netwerk weggevallen: bewaar in de offline-wachtrij i.p.v. de upload kwijt te raken.
+    xhr.onerror = async () => { if (!navigator.onLine) await queueOffline(small, smallRel); else alert('Upload mislukt'); resolve(); };
     xhr.send(fd);
   });
 
@@ -836,6 +901,58 @@ async function showSharing() {
       <div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center"><label><input type="checkbox" id="ptUpload"> klant mag aanleveren</label><input id="ptPw" placeholder="wachtwoord (optioneel)" style="width:160px"><input id="ptDays" type="number" min="0" placeholder="geldig (dagen)" style="width:110px"><button data-portaladd>Portaal maken</button></div>
     </div>`);
 }
+// Apparaat koppelen (QR) en netwerkschijf-profielen (features 10 + 11).
+let pairTimer = null;
+function stopPairPoll() { if (pairTimer) { clearInterval(pairTimer); pairTimer = null; } }
+async function showClients() {
+  stopPairPoll();
+  const { profiles, diagnose } = await (await api('/api/mount-profiles')).json();
+  const checks = diagnose.checks.map(c => `<li>${c.ok?'✅':'⚠️'} <b>${esc(c.label)}</b> — <span class="muted">${esc(c.detail)}</span></li>`).join('');
+  const prof = profiles.map(p => `<details style="margin:.4rem 0"><summary><b>${esc(p.title)}</b> <span class="muted">(${esc(p.os)})</span></summary>
+      <pre style="white-space:pre-wrap">${esc(p.body)}</pre><div class="muted">${esc(p.hint)}</div>
+      ${p.file?`<a href="/api/mount-profiles/${esc(p.id)}/download"><button style="margin-top:.3rem">⬇ ${esc(p.file)}</button></a>`:''}</details>`).join('');
+  openModal(`<h3>📲 Apparaten & netwerkschijf</h3>
+    <h4>Nieuw apparaat koppelen (QR)</h4>
+    <p class="muted">Scan de QR met je telefoon. Je keurt de koppeling hier daarna expliciet goed; zonder goedkeuring gebeurt er niets.</p>
+    <button data-pairstart>QR-code maken</button>
+    <div id="pairArea" style="margin-top:.6rem"></div>
+    <h4 style="margin-top:1rem">Netwerkschijf koppelen</h4>
+    <ul style="list-style:none;padding:0">${checks}</ul>
+    ${prof}`);
+}
+async function pairTick(code) {
+  const r = await api('/api/pair/pending?code=' + encodeURIComponent(code));
+  const area = document.getElementById('pairArea');
+  if (!area) return stopPairPoll(); // modal gesloten
+  if (!r.ok) { stopPairPoll(); area.innerHTML = '<p class="muted">De QR-code is verlopen. Maak een nieuwe.</p>'; return; }
+  const p = await r.json();
+  if (p.status === 'claimed' && !document.getElementById('pairDecide')) {
+    stopPairPoll();
+    area.insertAdjacentHTML('beforeend', `<div id="pairDecide" style="border:1px solid var(--border);border-radius:8px;padding:.6rem;margin-top:.5rem">
+      <b>Koppelverzoek</b><br>Naam: ${esc(p.claim.name||'(geen)')}<br>Browser: <span class="muted">${esc(p.claim.ua)}</span><br>IP: ${esc(p.claim.ip)}<br>
+      Controlecode: <b>${esc(code.slice(0,4).toUpperCase())}</b> <span class="muted">(moet overeenkomen met het scherm van het nieuwe apparaat)</span><br>
+      <button data-pairdecide="${esc(code)}" data-approve="1" style="margin-top:.4rem">✅ Goedkeuren</button> <button class="danger" data-pairdecide="${esc(code)}" data-approve="0">Afwijzen</button></div>`);
+  }
+}
+const clientsBtn = document.getElementById('clientsBtn'); if (clientsBtn) clientsBtn.onclick = showClients;
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (t.hasAttribute && t.hasAttribute('data-pairstart')) {
+    const r = await api('/api/pair/start', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) return alert(d.error || 'Mislukt');
+    // De SVG komt van onze eigen server (qrcode-bibliotheek) en bevat alleen de koppel-URL.
+    document.getElementById('pairArea').innerHTML = `<div style="background:#fff;display:inline-block;padding:.4rem;border-radius:6px">${d.qr}</div>
+      <p class="muted">Geldig tot ${new Date(d.expires).toLocaleTimeString()}.</p>`;
+    stopPairPoll();
+    pairTimer = setInterval(() => pairTick(d.code), 2000);
+  }
+  if (t.dataset && t.dataset.pairdecide) {
+    const approve = t.dataset.approve === '1';
+    const r = await (await api('/api/pair/decide', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: t.dataset.pairdecide, approve }) })).json();
+    document.getElementById('pairArea').innerHTML = `<p>${r.ok ? (approve ? '✅ Apparaat gekoppeld en als vertrouwd opgeslagen.' : 'Koppeling afgewezen.') : 'Mislukt: ' + esc(r.error || '')}</p>`;
+  }
+});
 const sharingBtn = document.getElementById('sharingBtn'); if (sharingBtn) sharingBtn.onclick = showSharing;
 document.addEventListener('click', async (e) => {
   const t = e.target;

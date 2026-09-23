@@ -1,7 +1,7 @@
 // Service worker voor de PWA. Cachet de app-schil (stale-while-revalidate) zodat
 // de UI ook offline laadt, met een offline-fallback voor navigatie. API-,
 // download- en WebDAV-verzoeken gaan altijd naar het netwerk.
-const CACHE = 'fileserver-v2';
+const CACHE = 'fileserver-v3';
 const SHELL = [
   '/', '/index.html', '/app.js', '/login.html', '/manifest.json', '/offline.html',
   '/crypto.js', '/keyring.js', '/rsync.js', '/webauthn.js',

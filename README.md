@@ -195,6 +195,12 @@ staan grote uploads toe en laten SSE (realtime updates) en WebDAV correct door.
 - **Talen:** NL / EN / DE / FR (schakelbaar rechtsboven).
 - **Prullenbak** telt mee in de gebruikte opslag; leeg hem om ruimte vrij te maken.
 
+## Clients & toegang (v3.39)
+
+- **QR-apparaatkoppeling** — nieuw apparaat koppelen via QR; alleen na expliciete goedkeuring op een ingelogd apparaat (📲 in de header).
+- **Netwerkschijf-profielen** — rclone, Windows, macOS, Linux en sshfs, met diagnose (`/api/mount-profiles`).
+- **Mobiele PWA** — touch-layout en een offline upload-wachtrij die automatisch verstuurt zodra je weer online bent.
+
 ## Delen & externe samenwerking (v3.38)
 
 - **Klantportalen** — gebrande externe pagina per klantmap: bladeren, downloaden en optioneel aanleveren (virusscan, quotum, wachtwoord, vervaldatum) via `/p/<token>`.

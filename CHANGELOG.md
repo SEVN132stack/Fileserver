@@ -1,5 +1,28 @@
 # Changelog
 
+## [3.39.0] - 2026-09-23
+
+### Toegevoegd (Batch S — Clients & toegang)
+
+- **QR-apparaatkoppeling**: start op een ingelogd apparaat een koppeling (QR-code). Het nieuwe
+  apparaat claimt de code en het ingelogde apparaat keurt expliciet goed, met naam, browser, IP
+  en een controlecode in beeld. Pas daarna krijgt het nieuwe apparaat één keer een sessie en
+  wordt het als vertrouwd apparaat opgeslagen.
+  - Codes zijn eenmalig, drie minuten geldig en leven alleen in het geheugen. Ze staan in het
+    URL-fragment, zodat ze niet in logs belanden.
+  - Het nieuwe apparaat krijgt een eigen claim-geheim; wie alleen de QR meekijkt, kan de sessie
+    niet overnemen.
+  - Koppelen kan alleen vanuit een echte browsersessie (niet met API-sleutel, Basic-auth of
+    tijdens impersonatie). Claim- en statusverzoeken hebben rate-limiting.
+- **Netwerkschijf-profielen + diagnose**: kant-en-klare profielen voor rclone (WebDAV en SFTP),
+  Windows (`net use`), macOS Finder, Linux (davfs2/fstab) en sshfs, als download of om te
+  kopiëren. Er staat nooit een wachtwoord in. Een diagnose waarschuwt onder meer voor een
+  ontbrekende `APP_BASE_URL` en voor WebDAV zonder HTTPS (Windows).
+- **Mobiele PWA**: touch-vriendelijke layout op smalle schermen (grotere tikdoelen, scrollbare
+  header, schermvullende dialogen, geen iOS-zoom op invoervelden) en een offline
+  upload-wachtrij. Uploads zonder verbinding worden in IndexedDB bewaard (max. 200 MB) en
+  automatisch verstuurd zodra je weer online bent. De service-worker-cache is vernieuwd (v3).
+
 ## [3.38.0] - 2026-09-23
 
 ### Toegevoegd (Batch R — Delen & externe samenwerking)
