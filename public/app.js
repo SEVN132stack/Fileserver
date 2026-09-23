@@ -141,6 +141,7 @@ function connectEvents() {
   try {
     const es = new EventSource('/api/events');
     es.addEventListener('change', () => { loadMe(); if (document.getElementById('filesView').style.display!=='none') load(); });
+    es.addEventListener('job', (ev) => { try { onJobEvent(JSON.parse(ev.data)); } catch {} });
     es.onerror = () => {};
   } catch {}
 }
@@ -152,6 +153,7 @@ async function load() {
   const inhoud = document.getElementById('contentSearch')?.checked ? '&content=1' : '';
   const url = `/api/list?path=${enc(cwd)}&sort=${sort}&order=${order}` + (q?`&q=${enc(q)}${inhoud}`:'');
   const data = await (await api(url)).json();
+  if (!q) window.__lastNames = new Set((data.items||[]).filter(i => !i.isDir).map(i => i.name));
   renderCrumbs();
   loadDashboard();
   const rows = document.getElementById('rows');
@@ -380,6 +382,94 @@ async function decryptDownload(p) {
   } catch (e) { alert('Ontsleutelen mislukt (verkeerd wachtwoord?)'); }
 }
 
+// --- Delta-upload (Batch U): alleen gewijzigde blokken van een bestaand groot bestand ---
+const hex = (buf) => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+async function deltaUpload(f, rp, fill) {
+  if (!(window.crypto && crypto.subtle)) return false; // alleen in een beveiligde context (HTTPS/localhost)
+  const BS = 4 * 1024 * 1024; const n = Math.ceil(f.size / BS);
+  if (!n || n > 100000) return false;
+  const blocks = [];
+  for (let i = 0; i < n; i++) {
+    blocks.push(hex(await crypto.subtle.digest('SHA-256', await f.slice(i * BS, (i + 1) * BS).arrayBuffer())));
+    fill.style.width = (i / n * 30) + '%';
+  }
+  const target = (cwd.endsWith('/') ? cwd : cwd + '/') + rp;
+  const r = await api('/api/upload/delta/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: target, size: f.size, blockSize: BS, blocks }) });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    if ([413, 422, 423].includes(r.status)) { alert(e.error || 'Upload geweigerd'); return true; } // definitief: niet opnieuw proberen
+    return false;
+  }
+  const s = await r.json();
+  for (let k = 0; k < s.need.length; k++) {
+    const i = s.need[k];
+    const pr = await api(`/api/upload/delta/${s.id}/${i}`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: f.slice(i * BS, (i + 1) * BS) });
+    if (!pr.ok) { await api('/api/upload/delta/' + s.id, { method: 'DELETE' }); return false; }
+    fill.style.width = (30 + (k + 1) / s.need.length * 70) + '%';
+  }
+  const fr = await api(`/api/upload/delta/${s.id}/finish`, { method: 'POST' });
+  const fj = await fr.json().catch(() => ({}));
+  if (!fr.ok) { alert('Delta-upload mislukt: ' + (fj.error || fr.status)); return true; }
+  toast(`${rp}: ${fj.sentBlocks} van ${fj.sentBlocks + fj.reusedBlocks} blokken verstuurd (rest ongewijzigd)`);
+  return true;
+}
+function toast(text, actionLabel, action) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;left:50%;bottom:1rem;transform:translateX(-50%);background:var(--panel);border:1px solid var(--border);color:var(--text);padding:.6rem .9rem;border-radius:8px;z-index:60;max-width:92vw;box-shadow:0 4px 16px rgba(0,0,0,.4)';
+  el.textContent = text;
+  if (actionLabel) { const b = document.createElement('button'); b.textContent = actionLabel; b.style.marginLeft = '.6rem'; b.onclick = () => { action(); el.remove(); }; el.appendChild(b); }
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), actionLabel ? 15000 : 5000);
+}
+
+// --- Achtergrondtaken (Batch U) ---
+const jobState = new Map();
+function jobRow(j) {
+  const bar = `<div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin:.25rem 0"><div style="height:100%;width:${j.progress}%;background:${j.status==='error'?'var(--danger)':'var(--accent)'}"></div></div>`;
+  const st = { queued: 'in wachtrij', running: 'bezig', done: 'klaar', error: 'mislukt', cancelled: 'geannuleerd' }[j.status] || j.status;
+  const act = (j.status === 'queued' || j.status === 'running') ? `<button class="danger" data-jobcancel="${esc(j.id)}">annuleren</button>`
+    : `${j.hasResult ? `<a href="/api/jobs/${esc(j.id)}/result"><button>⬇ downloaden</button></a> ` : ''}<button class="danger" data-jobdel="${esc(j.id)}">×</button>`;
+  return `<div style="border-bottom:1px solid var(--border);padding:.45rem 0" data-jobrow="${esc(j.id)}"><b>${esc(j.label)}</b> <span class="muted">— ${esc(st)}${j.message ? ' · ' + esc(j.message) : ''}${j.error ? ' · ' + esc(j.error) : ''}</span>${bar}${act}</div>`;
+}
+function renderJobs() {
+  const list = document.getElementById('jobsList');
+  const all = [...jobState.values()].sort((a, b) => b.created - a.created);
+  if (list) list.innerHTML = all.length ? all.map(jobRow).join('') : '<p class="muted">Geen achtergrondtaken.</p>';
+  const active = all.filter(j => j.status === 'queued' || j.status === 'running').length;
+  const c = document.getElementById('jobsCount'); if (c) { c.style.display = active ? '' : 'none'; c.textContent = active; }
+}
+function onJobEvent(j) {
+  const prev = jobState.get(j.id);
+  jobState.set(j.id, j);
+  renderJobs();
+  if (j.status === 'done' && prev && prev.status !== 'done') {
+    if (j.hasResult) toast(`✅ ${j.label} is klaar`, 'Downloaden', () => { location.href = `/api/jobs/${j.id}/result`; });
+    else toast(`✅ ${j.label}: ${j.message || 'klaar'}`);
+  }
+  if (j.status === 'error' && prev && prev.status !== 'error') toast(`❌ ${j.label}: ${j.error || 'mislukt'}`);
+}
+async function showJobs() {
+  const { jobs } = await (await api('/api/jobs')).json();
+  jobState.clear(); for (const j of jobs) jobState.set(j.id, j);
+  openModal(`<h3>🧰 Achtergrondtaken</h3><div id="jobsList"></div><p class="muted">Resultaten blijven een uur beschikbaar.</p>`);
+  renderJobs();
+}
+async function startJob(type) {
+  const r = await api('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, path: cwd || '/' }) });
+  const d = await r.json();
+  if (!r.ok) return alert(d.error || 'Mislukt');
+  jobState.set(d.job.id, d.job); renderJobs();
+  toast(`⏳ ${d.job.label} gestart`, 'Bekijken', showJobs);
+}
+document.getElementById('jobsBtn')?.addEventListener('click', showJobs);
+document.getElementById('bgZipBtn')?.addEventListener('click', () => startJob('zip'));
+document.getElementById('thumbsJobBtn')?.addEventListener('click', () => startJob('thumbs'));
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (t.dataset && t.dataset.jobcancel) { await api('/api/jobs/' + enc(t.dataset.jobcancel) + '/cancel', { method: 'POST' }); }
+  if (t.dataset && t.dataset.jobdel) { await api('/api/jobs/' + enc(t.dataset.jobdel), { method: 'DELETE' }); jobState.delete(t.dataset.jobdel); renderJobs(); }
+});
+
 // --- Offline upload-wachtrij (mobiele PWA) ---
 // Als het apparaat offline is (of het netwerk wegvalt tijdens een upload) worden
 // de bestanden in IndexedDB bewaard en automatisch verstuurd zodra de verbinding
@@ -478,6 +568,10 @@ async function uploadFiles(files, relPaths) {
   });
 
   const doBig = async ({ f, rp }) => {
+    // Bestaat dit bestand al in deze map? Stuur dan alleen de gewijzigde blokken.
+    if (!rp.includes('/') && window.__lastNames && window.__lastNames.has(rp)) {
+      try { if (await deltaUpload(f, rp, fill)) return; } catch { /* terugvallen op gewone upload */ }
+    }
     const uploadId = (rp + '-' + f.size + '-' + f.lastModified).replace(/[^a-zA-Z0-9_-]/g, '');
     const total = Math.ceil(f.size / CHUNK);
     let received = [];

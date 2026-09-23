@@ -91,6 +91,8 @@ import * as portals from './portals.js';
 import * as pairing from './device-pairing.js';
 import * as mountProfiles from './mount-profiles.js';
 import * as intelligence from './intelligence.js';
+import * as jobs from './jobs.js';
+import * as blockdelta from './blockdelta.js';
 import { walkFiles } from './analysis.js';
 import { recordMutation } from './ransomware.js';
 import { checkHoneypot } from './honeypot.js';
@@ -1668,6 +1670,8 @@ export function createWebServer() {
       if (ocr.canOcr(f.originalname)) ocr.runOcr(req.home, relUp, f.path);
       // Beeldherkenning: labels uit afbeeldingen halen (asynchroon) voor zoeken.
       if (vision.canDetect(f.originalname)) vision.runVision(req.home, relUp, f.path);
+      // Thumbnails vooraf genereren (lijst 56px + raster 200px), één voor één op de achtergrond.
+      if (config.thumbPrecache && canThumbnail(f.originalname)) precacheThumb(f.path);
       // Regelgebaseerde automatisering: tag/verplaats/notificeer op basis van pad+extensie.
       try {
         let sizeBytes = 0; try { sizeBytes = fs.statSync(f.path).size; } catch { /* nvt */ }
@@ -1995,6 +1999,116 @@ export function createWebServer() {
 
   // Duplicaten & opschoon-suggesties.
   app.get('/api/duplicates', (req, res) => res.json(findDuplicates(req.home)));
+
+  // --- v3.41: achtergrondtaken, delta-uploads en preview-precaching ---
+  jobs.init(); blockdelta.init();
+  jobs.setUpdateListener((user, j) => emitToUser(user, 'job', j));
+  jobs.register('zip', async (job, ctx) => {
+    const home = homeDir(job.user);
+    const dir = resolveWithin(home, job.params.path || '/');
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error('Map niet gevonden');
+    const files = walkFiles(dir);
+    const total = files.reduce((n, f) => n + f.size, 0);
+    if (total > config.jobMaxZipBytes) throw new Error(`Map te groot voor een ZIP-taak (max. ${Math.round(config.jobMaxZipBytes / 1073741824)} GB)`);
+    const out = ctx.resultPath('.zip');
+    await new Promise((resolve, reject) => {
+      const ws = fs.createWriteStream(out);
+      const archive = archiver('zip', { zlib: { level: 6 } });
+      let done = 0;
+      archive.on('entry', (e) => {
+        done += (e.stats && e.stats.size) || 0;
+        ctx.progress(total ? (done / total) * 99 : 99, `${files.length} bestanden · ${(done / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB`);
+        if (ctx.cancelled()) archive.abort();
+      });
+      archive.on('error', reject); ws.on('error', reject); ws.on('close', resolve);
+      archive.pipe(ws);
+      for (const f of files) archive.file(f.full, { name: f.rel.replace(/^\//, '') });
+      archive.finalize();
+    });
+    audit('web', job.user, 'zip', { path: job.params.path, async: true, files: files.length });
+    return { filename: (path.basename(dir) || 'archief') + '.zip', message: `${files.length} bestanden, ${(total / 1048576).toFixed(1)} MB` };
+  });
+  jobs.register('thumbs', async (job, ctx) => {
+    const home = homeDir(job.user);
+    const dir = resolveWithin(home, job.params.path || '/');
+    const imgs = walkFiles(dir).filter((f) => canThumbnail(f.full)).slice(0, 20000);
+    let made = 0;
+    for (let i = 0; i < imgs.length; i++) {
+      if (ctx.cancelled()) break;
+      if (await getThumbnail(imgs[i].full, 56)) made++;
+      await getThumbnail(imgs[i].full, 200);
+      ctx.progress(((i + 1) / imgs.length) * 100, `${i + 1} / ${imgs.length} afbeeldingen`);
+    }
+    return { message: `${made} van ${imgs.length} afbeeldingen voorbereid` };
+  });
+  app.get('/api/jobs', (req, res) => res.json({ jobs: jobs.list(req.user) }));
+  app.post('/api/jobs', express.json(), (req, res) => {
+    const { type, path: p } = req.body || {};
+    if (!['zip', 'thumbs'].includes(type)) return res.status(400).json({ error: 'Onbekend taaktype' });
+    try { resolveWithin(req.home, p || '/'); } catch { return res.status(400).json({ error: 'Ongeldig pad' }); }
+    // Beperk bewaarde ZIP-resultaten per gebruiker (schijfruimte).
+    if (type === 'zip' && jobs.list(req.user).filter((j) => j.type === 'zip' && (j.status === 'queued' || j.status === 'running' || j.hasResult)).length >= 3) {
+      return res.status(429).json({ error: 'Maximaal 3 ZIP-taken tegelijk; download of verwijder eerst een eerdere.' });
+    }
+    try {
+      const label = (type === 'zip' ? 'ZIP van ' : 'Previews voor ') + (p || '/');
+      res.json({ ok: true, job: jobs.enqueue(req.user, type, { path: p || '/' }, label) });
+    } catch (err) { res.status(429).json({ error: err.message }); }
+  });
+  app.post('/api/jobs/:id/cancel', (req, res) => res.json({ ok: jobs.cancel(req.user, req.params.id) }));
+  app.delete('/api/jobs/:id', (req, res) => res.json({ ok: jobs.remove(req.user, req.params.id) }));
+  app.get('/api/jobs/:id/result', downloadLimiter, (req, res) => {
+    const j = jobs.get(req.user, req.params.id);
+    if (!j || j.status !== 'done' || !j.resultPath || !fs.existsSync(j.resultPath)) return res.status(404).json({ error: 'Geen resultaat (verlopen of niet van jou)' });
+    res.download(j.resultPath, (j.filename || 'resultaat').replace(/[\r\n"]/g, ''));
+  });
+
+  // Delta-uploads op blokniveau (alleen gewijzigde blokken van grote bestanden versturen).
+  const deltaGuard = (req, rel) => {
+    const holder = locks.lockOwner(req.home, rel);
+    if (holder) return [423, `Vergrendeld door ${holder}`];
+    if (retention.retainedUntil(req.home, rel)) return [423, 'Onder bewaarplicht — niet wijzigbaar'];
+    if (e2eFolders.isE2ERequired(req.home, path.posix.dirname(rel)) && !/\.enc$/i.test(rel)) return [422, 'Deze map vereist end-to-end-versleutelde bestanden (.enc)'];
+    return null;
+  };
+  app.post('/api/upload/delta/start', requireWrite, express.json({ limit: '12mb' }), (req, res) => {
+    try {
+      const b = req.body || {};
+      const rel = String(b.path || '');
+      const abs = resolveWithin(req.home, rel);
+      if (path.resolve(abs) === path.resolve(req.home) || (fs.existsSync(abs) && fs.statSync(abs).isDirectory())) return res.status(400).json({ error: 'Geen geldig bestandspad' });
+      const g = deltaGuard(req, rel); if (g) return res.status(g[0]).json({ error: g[1] });
+      const q = quota(req.user);
+      const oldSize = fs.existsSync(abs) ? fs.statSync(abs).size : 0;
+      if (q > 0 && dirSize(req.home) - oldSize + Number(b.size || 0) > q) return res.status(413).json({ error: 'Quota overschreden' });
+      res.json(blockdelta.start(req.user, abs, rel, b));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.put('/api/upload/delta/:id/:index', requireWrite, express.raw({ type: '*/*', limit: 17 * 1048576 }), (req, res) => {
+    try { res.json(blockdelta.putBlock(req.user, req.params.id, req.params.index, Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0))); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/api/upload/delta/:id/finish', requireWrite, async (req, res) => {
+    try {
+      const r = await blockdelta.finish(req.user, req.params.id, {
+        verify: async (tmp, s) => {
+          const g = deltaGuard(req, s.relTarget); if (g) return g[1];
+          const sc = await scanFile(tmp);
+          if (!sc.clean) { audit('web', req.user, 'upload_blocked', { path: s.relTarget, reason: 'malware', via: 'delta' }); return 'Upload geweigerd: malware gedetecteerd'; }
+          return null;
+        },
+        beforeReplace: (s) => { if (fs.existsSync(s.absTarget)) snapshot(req.home, s.absTarget); },
+      });
+      invalidateDirSize(req.home);
+      recordMutation(req.user, 'edit');
+      audit('web', req.user, 'upload', { path: r.path, via: 'delta', sentBlocks: r.sentBlocks, reusedBlocks: r.reusedBlocks });
+      metrics.inc('fileserver_uploads_total');
+      emitToUser(req.user, 'change', { action: 'upload' });
+      if (config.thumbPrecache && canThumbnail(r.path)) precacheThumb(resolveWithin(req.home, r.path));
+      res.json(r);
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.delete('/api/upload/delta/:id', requireWrite, (req, res) => res.json({ ok: blockdelta.abort(req.user, req.params.id) }));
 
   // --- v3.40: data-intelligentie ---
   // Verplaats één bestand naar de prullenbak met dezelfde metadata-opruiming als /api/delete.
@@ -3335,4 +3449,18 @@ export function startWebServer() {
   return server.listen(config.web.port, config.web.host, () => {
     console.log(`[web] Web UI (HTTP) draait op http://${config.web.host}:${config.web.port}`);
   });
+}
+
+// Thumbnails vooraf genereren, strikt één tegelijk (een bulk-upload van duizenden
+// foto's mag de CPU niet dichttrekken). Fouten zijn niet-fataal.
+let thumbChain = Promise.resolve();
+let thumbQueued = 0;
+function precacheThumb(absFile) {
+  if (thumbQueued > 5000) return; // wachtrij vol: thumbnails volgen dan bij het bekijken
+  thumbQueued++;
+  thumbChain = thumbChain
+    .then(() => getThumbnail(absFile, 56))
+    .then(() => getThumbnail(absFile, 200))
+    .catch(() => {})
+    .finally(() => { thumbQueued--; });
 }

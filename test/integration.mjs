@@ -1849,6 +1849,80 @@ try {
       paths.includes('/col-a.pdf') && !paths.includes('/col-b.pdf') && !paths.includes('/col-c.jpg') && bad.status === 400);
   }
 
+  // 140. Achtergrondtaken: ZIP-taak met voortgang; resultaat alleen voor de eigenaar.
+  {
+    const jobsMod = await import('../src/jobs.js');
+    const jd = path.join(config.storageDir, 'admin', 'jobzip'); fs.mkdirSync(path.join(jd, 'sub'), { recursive: true });
+    fs.writeFileSync(path.join(jd, 'a.txt'), 'aaa'); fs.writeFileSync(path.join(jd, 'sub', 'b.txt'), 'bbb');
+    const st = await (await fetch(H + '/api/jobs', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ type: 'zip', path: '/jobzip' }) })).json();
+    const fin = await jobsMod.waitFor(st.job.id);
+    const zr = await fetch(H + '/api/jobs/' + st.job.id + '/result', { headers: jar() });
+    const zbuf = Buffer.from(await zr.arrayBuffer());
+    const other = await fetch(H + '/api/jobs/' + st.job.id + '/result', { headers: { Authorization: 'Basic ' + Buffer.from('mentionee:mentionpw123').toString('base64') } });
+    const listed = (await (await fetch(H + '/api/jobs', { headers: jar() })).json()).jobs.some((j) => j.id === st.job.id && j.hasResult);
+    const bad = await fetch(H + '/api/jobs', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ type: 'rm-rf', path: '/' }) });
+    const del = await (await fetch(H + '/api/jobs/' + st.job.id, { method: 'DELETE', headers: jar() })).json();
+    ok('achtergrondtaken: ZIP met voortgang, resultaat alleen voor eigenaar, onbekend type geweigerd',
+      fin.status === 'done' && fin.progress === 100 && zr.ok && zbuf.slice(0, 2).toString() === 'PK' && zbuf.includes(Buffer.from('sub/b.txt')) &&
+      other.status === 404 && listed && bad.status === 400 && del.ok);
+  }
+
+  // 141. Preview-precaching: via een taak en automatisch na upload.
+  {
+    const jobsMod = await import('../src/jobs.js');
+    const sharp = (await import('sharp')).default;
+    const id = path.join(config.storageDir, 'admin', 'jobimg'); fs.mkdirSync(id, { recursive: true });
+    await sharp({ create: { width: 64, height: 48, channels: 3, background: '#3366cc' } }).png().toFile(path.join(id, 'foto.png'));
+    const before = fs.existsSync(config.thumbDir) ? fs.readdirSync(config.thumbDir).length : 0;
+    const st = await (await fetch(H + '/api/jobs', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ type: 'thumbs', path: '/jobimg' }) })).json();
+    const fin = await jobsMod.waitFor(st.job.id);
+    const afterJob = fs.readdirSync(config.thumbDir).length;
+    const png = await sharp({ create: { width: 80, height: 80, channels: 3, background: '#cc3366' } }).png().toBuffer();
+    const fd = new FormData(); fd.append('files', new Blob([png]), 'na-upload.png');
+    await fetch(H + '/api/upload?path=/jobimg', { method: 'POST', headers: jar(), body: fd });
+    let afterUpload = afterJob;
+    for (let i = 0; i < 40 && afterUpload < afterJob + 2; i++) { await new Promise((r) => setTimeout(r, 100)); afterUpload = fs.readdirSync(config.thumbDir).length; }
+    ok('preview-precaching: taak + automatisch na upload',
+      fin.status === 'done' && /1 van 1/.test(fin.message) && afterJob >= before + 2 && afterUpload >= afterJob + 2);
+  }
+
+  // 142. Delta-upload: alleen gewijzigde blokken; verificatie van blokken en bronbestand.
+  {
+    const { createHash, randomBytes } = await import('node:crypto');
+    const { listVersions } = await import('../src/versions.js');
+    const locks = await import('../src/locks.js');
+    const BS = 256 * 1024;
+    const home = path.join(config.storageDir, 'admin');
+    const orig = randomBytes(3 * BS + 100);
+    fs.writeFileSync(path.join(home, 'groot.img'), orig);
+    const next = Buffer.from(orig); randomBytes(1000).copy(next, BS + 5000); // alleen blok 1 wijzigt
+    const hashes = (b) => { const out = []; for (let o = 0; o < b.length; o += BS) out.push(createHash('sha256').update(b.subarray(o, o + BS)).digest('hex')); return out; };
+    const startReq = (extra = {}) => fetch(H + '/api/upload/delta/start', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/groot.img', size: next.length, blockSize: BS, blocks: hashes(next), sha256: createHash('sha256').update(next).digest('hex'), ...extra }) });
+    const st = await (await startReq()).json();
+    const put = (i, buf) => fetch(H + `/api/upload/delta/${st.id}/${i}`, { method: 'PUT', headers: jar({ 'Content-Type': 'application/octet-stream' }), body: buf });
+    const wrongBlock = await put(1, randomBytes(BS));
+    const notNeeded = await put(0, next.subarray(0, BS));
+    const good = await put(1, next.subarray(BS, 2 * BS));
+    const fin = await (await fetch(H + `/api/upload/delta/${st.id}/finish`, { method: 'POST', headers: jar() })).json();
+    const same = fs.readFileSync(path.join(home, 'groot.img')).equals(next);
+    const versioned = listVersions(home, '/groot.img').length >= 1;
+    // Bronbestand wijzigt tussen start en afronden -> geweigerd, doel onaangetast.
+    const next2 = Buffer.from(next); randomBytes(10).copy(next2, 2 * BS + 10);
+    const st2 = await (await fetch(H + '/api/upload/delta/start', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/groot.img', size: next2.length, blockSize: BS, blocks: hashes(next2) }) })).json();
+    await fetch(H + `/api/upload/delta/${st2.id}/${st2.need[0]}`, { method: 'PUT', headers: jar({ 'Content-Type': 'application/octet-stream' }), body: next2.subarray(2 * BS, 3 * BS) });
+    const tampered = Buffer.from(next); tampered[5] ^= 0xff; fs.writeFileSync(path.join(home, 'groot.img'), tampered);
+    const fin2 = await fetch(H + `/api/upload/delta/${st2.id}/finish`, { method: 'POST', headers: jar() });
+    const untouched = fs.readFileSync(path.join(home, 'groot.img')).equals(tampered);
+    // Vergrendeld doel -> 423.
+    locks.lock(home, '/groot.img', 'admin');
+    const locked = await startReq();
+    locks.unlock(home, '/groot.img', 'admin', true);
+    ok('delta-upload: alleen gewijzigd blok, blokhash/tussentijdse wijziging/lock afgevangen, versie bewaard',
+      JSON.stringify(st.need) === '[1]' && st.reuse === 3 && wrongBlock.status === 400 && notNeeded.status === 400 && good.ok &&
+      fin.ok && fin.sentBlocks === 1 && fin.reusedBlocks === 3 && same && versioned &&
+      JSON.stringify(st2.need) === '[2]' && fin2.status === 400 && untouched && locked.status === 423);
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close();
   process.exit(0);

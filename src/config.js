@@ -565,7 +565,16 @@ export const config = {
   portalsFile: abs(process.env.PORTALS_FILE || 'portals.json'),
   portalUploadDir: process.env.PORTAL_UPLOAD_DIR || 'Aangeleverd', // submap in de portaalmap
 
-  version: '3.40.0',
+  // --- v3.41 (prestaties & schaal) ---
+  // Achtergrondtaken: gelijktijdig draaiende taken en bewaartermijn van resultaten.
+  jobConcurrency: parseInt(process.env.JOB_CONCURRENCY || '2', 10),
+  jobResultTtlMs: parseInt(process.env.JOB_RESULT_TTL_MS || '3600000', 10),
+  // Thumbnails direct na upload vooraf genereren (lijst- en rasterweergave).
+  thumbPrecache: bool(process.env.THUMB_PRECACHE, true),
+  // Max. brongrootte voor een ZIP-achtergrondtaak (bytes).
+  jobMaxZipBytes: parseInt(process.env.JOB_MAX_ZIP_BYTES || String(20 * 1073741824), 10),
+
+  version: '3.41.0',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
