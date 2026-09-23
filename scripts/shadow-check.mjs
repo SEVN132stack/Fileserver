@@ -19,10 +19,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf('--' + name); return i >= 0 && args[i + 1] ? args[i + 1] : def; };
-const appDir = path.resolve(opt('dir', path.join(path.dirname(new URL(import.meta.url).pathname), '..')));
+const appDir = path.resolve(opt('dir', path.join(here, '..')));
 const realData = opt('data', '');
 const port = parseInt(opt('port', String(18000 + Math.floor(Math.random() * 1000))), 10);
 const timeoutMs = parseInt(opt('timeout', '60000'), 10);
@@ -51,7 +54,9 @@ const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok: !!ok, detail: String(detail).slice(0, 200) }); };
 let log = '';
 const env = { PATH: process.env.PATH, HOME: tmp, NODE_ENV: 'production', ENV_FILE: path.join(tmp, '.env'), DATA_DIR: tmp };
-const child = spawn(process.execPath, ['src/server.js'], { cwd: appDir, env, stdio: ['ignore', 'pipe', 'pipe'] });
+// Netwerk-sandbox: alleen loopback (geen echte webhooks/mails vanuit de schaduw).
+const sandbox = pathToFileURL(path.join(here, 'shadow-sandbox.mjs')).href;
+const child = spawn(process.execPath, ['--import', sandbox, 'src/server.js'], { cwd: appDir, env, stdio: ['ignore', 'pipe', 'pipe'] });
 child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
 let exited = null; child.on('exit', (code) => { exited = code; });
 

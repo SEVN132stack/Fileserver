@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { config } from './config.js';
+import { isReadonly } from './users.js';
 import { resolveWithin, dirSize } from './paths.js';
 import { quota } from './users.js';
 import { audit } from './audit.js';
@@ -40,7 +41,8 @@ export async function handleTus(req, res) {
   tusHeaders(res);
   fs.mkdirSync(dir(), { recursive: true });
   const sub = req.path.replace(/^\//, ''); // id of leeg
-  const readonly = req.userRole === 'readonly';
+  // Alleen-lezen: rol readonly/guest (ook via JIT-rol) of een alleen-lezen API-sleutel.
+  const readonly = req.userRole === 'readonly' || req.userRole === 'guest' || isReadonly(req.user) || !!req.apiReadonly;
 
   if (req.method === 'OPTIONS') {
     res.set('Tus-Version', '1.0.0');

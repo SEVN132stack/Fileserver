@@ -28,6 +28,7 @@ import { recordDownload } from './anomaly.js';
 import { onLogin as loginAnomaly, onDownload as loginBurst } from './login-anomaly.js';
 import { searchAudit, exportAudit } from './audit-search.js';
 import * as guests from './guests.js';
+import { inspectUpload } from './inspect.js';
 const { isGuest } = guests;
 import * as receipts from './receipts.js';
 import * as savedsearch from './savedsearch.js';
@@ -1041,13 +1042,17 @@ export function createWebServer() {
     return res.status(403).json({ error: 'Tweefactor-authenticatie is verplicht — schrijf eerst in', code: 'enroll2fa' });
   });
 
+  // Gasten hebben alleen de gedeelde-map-API; geen WebDAV/tus (die zouden via de
+  // sessiecookie anders gewoon werken).
+  function guestBlock(req, res, next) { if (req.user && isGuest(req.user) && !req.impersonating) return res.status(403).end('Niet beschikbaar voor gasten'); next(); }
+
   // WebDAV (Basic Auth; eigen mount).
   if (config.webdavEnabled) {
-    app.use(WEBDAV_MOUNT, authenticate, (req, res) => handleWebdav(req, res));
+    app.use(WEBDAV_MOUNT, authenticate, guestBlock, (req, res) => handleWebdav(req, res));
   }
 
   // tus resumable-uploadprotocol.
-  app.use(TUS_MOUNT, authenticate, (req, res) => handleTus(req, res));
+  app.use(TUS_MOUNT, authenticate, guestBlock, (req, res) => handleTus(req, res));
 
   const upload = multer({
     limits: mlimits,
@@ -1097,7 +1102,7 @@ export function createWebServer() {
       guestExpires: isGuest(req.user) ? getUser(req.user).expires : undefined,
       require2fa: config.requireTwoFactor === 'all' || (config.requireTwoFactor === 'admin' && req.userRole === 'admin'),
       has2fa: !!getUser(req.user)?.totp || getCredentials(req.user).length > 0,
-      mustChangePassword: isPasswordExpired(req.user),
+      mustChangePassword: !isGuest(req.user) && isPasswordExpired(req.user),
       branding: { appName: getSetting('appName'), logoUrl: getSetting('logoUrl'), accent: getSetting('accent'), bannerText: getSetting('bannerText'), bannerLevel: getSetting('bannerLevel'), defaultStyle: getSetting('defaultStyle') },
       impersonating: !!req.impersonating,
       realUser: req.realUser || null,
@@ -1282,7 +1287,7 @@ export function createWebServer() {
       // @-vermeldingen: meld genoemde, bestaande gebruikers.
       const mentioned = new Set((String(req.body.text).match(/@([a-zA-Z0-9_.-]{2,32})/g) || []).map((m) => m.slice(1)));
       for (const u of mentioned) {
-        if (u !== req.user && userExists(u)) {
+        if (u !== req.user && userExists(u) && (!isGuest(req.user) || u === owner)) { // gasten: alleen de eigenaar
           try { notifications.notifyUser(u, 'Je bent genoemd in een reactie', `${req.user} noemde je bij ${req.body.path || 'een bestand'}: ${String(req.body.text).slice(0, 140)}`); } catch { /* niet-fataal */ }
         }
       }
@@ -2999,7 +3004,7 @@ export function createWebServer() {
     });
     if (!match) throw new Error('Geen toegang');
     if (needWrite && match.mode !== 'rw') throw new Error('Alleen-lezen deling');
-    return { abs, ownerHome, mode: match.mode };
+    return { abs, ownerHome, mode: match.mode, base: resolveWithin(ownerHome, match.path) };
   }
   app.get('/api/shared/list', async (req, res) => {
     try {
@@ -3019,21 +3024,43 @@ export function createWebServer() {
     }
   });
   // Schrijven in een met mij gedeelde 'rw'-map.
-  const sharedUpload = multer({
-    limits: mlimits,
-    storage: multer.diskStorage({
-      destination(req, file, cb) {
-        try { const { abs } = resolveShared(req, req.query.path || '/', true); fs.mkdirSync(abs, { recursive: true }); cb(null, abs); }
-        catch (err) { cb(err); }
-      },
-      filename(req, file, cb) { cb(null, path.basename(file.originalname)); },
-    }),
-  });
-  app.post('/api/shared/upload', sharedUpload.array('files'), (req, res) => {
-    audit('web', req.user, 'shared_upload', { owner: req.query.owner, path: req.query.path });
-    subscriptions.notifySubscribers(req.query.owner, req.user, req.query.path || '/', 'upload');
-    emitToUser(req.query.owner, 'change', { action: 'shared_upload' });
-    res.json({ uploaded: (req.files || []).map((f) => f.originalname) });
+  // v3.45.1: eerst naar een tijdelijke map; pas na alle controles (bewaarplicht,
+  // vergrendeling, E2E, quotum van de eigenaar, AV/DLP) naar de gedeelde map.
+  // Voorheen schreef multer direct in de map van de eigenaar — zonder die checks
+  // en met overschrijven van bestaande (ook bewaarplichtige) bestanden.
+  const sharedUpload = multer({ limits: mlimits, dest: path.join(config.chunkDir, 'shared-up') });
+  const sharedProtected = (ownerHome, rel, checkE2E) =>
+    !!(retention.retainedUntil(ownerHome, rel) || locks.lockOwner(ownerHome, rel) ||
+      (checkE2E && e2eFolders.isE2ERequired(ownerHome, path.posix.dirname(rel)) && !/\.enc$/i.test(rel)));
+  app.post('/api/shared/upload', (req, res, next) => {
+    try { resolveShared(req, req.query.path || '/', true); } catch (err) { return res.status(403).json({ error: err.message }); }
+    next();
+  }, sharedUpload.array('files'), async (req, res) => {
+    const owner = String(req.query.owner || ''); const base = req.query.path || '/';
+    const uploaded = []; const rejected = [];
+    for (const f of req.files || []) {
+      const name = path.basename(f.originalname || 'bestand');
+      try {
+        const { abs, ownerHome } = resolveShared(req, path.posix.join(base, name), true);
+        const rel = toClientPath(ownerHome, abs);
+        if (sharedProtected(ownerHome, rel, true)) { rejected.push({ name, reason: 'beschermd (bewaarplicht, vergrendeld of E2E-map)' }); continue; }
+        const q = quota(owner);
+        if (q > 0 && dirSize(ownerHome) + f.size > q) { rejected.push({ name, reason: 'quotum van de eigenaar vol' }); continue; }
+        const verdict = await inspectUpload({ abs: f.path, user: req.user, home: ownerHome, relPath: rel, via: 'web' });
+        if (!verdict.ok) { rejected.push({ name, reason: verdict.reason === 'malware' ? 'besmet' : 'gevoelige gegevens' }); continue; }
+        await fsp.mkdir(path.dirname(abs), { recursive: true });
+        try { await fsp.rename(f.path, abs); } catch { await fsp.copyFile(f.path, abs); }
+        invalidateDirSize(ownerHome);
+        uploaded.push(name);
+      } catch (err) { rejected.push({ name, reason: err.message }); }
+      finally { fs.rmSync(f.path, { force: true }); }
+    }
+    audit('web', req.user, 'shared_upload', { owner, path: base, files: uploaded, rejected: rejected.length });
+    if (uploaded.length) {
+      subscriptions.notifySubscribers(owner, req.user, base, 'upload');
+      emitToUser(owner, 'change', { action: 'shared_upload' });
+    }
+    res.status(uploaded.length || !rejected.length ? 200 : 403).json({ uploaded, rejected });
   });
   app.post('/api/shared/mkdir', express.json(), async (req, res) => {
     try {
@@ -3045,8 +3072,12 @@ export function createWebServer() {
   });
   app.post('/api/shared/delete', express.json(), async (req, res) => {
     try {
-      const { abs } = resolveShared(req, req.body.path, true);
+      const { abs, ownerHome, base } = resolveShared(req, req.body.path, true);
+      const rel = toClientPath(ownerHome, abs);
+      if (abs === base) return res.status(403).json({ error: 'De gedeelde map zelf kan niet verwijderd worden' });
+      if (rel === '/' || sharedProtected(ownerHome, rel, false)) return res.status(423).json({ error: 'Beschermd (bewaarplicht of vergrendeld)' });
       await fsp.rm(abs, { recursive: true, force: true });
+      invalidateDirSize(ownerHome);
       audit('web', req.user, 'shared_delete', { owner: req.body.owner, path: req.body.path });
       emitToUser(req.body.owner, 'change', { action: 'shared_delete' });
       res.json({ ok: true });
@@ -3061,6 +3092,7 @@ export function createWebServer() {
       const rel = toClientPath(req.home, abs);
       if (rel === '/' || !fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) return res.status(400).json({ error: 'Kies een bestaande submap (niet je hele thuismap)' });
       if (!labels.mayShare(req.home, rel)) return res.status(403).json({ error: 'Deze map mag door het label niet gedeeld worden' });
+      if (config.requireTwoFactor === 'all') return res.status(403).json({ error: 'Gasttoegang is uitgeschakeld: het beleid vereist 2FA voor alle accounts en gasten loggen in met een eenmalige link' });
       const g = guests.createGuest(req.user, { path: rel, mode: req.body.mode, days: req.body.days, label: req.body.label, email: req.body.email });
       const link = `${(config.appBaseUrl || `${req.protocol}://${req.get('host')}`)}/gast/${g.token}`;
       audit('web', req.user, 'guest_create', { guest: g.guest, path: rel, mode: req.body.mode === 'rw' ? 'rw' : 'ro', expires: g.expires });

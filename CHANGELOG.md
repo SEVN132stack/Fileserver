@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.45.1] - 2026-09-23
+
+### Beveiliging (review van v3.42–v3.45)
+- **Hoog — gedeelde rw-mappen**: `/api/shared/upload` schreef direct in de map van de eigenaar zonder AV/DLP, zonder quotumcontrole en zonder bewaarplicht-/lock-/E2E-controle, en overschreef bestaande (ook bewaarplichtige) bestanden. Met gasttoegang kon iemand van buiten dit misbruiken. Uploads gaan nu via een tijdelijke map door alle controles; `/api/shared/delete` weigert bewaarplichtige/vergrendelde paden en de gedeelde map zelf.
+- **Hoog — WebDAV/tus**: gasten konden met hun sessiecookie WebDAV en tus gebruiken, en alleen-lezen API-sleutels konden via WebDAV/tus schrijven. Gasten zijn nu geweigerd; alleen-lezen geldt voor rol, gast en API-sleutel.
+- **Midden — FTPS STARTTLS-injectie**: commando's die in hetzelfde onversleutelde pakket na `AUTH TLS` werden meegestuurd, werden na de handshake alsnog uitgevoerd. Alle invoer tussen `AUTH` en de handshake wordt nu genegeerd.
+- **Midden — FTPS-verbindingen**: maximaal 8 gelijktijdige sessies per IP en 200 totaal; zonder login na 60 s verbroken (voorkomt uitputten van passieve poorten).
+- **Midden — schaduw-instantie**: draait nu in een netwerk-sandbox (alleen loopback), zodat gekopieerde webhook-wachtrijen/abonnementen geen echte berichten versturen.
+- **Laag**: upload-inspectie gebruikt de echte bestandsnaam (DLP sloeg tijdelijke bestanden zonder extensie over); gasttoegang uit bij `REQUIRE_2FA=all`; gasten kunnen in reacties alleen de eigenaar @-noemen; gasten van verwijderde eigenaren worden opgeruimd; geen wachtwoord-verloopprompt voor gasten; rij-menu zet labels via `textContent`.
+
 ## [3.45.0] - 2026-09-23
 
 ### Nieuw

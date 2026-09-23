@@ -2253,6 +2253,69 @@ try {
       r.status === 0 && rep.ok === true && rep.checks.length >= 12 && rep.checks.every((x) => x.ok) && !/AUTH_PASS/.test(r.stdout));
   }
 
+  // 159. Security: uploaden/verwijderen in een gedeelde rw-map volgt dezelfde regels (WORM, DLP, quotum, deelmap-root).
+  {
+    const retentionMod = await import('../src/retention.js');
+    const home = path.join(config.storageDir, 'admin');
+    fs.mkdirSync(path.join(home, 'samen'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'samen', 'jaarrekening.pdf'), 'origineel');
+    retentionMod.setRetention(home, '/samen/jaarrekening.pdf', Date.now() + 86400000);
+    const g = await (await fetch(H + '/api/guests', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/samen', mode: 'rw' }) })).json();
+    const r = await fetch(H + '/gast/' + g.link.split('/gast/')[1], { redirect: 'manual' });
+    const gh = { Cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+    const up = async (name, body) => { const fd = new FormData(); fd.append('files', new Blob([body]), name); const x = await fetch(H + `/api/shared/upload?owner=admin&path=${encodeURIComponent('/samen')}`, { method: 'POST', headers: gh, body: fd }); return { status: x.status, j: await x.json().catch(() => ({})) }; };
+    const overwrite = await up('jaarrekening.pdf', 'VERVALST');
+    const origDlp = config.dlp.action; config.dlp.action = 'block';
+    const dlp = await up('kaart.txt', 'Kaart 4111 1111 1111 1111 betalen');
+    config.dlp.action = origDlp;
+    const okUp = await up('offerte.txt', 'gewoon');
+    const delWorm = await fetch(H + '/api/shared/delete', { method: 'POST', headers: { ...gh, 'Content-Type': 'application/json' }, body: JSON.stringify({ owner: 'admin', path: '/samen/jaarrekening.pdf' }) });
+    const delRoot = await fetch(H + '/api/shared/delete', { method: 'POST', headers: { ...gh, 'Content-Type': 'application/json' }, body: JSON.stringify({ owner: 'admin', path: '/samen' }) });
+    const delOk = await fetch(H + '/api/shared/delete', { method: 'POST', headers: { ...gh, 'Content-Type': 'application/json' }, body: JSON.stringify({ owner: 'admin', path: '/samen/offerte.txt' }) });
+    ok('security: gedeelde map — geen overschrijven van WORM, DLP-blokkade, share-root en WORM niet te wissen',
+      overwrite.status === 403 && fs.readFileSync(path.join(home, 'samen', 'jaarrekening.pdf'), 'utf8') === 'origineel' &&
+      dlp.status === 403 && !fs.existsSync(path.join(home, 'samen', 'kaart.txt')) && okUp.status === 200 && okUp.j.uploaded.includes('offerte.txt') &&
+      delWorm.status === 423 && delRoot.status === 403 && delOk.ok && fs.existsSync(path.join(home, 'samen')) && !fs.existsSync(path.join(home, 'samen', 'offerte.txt')));
+
+    // 160. Gasten kunnen niet via WebDAV/tus met hun sessiecookie.
+    const dav = await fetch(H + '/webdav/stiekem.txt', { method: 'PUT', headers: gh, body: 'x' });
+    const davGet = await fetch(H + '/webdav/', { method: 'PROPFIND', headers: { ...gh, Depth: '1' } });
+    const tusPost = await fetch(H + '/tus', { method: 'POST', headers: { ...gh, 'Tus-Resumable': '1.0.0', 'Upload-Length': '1' } });
+    ok('security: gasten geen toegang tot WebDAV en tus', dav.status === 403 && davGet.status === 403 && tusPost.status === 403);
+  }
+
+  // 161. FTPS: commando's die in hetzelfde pakket na AUTH TLS meekomen worden niet uitgevoerd (STARTTLS-injectie).
+  {
+    const net = await import('node:net'); const tlsMod = await import('node:tls');
+    const res = await new Promise((resolve) => {
+      const s = net.connect(2240, '127.0.0.1'); let b = ''; let stage = 0;
+      s.setEncoding('utf8');
+      s.on('data', async (d) => {
+        b += d;
+        if (stage === 0 && b.includes('220 ')) { stage = 1; b = ''; s.write('AUTH TLS\r\nUSER wormtest\r\n'); }
+        else if (stage === 1 && b.includes('234 ')) {
+          stage = 2; s.removeAllListeners('data');
+          const t = tlsMod.connect({ socket: s, rejectUnauthorized: false }, () => { t.setEncoding('utf8'); let tb = ''; t.on('data', (x) => { tb += x; if (/\n$/.test(tb)) { resolve({ reply: tb, extra: b }); t.destroy(); } }); t.write('PASS wormtestpw1\r\n'); });
+          t.on('error', () => resolve(null));
+        }
+      });
+      s.on('error', () => resolve(null));
+    });
+    ok('security: FTPS negeert commando\'s die vóór de TLS-handshake geïnjecteerd worden',
+      res && /^503 /.test(res.reply) && !/331/.test(res.extra));
+  }
+
+  // 162. FTPS: maximaal aantal gelijktijdige verbindingen per IP.
+  {
+    const net = await import('node:net');
+    const socks = []; const greetings = [];
+    for (let i = 0; i < 9; i++) {
+      greetings.push(await new Promise((resolve) => { const s = net.connect(2240, '127.0.0.1'); socks.push(s); s.setEncoding('utf8'); s.once('data', (d) => resolve(d.slice(0, 3))); s.on('error', () => resolve('err')); setTimeout(() => resolve('timeout'), 3000); }));
+    }
+    socks.forEach((s) => s.destroy());
+    ok('security: FTPS begrenst gelijktijdige verbindingen per IP', greetings.slice(0, 8).every((g) => g === '220') && greetings[8] === '421');
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close(); if (ftpsServer) ftpsServer.close();
   process.exit(0);

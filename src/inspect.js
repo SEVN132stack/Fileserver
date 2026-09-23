@@ -14,7 +14,9 @@ import { alert as sysAlert } from './alerts.js';
 // Retourneert { ok: true } of { ok: false, reason: 'malware'|'dlp', detail }.
 // Bij een afkeuring staat het bestand al in quarantaine (niet meer op zijn plek).
 export async function inspectUpload({ abs, user, home, relPath, via }) {
-  const filename = path.basename(abs);
+  // Bestandsnaam uit het doelpad (tijdelijke uploadbestanden hebben geen extensie,
+  // en DLP/AV kijken naar het type).
+  const filename = relPath ? path.posix.basename(relPath) : path.basename(abs);
   const targetPath = path.posix.dirname(relPath || '/' + filename);
   let verdict = null;
   try { verdict = await scanFile(abs); } catch { /* scanner onbereikbaar: fail-open, zoals de web-upload */ }
