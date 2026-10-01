@@ -597,7 +597,7 @@ export const config = {
   // Max. brongrootte voor een ZIP-achtergrondtaak (bytes).
   jobMaxZipBytes: parseInt(process.env.JOB_MAX_ZIP_BYTES || String(20 * 1073741824), 10),
 
-  version: '3.45.1',
+  version: '3.45.2',
 
   // Standaardgebruiker, gebruikt om users.json bij de eerste start te vullen.
   auth: {
