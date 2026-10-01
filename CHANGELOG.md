@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.45.2] - 2026-10-01
+
+### Beveiliging
+- **Hoog — `nodemailer` 9 → 10**: vijf nieuwe advisories voor versies tot en met 10.0.8, waaronder het lekken van SMTP-inloggegevens doordat de DNS-cache de TLS-`servername` deelde tussen transports, en meerdere DoS-varianten in de adresparser. Alleen op te lossen met versie 10. `src/mailer.js` gebruikt alleen `createTransport` en `sendMail`, en die werken ongewijzigd. Getest met een JSON-transport en een SMTP-transport op Node 24, en alle 221 integratietests slagen.
+- **Hoog — `brace-expansion`** bijgewerkt via de lockfile (DoS met geneste accolades).
+- Door deze twee meldingen faalde `npm audit` in de CI, en daarmee werd `main` rood na de Renovate-merges van #91 en #92.
+
 ## [3.45.1] - 2026-09-23
 
 ### Beveiliging (review van v3.42–v3.45)

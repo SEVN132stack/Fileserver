@@ -1,6 +1,6 @@
 {
   "name": "sftp-fileserver",
-  "version": "3.45.1",
+  "version": "3.45.2",
   "description": "Een fileserver die zowel via SFTP als via een web UI bestanden kan uploaden en downloaden.",
   "type": "module",
   "main": "src/server.js",
@@ -24,7 +24,7 @@
     "compression": "^1.8.1",
     "express": "^5.2.1",
     "multer": "^2.0.0",
-    "nodemailer": "^9.0.5",
+    "nodemailer": "^10.0.13",
     "pdf-lib": "^1.17.1",
     "qrcode": "^1.5.4",
     "selfsigned": "^5.5.0",
