@@ -10,7 +10,9 @@
 #  5. na de herstart /health en /ready controleren; zo niet: automatisch terug.
 #
 # Opties (omgevingsvariabelen): SERVICE, BRANCH, APP_DIR, SHADOW_PORT,
-# SKIP_SHADOW=1 (niet aanbevolen), DRY_RUN=1 (alleen stap 1-3, niet overschakelen).
+# SKIP_SHADOW=1 (niet aanbevolen), DRY_RUN=1 (alleen stap 1-3, niet overschakelen),
+# DEPLOY_FULL_BACKUP=1 (volledige ZIP van de opslag i.p.v. alleen de datastores),
+# DEPLOY_BACKUP_KEEP=N (aantal lichte deploy-back-ups bewaren, standaard 10).
 set -euo pipefail
 
 SERVICE="${SERVICE:-fileserver}"
@@ -33,8 +35,37 @@ cleanup_staging() {
 }
 trap cleanup_staging EXIT
 
+# Datamap van de echte installatie (DATA_DIR uit .env, anders de app-map).
+DATA_DIR_REAL="$APP_DIR"
+if [ -f "$APP_DIR/.env" ] && grep -q '^DATA_DIR=' "$APP_DIR/.env"; then
+  DATA_DIR_REAL=$(grep '^DATA_DIR=' "$APP_DIR/.env" | tail -n 1 | cut -d= -f2-)
+fi
+
 echo "==> [1/5] Back-up maken"
-node -e "import('./src/config.js').then(async()=>{const {makeBackup}=await import('./src/backup.js');await makeBackup();console.log('back-up ok');})" || echo "waarschuwing: back-up mislukt"
+if [ "${DEPLOY_FULL_BACKUP:-0}" = "1" ]; then
+  # Volledige ZIP van de opslag (traag en groot bij veel data).
+  node -e "import('./src/config.js').then(async()=>{const {makeBackup}=await import('./src/backup.js');await makeBackup();console.log('back-up ok');})" || echo "waarschuwing: back-up mislukt"
+else
+  # Lichte back-up: alleen de datastores die een code-update kan raken
+  # (gebruikers, instellingen, sleutels, audit-log). De bestanden in de opslag
+  # verandert een update niet; die vallen onder de geplande volledige back-up.
+  BK_DIR=$(grep '^BACKUP_DIR=' "$APP_DIR/.env" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)
+  BK_DIR="${BK_DIR:-backups}"; case "$BK_DIR" in /*) ;; *) BK_DIR="$APP_DIR/$BK_DIR" ;; esac
+  mkdir -p "$BK_DIR"
+  BK_FILE="$BK_DIR/deploy-$(date -u +%Y-%m-%dT%H-%M-%SZ)-${PREV:0:7}.tar.gz"
+  (
+    cd "$DATA_DIR_REAL"
+    files=()
+    for f in *.json .env host.key audit.log audit.log.chain authorized_keys; do
+      case "$f" in package.json|package-lock.json|shadow-report.json) continue ;; esac
+      [ -e "$f" ] && files+=("$f")
+    done
+    umask 077
+    tar -czf "$BK_FILE" "${files[@]}"
+  ) && echo "back-up ok: $BK_FILE ($(du -h "$BK_FILE" | cut -f1))" || echo "waarschuwing: back-up mislukt"
+  # Laatste ${DEPLOY_BACKUP_KEEP:-10} deploy-back-ups bewaren.
+  ls -1t "$BK_DIR"/deploy-*.tar.gz 2>/dev/null | tail -n +"$(( ${DEPLOY_BACKUP_KEEP:-10} + 1 ))" | xargs -r rm -f
+fi
 
 echo "==> [2/5] Nieuwe code klaarzetten"
 git fetch origin "$BRANCH"
@@ -46,12 +77,6 @@ fi
 cleanup_staging
 git worktree add --detach "$STAGING" "$NEXT"
 (cd "$STAGING" && npm ci --omit=dev)
-
-# Datamap van de echte installatie (DATA_DIR uit .env, anders de app-map).
-DATA_DIR_REAL="$APP_DIR"
-if [ -f "$APP_DIR/.env" ] && grep -q '^DATA_DIR=' "$APP_DIR/.env"; then
-  DATA_DIR_REAL=$(grep '^DATA_DIR=' "$APP_DIR/.env" | tail -n 1 | cut -d= -f2-)
-fi
 
 if [ "${SKIP_SHADOW:-0}" = "1" ]; then
   echo "!! [3/5] Schaduwtest OVERGESLAGEN (SKIP_SHADOW=1)"
