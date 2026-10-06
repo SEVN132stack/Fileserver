@@ -209,6 +209,7 @@ async function load() {
     if (it.isDir) a += `<button data-zip="${enc(it.path)}">ZIP</button>`;
     else a += `<button data-dl="${enc(it.path)}">⬇</button>`;
     if (!it.isDir && isText(it.name)) a += `<button class="ghost" data-edit="${enc(it.path)}">✎</button>`;
+    if (!it.isDir && me && me.office && /\.(docx?|odt|rtf|xlsx?|ods|pptx?|odp)$/i.test(it.name)) a += `<button class="ghost" data-office="${enc(it.path)}" title="Bewerken in Office">📝</button>`;
     if (!it.isDir && /\.enc$/i.test(it.name)) a += `<button class="ghost" data-dec="${enc(it.path)}">🔓</button>`;
     if (!it.isDir) a += `<button class="ghost" data-sync="${enc(it.path)}" title="Efficiënt bijwerken (delta-sync)">⟳</button>`;
     if (!it.isDir) a += `<button class="ghost" data-ver="${enc(it.path)}">🕘</button>`;
@@ -291,6 +292,30 @@ async function openFile(p) {
   // Gedeelde reacties onder de preview.
   try { document.getElementById('modalBody').insertAdjacentHTML('beforeend', await commentsHtml(p)); } catch {}
 }
+// Office-bestand bewerken in Collabora Online (WOPI). Het token gaat via een
+// POST-formulier naar de iframe, zodat het niet in de URL/geschiedenis belandt.
+async function openOffice(p) {
+  const r = await api('/api/office/edit?path=' + enc(p));
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) return alert(d.error || 'Openen in Office mislukt');
+  const ov = document.createElement('div');
+  ov.id = 'officeOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column';
+  ov.innerHTML = `<div style="display:flex;align-items:center;gap:.6rem;padding:.4rem .7rem;border-bottom:1px solid var(--border)">
+      <b style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📝 ${esc(p.split('/').pop())}</b>
+      <button class="ghost" id="officeClose">Sluiten</button></div>
+    <iframe name="officeFrame" title="Office-editor" allow="clipboard-read; clipboard-write; fullscreen" style="flex:1;border:0;width:100%"></iframe>
+    <form method="post" target="officeFrame" action="${esc(d.url)}" hidden>
+      <input name="access_token" value="${esc(d.token)}"><input name="access_token_ttl" value="${d.ttl}"></form>`;
+  document.body.append(ov);
+  const close = () => { window.removeEventListener('message', onMsg); ov.remove(); load(); };
+  // Collabora meldt via postMessage wanneer de gebruiker op sluiten klikt.
+  const onMsg = (e) => { try { const m = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; if (m && m.MessageId === 'UI_Close') close(); } catch { /* andere berichten */ } };
+  window.addEventListener('message', onMsg);
+  ov.querySelector('#officeClose').onclick = close;
+  ov.querySelector('form').submit();
+}
+
 async function editFile(p) {
   const name = p.split('/').pop();
   const txt = await (await api('/api/preview?path='+enc(p))).text();
@@ -850,6 +875,7 @@ document.addEventListener('click', async (e) => {
     alert('Gedeeld met '+to+' ('+(rw?'rw':'ro')+')'); return;
   }
   if (t2.dataset.revoke) { await api('/api/sessions/'+t2.dataset.revoke,{method:'DELETE'}); showSessions(); return; }
+  if (t2.dataset.office) { openOffice(decodeURIComponent(t2.dataset.office)); return; }
   if (t2.dataset.ilink) {
     const r = await (await api('/api/link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t2.dataset.ilink)})})).json();
     if (!r.url) return alert(r.error || 'Link maken mislukt');

@@ -69,6 +69,7 @@ import { storageReport } from './storage-report.js';
 import { qrSvg } from './qr.js';
 import * as permalinks from './permalinks.js';
 import * as links from './links.js';
+import * as wopi from './wopi.js';
 import { checkForUpdate } from './updatecheck.js';
 import { checkDisk } from './diskmonitor.js';
 import { verifyLatestBackup, restoreTest } from './backup.js';
@@ -743,6 +744,48 @@ export function createWebServer() {
     res.redirect('/?open=' + encodeURIComponent(sanitizeId(req.params.uuid)));
   });
 
+  // --- WOPI (Collabora Online) — geen sessie: Collabora praat server-naar-server
+  // en bewijst toegang met het ondertekende access_token uit /api/office/edit.
+  const wopiAuth = (req, res, next) => {
+    const t = wopi.verifyToken(req.query.access_token, req.params.id);
+    if (!t) return res.status(401).end();
+    try { req.wopi = { ...t, home: homeDir(t.user), abs: resolveWithin(homeDir(t.user), t.path) }; } catch { return res.status(404).end(); }
+    if (!fs.existsSync(req.wopi.abs)) return res.status(404).end();
+    next();
+  };
+  app.get('/wopi/files/:id', wopiAuth, (req, res) => {
+    const { user, path: rel, abs, write, home } = req.wopi;
+    const st = fs.statSync(abs);
+    const locked = !!locks.lockOwner(home, rel) || !!retention.retainedUntil(home, rel);
+    const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+    res.json({
+      BaseFileName: path.basename(abs), Size: st.size, Version: String(st.mtimeMs),
+      LastModifiedTime: st.mtime.toISOString(), OwnerId: user, UserId: user, UserFriendlyName: user,
+      UserCanWrite: write && !locked, ReadOnly: !write || locked, UserCanNotWriteRelative: true,
+      SupportsUpdate: true, SupportsLocks: false, PostMessageOrigin: base,
+    });
+  });
+  app.get('/wopi/files/:id/contents', wopiAuth, (req, res) => {
+    audit('web', req.wopi.user, 'office_open', { path: req.wopi.path });
+    res.sendFile(req.wopi.abs);
+  });
+  app.post('/wopi/files/:id/contents', wopiAuth, express.raw({ type: '*/*', limit: '500mb' }), async (req, res) => {
+    const { user, path: rel, abs, write, home } = req.wopi;
+    if (!write || isReadonly(user)) return res.status(401).end();
+    const holder = locks.lockOwner(home, rel);
+    if (holder || retention.retainedUntil(home, rel)) return res.status(409).json({ LockFailureReason: holder ? `Vergrendeld door ${holder}` : 'Bewaarplicht' });
+    try {
+      snapshot(home, abs); // vorige versie bewaren (🕘)
+      await fsp.writeFile(abs, req.body);
+      recordMutation(user, 'edit'); checkHoneypot(user, rel, 'edit');
+      audit('web', user, 'office_save', { path: rel });
+      emitToUser(user, 'change', { action: 'edit' });
+      res.json({ LastModifiedTime: fs.statSync(abs).mtime.toISOString() });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+  // Overige WOPI-operaties (LOCK e.d.) ondersteunen we niet; netjes afwijzen.
+  app.post('/wopi/files/:id', wopiAuth, (req, res) => res.status(501).end());
+
   app.get('/f/:uuid', downloadLimiter, (req, res) => {
     const entry = permalinks.resolve(req.params.uuid);
     if (!entry) return res.status(404).send('Link niet gevonden of verlopen.');
@@ -1102,6 +1145,7 @@ export function createWebServer() {
     res.json({
       user: req.user,
       role: req.userRole,
+      office: wopi.enabled(),
       quota: quota(req.user),
       used, // telt de prullenbak mee
       trashUsed: fs.existsSync(trash) ? dirSize(trash) : 0,
@@ -3000,6 +3044,25 @@ export function createWebServer() {
     });
     audit('web', req.user, 'droplink_create', { path: req.body.path, burn: !!req.body.burn });
     res.json({ token, url: `/s/${token}` });
+  });
+
+  // Office-bestand openen in Collabora: geeft de editor-URL en een token terug.
+  app.get('/api/office/edit', async (req, res) => {
+    try {
+      if (!wopi.enabled()) return res.status(501).json({ error: 'Office-bewerken staat uit (COLLABORA_URL)' });
+      const rel = req.query.path || '';
+      const abs = resolveWithin(req.home, rel);
+      if (!fs.existsSync(abs) || !wopi.canEdit(abs)) return res.status(400).json({ error: 'Geen Office-bestand' });
+      const id = wopi.fileId(abs);
+      const write = !req.apiReadonly && !isReadonly(req.user);
+      const { token, ttl } = wopi.makeToken({ user: req.user, path: rel, write, id });
+      const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+      const src = await wopi.actionUrl(path.extname(abs).slice(1), base);
+      const wopiSrc = `${config.wopiBaseUrl}/wopi/files/${id}`;
+      res.json({ url: src + (src.includes('?') ? '&' : '?') + 'WOPISrc=' + encodeURIComponent(wopiSrc) + '&lang=nl', token, ttl });
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
   });
 
   // Interne link (alleen voor ingelogde gebruikers) ophalen/aanmaken en oplossen.

@@ -397,6 +397,12 @@ export const config = {
   // Favorieten/recent worden in metadata resp. in-memory bijgehouden.
   // Document→PDF conversie via LibreOffice (leeg = uit). Bijv. 'soffice'.
   sofficeCmd: process.env.SOFFICE_CMD || '',
+  // Office-bestanden bewerken via Collabora Online (WOPI). COLLABORA_URL is het
+  // interne adres van coolwsd (leeg = uit); WOPI_BASE_URL is hoe Collabora de
+  // fileserver bereikt (standaard intern via localhost).
+  collaboraUrl: (process.env.COLLABORA_URL || '').replace(/\/$/, ''),
+  wopiBaseUrl: (process.env.WOPI_BASE_URL || `http://127.0.0.1:${parseInt(process.env.WEB_PORT || '8080', 10)}`).replace(/\/$/, ''),
+  wopiTokenHours: parseInt(process.env.WOPI_TOKEN_HOURS || '10', 10),
   // Wekelijks e-mailrapport naar ALERT_EMAIL (0 = uit; anders interval in uren).
   reportEmailIntervalHours: parseInt(process.env.REPORT_EMAIL_INTERVAL_HOURS || '0', 10),
   // Webhook-formaat: generic | slack | discord | teams | ntfy.
