@@ -17,11 +17,16 @@ function cachePath(srcPath, suffix) {
   return path.join(config.thumbDir, key + suffix);
 }
 
+// Eén ffmpeg-proces tegelijk: een map vol video's vraagt anders tientallen
+// posterframes tegelijk op, wat op een kleine server het geheugen opblaast.
+let queue = Promise.resolve();
 function run(args) {
-  return new Promise((resolve, reject) => {
+  const job = queue.then(() => new Promise((resolve, reject) => {
     const [cmd, ...base] = config.ffmpegCmd.split(' ');
-    execFile(cmd, [...base, ...args], { timeout: 60000 }, (err) => (err ? reject(err) : resolve()));
-  });
+    execFile(cmd, [...base, '-hide_banner', '-loglevel', 'error', '-threads', '1', ...args], { timeout: 60000 }, (err) => (err ? reject(err) : resolve()));
+  }));
+  queue = job.catch(() => {});
+  return job;
 }
 
 // Genereer (of hergebruik) een posterframe (JPEG) op ~1s in de video.
