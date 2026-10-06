@@ -1,6 +1,7 @@
 import express from 'express';
 import compression from 'compression';
 import multer from 'multer';
+import { pipeline } from 'node:stream/promises';
 import archiver from 'archiver';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -1821,12 +1822,17 @@ export function createWebServer() {
       // Alle chunks binnen: samenvoegen naar het doelbestand.
       const dest = resolveWithin(req.home, path.posix.join(req.query.path || '/', path.basename(req.query.name)));
       await fsp.mkdir(path.dirname(dest), { recursive: true });
-      const out = fs.createWriteStream(dest);
-      for (let i = 0; i < total; i++) {
-        out.write(await fsp.readFile(path.join(dir, String(i))));
-      }
-      out.end();
-      await new Promise((r) => out.on('close', r));
+      // Chunk voor chunk wegschrijven en op de schijf wachten: zonder backpressure
+      // belandt een bestand van gigabytes volledig in het geheugen (OOM-kill).
+      // Eerst naar een tijdelijk bestand, zodat een afgebroken samenvoeging geen
+      // half bestand op de doelplek achterlaat.
+      const tmp = dest + '.part-' + id;
+      try {
+        await pipeline(async function* () {
+          for (let i = 0; i < total; i++) yield await fsp.readFile(path.join(dir, String(i)));
+        }, fs.createWriteStream(tmp));
+        await fsp.rename(tmp, dest);
+      } catch (e) { await fsp.rm(tmp, { force: true }); throw e; }
       await fsp.rm(dir, { recursive: true, force: true });
 
       const scan = await scanFile(dest);
