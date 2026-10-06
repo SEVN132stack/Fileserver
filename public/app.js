@@ -258,10 +258,16 @@ async function openFile(p) {
   const name = p.split('/').pop(); const url = '/api/preview?path='+enc(p);
   if (isImg(name)) openModal(`<h3>${esc(name)}</h3><img src="${url}">`);
   else if (isVideo(name)) {
-    openModal(`<h3>${esc(name)}</h3><video src="${url}" controls autoplay style="max-width:82vw;max-height:74vh"></video><p class="muted" id="vidErr" hidden>Je browser kan dit videoformaat niet afspelen. Zet het om via 🛠 Media bewerken → MP4, of download het bestand.</p>`);
+    // mkv/avi gaan via /api/play (eenmalig omgezet naar MP4); de eerste keer kan dat even duren.
+    const conv = /\.(mkv|avi)$/i.test(name);
+    const vurl = '/api/play?path=' + enc(p);
+    openModal(`<h3>${esc(name)}</h3>${conv ? '<p class="muted" id="vidWait">Video wordt voorbereid… (alleen de eerste keer, kan even duren)</p>' : ''}<video src="${vurl}" controls autoplay preload="auto" style="max-width:82vw;max-height:74vh"></video><p class="muted" id="vidErr" hidden>Je browser kan dit videoformaat niet afspelen. Zet het om via 🛠 Media bewerken → MP4, of download het bestand.</p>`);
     // MKV e.d. speelt alleen af als de browser de codecs kent; anders een duidelijke melding.
     const v = document.querySelector('#modalBody video');
-    if (v) v.addEventListener('error', () => { const m = document.getElementById('vidErr'); if (m) m.hidden = false; v.hidden = true; });
+    if (v) {
+      v.addEventListener('error', () => { const m = document.getElementById('vidErr'); if (m) m.hidden = false; v.hidden = true; const w = document.getElementById('vidWait'); if (w) w.hidden = true; });
+      v.addEventListener('loadedmetadata', () => { const w = document.getElementById('vidWait'); if (w) w.hidden = true; });
+    }
   }
   else if (isAudio(name)) openModal(`<h3>${esc(name)}</h3><audio src="${url}" controls autoplay style="width:70vw"></audio>`);
   else if (/\.pdf$/i.test(name)) openModal(`<h3>${esc(name)}</h3><iframe src="${url}" style="width:82vw;height:74vh"></iframe>`);

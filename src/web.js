@@ -128,7 +128,7 @@ import * as locks from './locks.js';
 import * as scheduledExport from './scheduled-export.js';
 import { organize as organizePhotos } from './photo-organize.js';
 import { officePreview, canPreviewOffice } from './office.js';
-import { videoPoster, audioWaveform, canPoster, canWaveform, hasFfmpeg } from './media.js';
+import { videoPoster, audioWaveform, canPoster, canWaveform, hasFfmpeg, needsRemux, playableMp4 } from './media.js';
 import { runAcme } from './acme.js';
 import * as configDrift from './config-drift.js';
 import { revokeAllForUser, startImpersonation, stopImpersonation } from './sessions.js';
@@ -1262,6 +1262,22 @@ export function createWebServer() {
       res.sendFile(file);
     } catch (err) {
       res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Video afspelen: mkv/avi omgezet naar MP4 (gecachet), andere formaten direct.
+  // sendFile ondersteunt Range-verzoeken, dus spoelen werkt.
+  app.get('/api/play', async (req, res) => {
+    try {
+      const file = resolveWithin(req.home, req.query.path || '');
+      if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).json({ error: 'Niet gevonden' });
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      if (!needsRemux(file) || !hasFfmpeg()) return res.sendFile(file);
+      const out = await playableMp4(file);
+      if (!out) return res.status(501).json({ error: 'ffmpeg niet geconfigureerd' });
+      res.type('mp4').sendFile(out);
+    } catch (err) {
+      res.status(500).json({ error: 'Omzetten mislukt: ' + err.message });
     }
   });
 

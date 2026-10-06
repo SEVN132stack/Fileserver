@@ -340,6 +340,8 @@ export const config = {
   scheduledExportIntervalMinutes: parseInt(process.env.SCHEDULED_EXPORT_INTERVAL || '60', 10),
   // ffmpeg voor video-poster/audio-golfvorm (leeg = uit).
   ffmpegCmd: process.env.FFMPEG_CMD || '',
+  // Maximale grootte van de afspeelcache (mkv/avi → mp4), standaard 20 GB.
+  playCacheBytes: parseInt(process.env.PLAY_CACHE_MB || '20480', 10) * 1024 * 1024,
   // ACME: extern commando (certbot/acme.sh) voor TLS-certificaten + verlengen.
   acmeCmd: process.env.ACME_CMD || '',
   acmeRenewIntervalHours: parseInt(process.env.ACME_RENEW_INTERVAL_HOURS || '0', 10),
