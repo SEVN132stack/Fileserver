@@ -1166,6 +1166,38 @@ export function createWebServer() {
     }
   });
 
+  // Mapinfo: totale grootte en aantal bestanden (recursief). De stat-grootte van
+  // een map zelf zegt niets over de inhoud. Kort gecachet, want grote bomen
+  // doorlopen is duur.
+  const dirInfoCache = new Map();
+  async function dirInfo(full) {
+    const hit = dirInfoCache.get(full);
+    if (hit && Date.now() - hit.at < 120000) return hit.info;
+    let size = 0, files = 0, dirs = 0;
+    const stack = [full];
+    while (stack.length) {
+      const d = stack.pop();
+      let ents; try { ents = await fsp.readdir(d, { withFileTypes: true }); } catch { continue; }
+      for (const e of ents) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) { dirs++; stack.push(p); }
+        else if (e.isFile()) { files++; try { size += (await fsp.stat(p)).size; } catch { /* intussen weg */ } }
+      }
+    }
+    const info = { size, files, dirs };
+    dirInfoCache.set(full, { at: Date.now(), info });
+    if (dirInfoCache.size > 500) dirInfoCache.delete(dirInfoCache.keys().next().value);
+    return info;
+  }
+  app.get('/api/dirinfo', async (req, res) => {
+    try {
+      const full = resolveWithin(req.home, req.query.path || '/');
+      res.json(await dirInfo(full));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   app.get('/api/download', downloadLimiter, (req, res) => {
     try {
       const file = resolveWithin(req.home, req.query.path || '');

@@ -189,15 +189,18 @@ async function load() {
   const rows = document.getElementById('rows');
   rows.setAttribute('aria-label', 'Bestanden en mappen');
   rows.innerHTML = '';
-  if (!Array.isArray(data.items)) { rows.innerHTML = `<tr><td colspan="4" class="muted">${esc(data.error || 'Kon map niet laden')}</td></tr>`; return; }
-  if (!data.items.length) rows.innerHTML = `<tr><td colspan="4" class="muted">${t('empty')}</td></tr>`;
+  if (!Array.isArray(data.items)) { rows.innerHTML = `<tr><td colspan="5" class="muted">${esc(data.error || 'Kon map niet laden')}</td></tr>`; return; }
+  if (!data.items.length) rows.innerHTML = `<tr><td colspan="5" class="muted">${t('empty')}</td></tr>`;
+  renderDirSummary(data.items);
   for (const it of data.items) {
     const tr = document.createElement('tr');
     const lowbw = localStorage.getItem('lowbw') === '1';
-    const icon = it.isDir ? '📂' : (isImg(it.name) && !lowbw ? `<img class="thumb" loading="lazy" alt="" src="/api/thumb?path=${enc(it.path)}&w=56">` : '📄');
+    // In het raster een grotere thumbnail, zodat de foto de kaart vult.
+    const tw = document.body.classList.contains('view-grid') ? 360 : 56;
+    const icon = it.isDir ? '<span class="gicon">📂</span>' : (isImg(it.name) && !lowbw ? `<img class="thumb" loading="lazy" alt="" src="/api/thumb?path=${enc(it.path)}&w=${tw}">` : `<span class="gicon">${isVideo(it.name) ? '🎬' : '📄'}</span>`);
     const nameCell = it.isDir
-      ? `<div class="name" data-dir="${enc(it.path)}">${icon} ${esc(it.name)}</div>`
-      : `<div class="name" data-open="${enc(it.path)}">${icon} ${esc(it.name)}</div>`;
+      ? `<div class="name" data-dir="${enc(it.path)}" title="${esc(it.name)}">${icon} <span class="nm">${esc(it.name)}</span></div>`
+      : `<div class="name" data-open="${enc(it.path)}" title="${esc(it.name)}">${icon} <span class="nm">${esc(it.name)}</span></div>`;
     let a = '';
     if (it.isDir) a += `<button class="ghost" data-pin="${enc(it.path)}" title="Vastzetten" aria-label="Map vastzetten">📌</button>`;
     if (it.isDir) a += `<button data-zip="${enc(it.path)}">ZIP</button>`;
@@ -219,7 +222,7 @@ async function load() {
     a += `<button class="ghost" data-ren="${enc(it.path)}">✏</button>`;
     a += `<button class="danger" data-del="${enc(it.path)}">🗑</button>`;
     const checked = selected.has(it.path) ? 'checked' : '';
-    tr.innerHTML = `<td><input type="checkbox" data-sel="${enc(it.path)}" ${checked}></td><td>${nameCell}</td><td>${fmtSize(it.size)}</td><td class="actions">${a}</td>`;
+    tr.innerHTML = `<td><input type="checkbox" data-sel="${enc(it.path)}" ${checked}></td><td>${nameCell}</td><td class="c-size"${it.isDir ? ` data-dirinfo="${enc(it.path)}"` : ''}>${it.isDir ? '…' : fmtSize(it.size)}</td><td class="c-mtime">${fmtDate(it.mtime)}</td><td class="actions">${a}</td>`;
     // Drag & drop: sleep een bestand op een map om te verplaatsen.
     tr.draggable = true;
     tr.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/fspath', it.path));
@@ -607,6 +610,40 @@ function uploadProgress(files) {
     big(f, frac) { sent.set(f, Math.round(f.size * frac)); render(); },
     done() { for (const f of files) sent.set(f, f.size); render(); el.querySelector('.t').textContent = `✅ ${files.length} bestanden geüpload`; setTimeout(() => { el.style.display = 'none'; }, 4000); },
   };
+}
+
+// Datum + tijd van laatste wijziging, compact.
+function fmtDate(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  return d.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+// Samenvatting van de huidige map + echte grootte/aantal per submap (recursief,
+// via /api/dirinfo; één voor één om de server niet te overbelasten).
+let dirInfoGen = 0;
+async function renderDirSummary(items) {
+  const gen = ++dirInfoGen;
+  let el = document.getElementById('dirSummary');
+  const table = document.getElementById('rows') && document.getElementById('rows').closest('table');
+  if (!el && table) { el = document.createElement('div'); el.id = 'dirSummary'; table.before(el); }
+  const nFiles = items.filter((i) => !i.isDir).length, nDirs = items.length - nFiles;
+  const base = `${nFiles} bestand${nFiles === 1 ? '' : 'en'}, ${nDirs} map${nDirs === 1 ? '' : 'pen'}`;
+  if (el) el.textContent = base;
+  try {
+    const r = await api('/api/dirinfo?path=' + enc(cwd));
+    const d = await r.json();
+    if (gen === dirInfoGen && el && r.ok) el.textContent = `${base} · totaal ${d.files} bestand${d.files === 1 ? '' : 'en'}, ${fmtSize(d.size)} (inclusief submappen)`;
+  } catch { /* samenvatting is optioneel */ }
+  for (const td of document.querySelectorAll('#rows td[data-dirinfo]')) {
+    if (gen !== dirInfoGen) return;
+    try {
+      const r = await api('/api/dirinfo?path=' + td.dataset.dirinfo);
+      const d = await r.json();
+      if (r.ok) { td.textContent = fmtSize(d.size) || '0 B'; td.title = `${d.files} bestanden, ${d.dirs} submappen`; td.insertAdjacentHTML('beforeend', ` <span class="muted" style="font-size:.85em">· ${d.files}</span>`); }
+      else td.textContent = '';
+    } catch { td.textContent = ''; }
+  }
 }
 
 async function uploadFiles(files, relPaths) {
@@ -1529,7 +1566,7 @@ function applyUxPrefs() {
   document.body.classList.toggle('lowbw', localStorage.getItem('lowbw') === '1');
   document.body.classList.toggle('kiosk', sessionStorage.getItem('kiosk') === '1');
 }
-const viewBtn = document.getElementById('viewBtn'); if (viewBtn) viewBtn.onclick = () => { localStorage.setItem('view', localStorage.getItem('view')==='grid'?'list':'grid'); applyUxPrefs(); };
+const viewBtn = document.getElementById('viewBtn'); if (viewBtn) viewBtn.onclick = () => { localStorage.setItem('view', localStorage.getItem('view')==='grid'?'list':'grid'); applyUxPrefs(); load(); };
 const lowbwBtn = document.getElementById('lowbwBtn'); if (lowbwBtn) lowbwBtn.onclick = () => { localStorage.setItem('lowbw', localStorage.getItem('lowbw')==='1'?'0':'1'); applyUxPrefs(); load(); };
 const kioskBtn = document.getElementById('kioskBtn'); if (kioskBtn) kioskBtn.onclick = () => {
   if (sessionStorage.getItem('kiosk') === '1') { const pin = prompt('Pincode om kioskmodus te verlaten:'); if (pin !== (sessionStorage.getItem('kioskPin')||'')) return alert('Onjuiste pincode.'); sessionStorage.removeItem('kiosk'); sessionStorage.removeItem('kioskPin'); }
