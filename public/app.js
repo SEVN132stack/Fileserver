@@ -93,7 +93,7 @@ function contrastOn(hex) {
 const fmtSize = (n) => { if (!n) return ''; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; };
 const isImg = (name) => /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(name);
 const isText = (name) => /\.(txt|md|json|js|mjs|cjs|tsx?|jsx|css|scss|html?|csv|tsv|log|xml|ya?ml|ini|sh|conf|toml|py|sql|go|java|kt|c|h|cpp|cs|rs|php|rb|vue)$/i.test(name);
-const isVideo = (name) => /\.(mp4|webm|ogv|mov|m4v)$/i.test(name);
+const isVideo = (name) => /\.(mp4|webm|ogv|mov|m4v|mkv)$/i.test(name);
 const isAudio = (name) => /\.(mp3|wav|ogg|oga|flac|m4a|aac)$/i.test(name);
 const isMd = (name) => /\.md$/i.test(name);
 
@@ -251,7 +251,12 @@ function closeModal() { document.getElementById('modal').style.display='none'; d
 async function openFile(p) {
   const name = p.split('/').pop(); const url = '/api/preview?path='+enc(p);
   if (isImg(name)) openModal(`<h3>${esc(name)}</h3><img src="${url}">`);
-  else if (isVideo(name)) openModal(`<h3>${esc(name)}</h3><video src="${url}" controls autoplay style="max-width:82vw;max-height:74vh"></video>`);
+  else if (isVideo(name)) {
+    openModal(`<h3>${esc(name)}</h3><video src="${url}" controls autoplay style="max-width:82vw;max-height:74vh"></video><p class="muted" id="vidErr" hidden>Je browser kan dit videoformaat niet afspelen. Zet het om via 🛠 Media bewerken → MP4, of download het bestand.</p>`);
+    // MKV e.d. speelt alleen af als de browser de codecs kent; anders een duidelijke melding.
+    const v = document.querySelector('#modalBody video');
+    if (v) v.addEventListener('error', () => { const m = document.getElementById('vidErr'); if (m) m.hidden = false; v.hidden = true; });
+  }
   else if (isAudio(name)) openModal(`<h3>${esc(name)}</h3><audio src="${url}" controls autoplay style="width:70vw"></audio>`);
   else if (/\.pdf$/i.test(name)) openModal(`<h3>${esc(name)}</h3><iframe src="${url}" style="width:82vw;height:74vh"></iframe>`);
   else if (isMd(name) && window.Preview) { const txt = await (await api(url)).text(); const md = Preview.markdown(txt); openModal(`<h3>${esc(name)}</h3><div class="md-view${md.toc?' has-toc':''}">${md.toc}<article class="md-body">${md.html}</article></div>`); }
@@ -575,6 +580,35 @@ async function queueOffline(files, relPaths) {
   alert(added === items.length ? `Je bent offline: ${added} bestand(en) in de wachtrij gezet.` : `Offline-wachtrij vol: ${added} van ${items.length} bestand(en) bewaard.`);
 }
 
+// Zwevend voortgangspaneel: aantal bestanden klaar, MB's en procent over de hele upload.
+function uploadProgress(files) {
+  const totalBytes = files.reduce((n, f) => n + f.size, 0) || 1;
+  const sent = new Map(); // bestand -> verzonden bytes
+  let el = document.getElementById('upPanel');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'upPanel'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+    el.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:60;width:min(340px,calc(100vw - 32px));background:var(--panel,#111827);color:var(--text,#e5e7eb);border:1px solid var(--border,#374151);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35);padding:.7rem .85rem;font-size:.88rem';
+    el.innerHTML = '<div class="t" style="font-weight:600;margin-bottom:.35rem"></div><div style="height:6px;background:var(--border,#374151);border-radius:3px;overflow:hidden"><div class="f" style="height:100%;width:0;background:var(--accent,#38bdf8);transition:width .2s"></div></div><div class="s muted" style="margin-top:.35rem;opacity:.8"></div>';
+    document.body.append(el);
+  }
+  el.style.display = '';
+  const render = () => {
+    let bytes = 0, done = 0;
+    for (const f of files) { const b = sent.get(f) || 0; bytes += b; if (b >= f.size) done++; }
+    const pct = Math.min(100, Math.floor(bytes / totalBytes * 100));
+    el.querySelector('.t').textContent = `Uploaden: ${done} van ${files.length} bestanden klaar`;
+    el.querySelector('.f').style.width = pct + '%';
+    el.querySelector('.s').textContent = `${fmtMB(bytes)} van ${fmtMB(totalBytes)} · ${pct}%`;
+  };
+  render();
+  return {
+    // Kleine bestanden gaan in één verzoek: verdeel de verzonden bytes op volgorde over de bestanden.
+    small(frac, list) { let left = frac * list.reduce((n, f) => n + f.size, 0); for (const f of list) { const b = Math.min(f.size, left); sent.set(f, b); left -= b; } render(); },
+    big(f, frac) { sent.set(f, Math.round(f.size * frac)); render(); },
+    done() { for (const f of files) sent.set(f, f.size); render(); el.querySelector('.t').textContent = `✅ ${files.length} bestanden geüpload`; setTimeout(() => { el.style.display = 'none'; }, 4000); },
+  };
+}
+
 async function uploadFiles(files, relPaths) {
   if (!files.length) return;
   // Optionele client-side versleuteling vóór upload.
@@ -595,6 +629,7 @@ async function uploadFiles(files, relPaths) {
   const big = [];
   files.forEach((f, i) => { const rp = (relPaths && relPaths[i]) || f.name;
     if (f.size >= BIG) big.push({ f, rp }); else { small.push(f); smallRel.push(rp); } });
+  const prog = uploadProgress(files);
 
   const doSmall = () => new Promise((resolve) => {
     if (!small.length) return resolve();
@@ -602,8 +637,8 @@ async function uploadFiles(files, relPaths) {
     small.forEach((f, i) => fd.append('files', f, smallRel[i]));
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload?path='+enc(cwd));
-    xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) fill.style.width = (ev.loaded/ev.total*100)+'%'; };
-    xhr.onload = () => { if (xhr.status===401) window.location='/login.html'; else if (xhr.status!==200 && xhr.status!==422) alert('Upload mislukt'); resolve(); };
+    xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) { fill.style.width = (ev.loaded/ev.total*100)+'%'; prog.small(ev.loaded/ev.total, small); } };
+    xhr.onload = () => { prog.small(1, small); if (xhr.status===401) window.location='/login.html'; else if (xhr.status!==200 && xhr.status!==422) alert('Upload mislukt'); resolve(); };
     // Netwerk weggevallen: bewaar in de offline-wachtrij i.p.v. de upload kwijt te raken.
     xhr.onerror = async () => { if (!navigator.onLine) await queueOffline(small, smallRel); else alert('Upload mislukt'); resolve(); };
     xhr.send(fd);
@@ -612,25 +647,26 @@ async function uploadFiles(files, relPaths) {
   const doBig = async ({ f, rp }) => {
     // Bestaat dit bestand al in deze map? Stuur dan alleen de gewijzigde blokken.
     if (!rp.includes('/') && window.__lastNames && window.__lastNames.has(rp)) {
-      try { if (await deltaUpload(f, rp, fill)) return; } catch { /* terugvallen op gewone upload */ }
+      try { if (await deltaUpload(f, rp, fill)) { prog.big(f, 1); return; } } catch { /* terugvallen op gewone upload */ }
     }
     const uploadId = (rp + '-' + f.size + '-' + f.lastModified).replace(/[^a-zA-Z0-9_-]/g, '');
     const total = Math.ceil(f.size / CHUNK);
     let received = [];
     try { received = (await (await api('/api/upload/status?uploadId='+enc(uploadId))).json()).received || []; } catch {}
     for (let i = 0; i < total; i++) {
-      if (received.includes(i)) { fill.style.width = ((i+1)/total*100)+'%'; continue; }
+      if (received.includes(i)) { fill.style.width = ((i+1)/total*100)+'%'; prog.big(f, (i+1)/total); continue; }
       const blob = f.slice(i*CHUNK, (i+1)*CHUNK);
       const cfd = new FormData(); cfd.append('chunk', blob);
       const url = `/api/upload/chunk?uploadId=${enc(uploadId)}&index=${i}&total=${total}&name=${enc(rp)}&path=${enc(cwd)}`;
       await api(url, { method:'POST', body: cfd });
-      fill.style.width = ((i+1)/total*100)+'%';
+      fill.style.width = ((i+1)/total*100)+'%'; prog.big(f, (i+1)/total);
     }
   };
 
   (async () => {
     await doSmall();
     for (const b of big) await doBig(b);
+    prog.done();
     bar.style.display='none'; loadMe(); load();
   })();
 }
