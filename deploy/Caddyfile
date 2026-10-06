@@ -13,6 +13,12 @@ files.voorbeeld.nl {
 		max_size 10GB
 	}
 
+	# Office-bewerken (optioneel, COLLABORA_URL): Collabora Online op hetzelfde
+	# domein. coolwsd luistert alleen lokaal (net.listen loopback, ssl.enable
+	# false, ssl.termination true). WebSockets gaan vanzelf door.
+	# @collabora path /browser/* /hosting/* /cool/*
+	# reverse_proxy @collabora 127.0.0.1:9980
+
 	reverse_proxy localhost:8080 {
 		# Geef het echte client-IP door voor rate limiting/bans.
 		header_up X-Forwarded-For {remote_host}
