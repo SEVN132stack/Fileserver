@@ -74,6 +74,12 @@ try {
   await page.keyboard.press('Control+k');
   if (!(await page.locator('#palette.open').count())) throw new Error('commandopalet opent niet');
   await page.keyboard.press('Escape');
+  // Compacte zijbalk: Werken is inklapbaar, stijl/account zitten in het accountmenu.
+  if (await page.locator('#tasksBtn').isVisible()) throw new Error('groep Werken staat niet standaard ingeklapt');
+  await page.click('#sidebar .nav-toggle');
+  if (!(await page.locator('#tasksBtn').isVisible())) throw new Error('groep Werken klapt niet open');
+  await page.click('#accountMenu > .menu-toggle');
+  if (!(await page.locator('#logoutBtn').isVisible())) throw new Error('accountmenu opent niet');
   for (const st of ['licht', 'zakelijk', 'donker']) {
     await page.selectOption('#styleSelect', st);
     if ((await page.getAttribute('html', 'data-style')) !== st) throw new Error('stijl ' + st + ' niet toegepast');
@@ -81,7 +87,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   const sw = await page.evaluate(() => document.documentElement.scrollWidth);
   if (sw > 400) throw new Error('horizontale scroll op mobiel: ' + sw);
-  console.log('  ✓ rij-menu, commandopalet, stijlen en mobiele indeling werken');
+  console.log('  ✓ rij-menu, commandopalet, zijbalk/accountmenu, stijlen en mobiele indeling werken');
 
   await browser.close();
   console.log('\nE2E-browsertest geslaagd.');
