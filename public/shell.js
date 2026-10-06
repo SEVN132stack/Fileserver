@@ -156,7 +156,7 @@
     if (more) {
       const m = more.nextElementSibling; const willOpen = !m.classList.contains('open'); closeMenus(m);
       m.classList.toggle('open', willOpen);
-      if (willOpen) { m.classList.remove('up'); const r = m.getBoundingClientRect(); if (r.bottom > window.innerHeight - 8) m.classList.add('up'); }
+      if (willOpen) placeRowMenu(more, m);
       return;
     }
     // Klik op een menu-item: actie loopt via de bestaande handler; daarna sluiten.
@@ -164,6 +164,21 @@
     if (!e.target.closest('.menu-pop') && !e.target.closest('.rowmenu')) closeMenus();
   }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenus(); });
+  // Rij-menu vast t.o.v. het venster plaatsen: zo valt het nooit buiten een
+  // omliggende container weg. Opent omhoog als er onder te weinig plek is en
+  // krijgt anders een scrollbalk.
+  function placeRowMenu(btn, m) {
+    const b = btn.getBoundingClientRect(); const gap = 4; const pad = 8;
+    Object.assign(m.style, { position: 'fixed', top: '', bottom: '', left: '', right: '', maxHeight: '', overflowY: '' });
+    const below = window.innerHeight - b.bottom - gap - pad; const above = b.top - gap - pad;
+    const h = m.scrollHeight; const up = h > below && above > below;
+    const room = up ? above : below;
+    if (h > room) Object.assign(m.style, { maxHeight: room + 'px', overflowY: 'auto' });
+    if (up) m.style.bottom = (window.innerHeight - b.top + gap) + 'px'; else m.style.top = (b.bottom + gap) + 'px';
+    m.style.right = Math.max(pad, window.innerWidth - b.right) + 'px';
+  }
+  window.addEventListener('resize', () => closeMenus());
+  document.addEventListener('scroll', (e) => { if (!(e.target.closest && e.target.closest('.rowmenu'))) document.querySelectorAll('.rowmenu.open').forEach((m) => m.classList.remove('open')); }, true);
 
   // --- ⋯-menu per rij: primaire knop zichtbaar, de rest in een menu ---
   function labelFor(b) {
