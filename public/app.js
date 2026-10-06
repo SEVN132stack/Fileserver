@@ -197,7 +197,10 @@ async function load() {
     const lowbw = localStorage.getItem('lowbw') === '1';
     // In het raster een grotere thumbnail, zodat de foto de kaart vult.
     const tw = document.body.classList.contains('view-grid') ? 360 : 56;
-    const icon = it.isDir ? '<span class="gicon">📂</span>' : (isImg(it.name) && !lowbw ? `<img class="thumb" loading="lazy" alt="" src="/api/thumb?path=${enc(it.path)}&w=${tw}">` : `<span class="gicon">${isVideo(it.name) ? '🎬' : '📄'}</span>`);
+    // Video's: posterframe via ffmpeg; lukt dat niet (geen ffmpeg, kapot bestand), dan het 🎬-icoon.
+    const vidThumb = /\.(mp4|webm|mov|mkv|avi|m4v)$/i.test(it.name) && !lowbw
+      ? `<img class="thumb" loading="lazy" alt="" src="/api/poster?path=${enc(it.path)}" onerror="this.outerHTML='<span class=&quot;gicon&quot;>🎬</span>'">` : '';
+    const icon = it.isDir ? '<span class="gicon">📂</span>' : (isImg(it.name) && !lowbw ? `<img class="thumb" loading="lazy" alt="" src="/api/thumb?path=${enc(it.path)}&w=${tw}">` : (vidThumb || `<span class="gicon">${isVideo(it.name) ? '🎬' : '📄'}</span>`));
     const nameCell = it.isDir
       ? `<div class="name" data-dir="${enc(it.path)}" title="${esc(it.name)}">${icon} <span class="nm">${esc(it.name)}</span></div>`
       : `<div class="name" data-open="${enc(it.path)}" title="${esc(it.name)}">${icon} <span class="nm">${esc(it.name)}</span></div>`;
