@@ -217,6 +217,7 @@ async function load() {
     if (!it.isDir) a += `<button class="ghost" data-sign="${enc(it.path)}" title="Ondertekenen/verifiëren" aria-label="Ondertekenen">✍️</button>`;
     if (!it.isDir && /\.(jpe?g|png|gif|webp|bmp|tiff?)$/i.test(it.name)) a += `<button class="ghost" data-vision="${enc(it.path)}" title="Beeldherkenning (labels)">🔍</button>`;
     a += `<button class="ghost" data-meta="${enc(it.path)}">🏷</button>`;
+    a += `<button class="ghost" data-ilink="${enc(it.path)}" title="Interne link kopiëren (alleen voor ingelogde gebruikers)">📋</button>`;
     a += `<button class="ghost" data-perma="${enc(it.path)}" title="Vaste link (permalink)">∞</button>`;
     a += `<button class="ghost" data-share="${enc(it.path)}">🔗</button>`;
     a += `<button class="ghost" data-grant="${enc(it.path)}">👥</button>`;
@@ -849,6 +850,12 @@ document.addEventListener('click', async (e) => {
     alert('Gedeeld met '+to+' ('+(rw?'rw':'ro')+')'); return;
   }
   if (t2.dataset.revoke) { await api('/api/sessions/'+t2.dataset.revoke,{method:'DELETE'}); showSessions(); return; }
+  if (t2.dataset.ilink) {
+    const r = await (await api('/api/link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t2.dataset.ilink)})})).json();
+    if (!r.url) return alert(r.error || 'Link maken mislukt');
+    try { await navigator.clipboard.writeText(r.url); toast('Link gekopieerd'); } catch { showLink('Interne link', r.url); }
+    return;
+  }
   if (t2.dataset.perma) {
     const p = decodeURIComponent(t2.dataset.perma);
     const hrs = prompt('Permalink vervalt na hoeveel uur? (leeg = nooit)', ''); if (hrs === null) return;
@@ -1593,7 +1600,22 @@ drop.addEventListener('drop', e => { e.preventDefault(); uploadFiles([...e.dataT
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
 
 applyTheme(); applyI18n();
-loadMe().then(() => { load(); connectEvents(); checkKeyRotation(); }).catch(()=>{});
+// Interne link (/o/<uuid> → /?open=<uuid>): onthouden in sessionStorage, zodat
+// hij ook na de omweg via de inlogpagina nog wordt geopend.
+const openParam = new URLSearchParams(location.search).get('open');
+if (openParam) { try { sessionStorage.setItem('openLink', openParam); } catch { /* nvt */ } history.replaceState(null, '', location.pathname); }
+async function openPendingLink() {
+  let id = null; try { id = sessionStorage.getItem('openLink'); sessionStorage.removeItem('openLink'); } catch { /* nvt */ }
+  if (!id) return false;
+  const r = await api('/api/link/' + enc(id));
+  if (!r.ok) { alert((await r.json().catch(() => ({}))).error || 'Link niet gevonden'); return false; }
+  const { path: p, isDir } = await r.json();
+  cwd = isDir ? p : (p.slice(0, p.lastIndexOf('/')) || '/');
+  await load();
+  if (!isDir) openFile(p);
+  return true;
+}
+loadMe().then(async () => { if (!(await openPendingLink().catch(() => false))) load(); connectEvents(); checkKeyRotation(); }).catch(()=>{});
 
 // Herinner aan E2E-sleutels die aan rotatie toe zijn.
 async function checkKeyRotation() {

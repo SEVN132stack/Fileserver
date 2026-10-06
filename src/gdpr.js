@@ -63,7 +63,7 @@ export function forgetUser(username, requestedBy) {
 
   // 2. Uit de JSON-stores verwijderen (comments, tags, permalinks, shares, apikeys,
   //    notificaties, retentie, expiry, locks).
-  for (const file of [config.commentsFile, config.tagsFile, config.permalinksFile, config.sharesFile,
+  for (const file of [config.commentsFile, config.tagsFile, config.permalinksFile, config.linksFile, config.sharesFile,
     config.apiKeysFile, config.notificationsFile, config.retentionFile, config.expiryFile, config.locksFile]) {
     const data = readJson(file);
     if (!data) continue;

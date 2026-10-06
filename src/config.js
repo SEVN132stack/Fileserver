@@ -200,6 +200,8 @@ export const config = {
   keyringFile: abs(process.env.KEYRING_FILE || 'keyring.json'),
   // Permalinks: stabiele per-bestand-link (uuid -> pad).
   permalinksFile: abs(process.env.PERMALINKS_FILE || 'permalinks.json'),
+  // Interne links (/o/<uuid>, alleen voor ingelogde gebruikers).
+  linksFile: abs(process.env.LINKS_FILE || 'links.json'),
   // Gedeelde bestandscommentaren (zichtbaar voor iedereen met toegang).
   commentsFile: abs(process.env.COMMENTS_FILE || 'comments.json'),
   // Manifest voor bestandsintegriteit (checksums).

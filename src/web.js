@@ -68,6 +68,7 @@ import { runCleanup } from './cleanup.js';
 import { storageReport } from './storage-report.js';
 import { qrSvg } from './qr.js';
 import * as permalinks from './permalinks.js';
+import * as links from './links.js';
 import { checkForUpdate } from './updatecheck.js';
 import { checkDisk } from './diskmonitor.js';
 import { verifyLatestBackup, restoreTest } from './backup.js';
@@ -736,6 +737,12 @@ export function createWebServer() {
   });
 
   // --- Permalink per bestand (stabiele UUID-link, geen auth) ---
+  // Interne link: opent het bestand/de map in de app. Geen toegang zonder
+  // inloggen; de app lost de UUID op via /api/link (met sessie).
+  app.get('/o/:uuid', (req, res) => {
+    res.redirect('/?open=' + encodeURIComponent(sanitizeId(req.params.uuid)));
+  });
+
   app.get('/f/:uuid', downloadLimiter, (req, res) => {
     const entry = permalinks.resolve(req.params.uuid);
     if (!entry) return res.status(404).send('Link niet gevonden of verlopen.');
@@ -1433,7 +1440,7 @@ export function createWebServer() {
       const result = organizeSuggest.apply(req.home, req.body.moves || [], {
         isLocked: (rel) => !!locks.lockOwner(req.home, rel) || !!retention.retainedUntil(req.home, rel),
         onMoved: (from, to) => {
-          permalinks.updatePath(req.user, from, to);
+          permalinks.updatePath(req.user, from, to); links.updatePath(req.user, from, to);
           tags.movePath(req.user, from, to);
           locks.movePath(req.home, from, to);
           expiry.movePath(req.home, from, to);
@@ -1888,7 +1895,7 @@ export function createWebServer() {
       const to = resolveWithin(req.home, req.body.to || '');
       await fsp.mkdir(path.dirname(to), { recursive: true });
       await fsp.rename(from, to);
-      permalinks.updatePath(req.user, req.body.from, req.body.to);
+      permalinks.updatePath(req.user, req.body.from, req.body.to); links.updatePath(req.user, req.body.from, req.body.to);
       tags.movePath(req.user, req.body.from, req.body.to);
       locks.movePath(req.home, req.body.from, req.body.to);
       expiry.movePath(req.home, req.body.from, req.body.to);
@@ -1928,7 +1935,7 @@ export function createWebServer() {
             await fsp.rm(abs, { recursive: true, force: true });
           });
         }
-        permalinks.removeForPath(req.user, p);
+        permalinks.removeForPath(req.user, p); links.removeForPath(req.user, p);
         tags.removePath(req.user, p);
         locks.removePath(req.home, p);
         expiry.removePath(req.home, p);
@@ -1964,7 +1971,7 @@ export function createWebServer() {
         const dest = path.join(targetDir, path.basename(abs));
         await fsp.rename(abs, dest);
         const destRel = '/' + path.relative(req.home, dest).split(path.sep).join('/');
-        permalinks.updatePath(req.user, p, destRel);
+        permalinks.updatePath(req.user, p, destRel); links.updatePath(req.user, p, destRel);
         tags.movePath(req.user, p, destRel);
         locks.movePath(req.home, p, destRel);
         expiry.movePath(req.home, p, destRel);
@@ -2230,7 +2237,7 @@ export function createWebServer() {
     const trash = path.join(req.home, config.trashName);
     fs.mkdirSync(trash, { recursive: true });
     fs.renameSync(abs, path.join(trash, Date.now() + '_' + path.basename(abs)));
-    permalinks.removeForPath(req.user, p); tags.removePath(req.user, p); locks.removePath(req.home, p);
+    permalinks.removeForPath(req.user, p); links.removeForPath(req.user, p); tags.removePath(req.user, p); locks.removePath(req.home, p);
     expiry.removePath(req.home, p); ocr.removePath(req.home, p); vision.removePath(req.home, p);
     reviews.removePath(req.home, p); labels.removePath(req.home, p);
     recordMutation(req.user, 'delete');
@@ -2995,6 +3002,28 @@ export function createWebServer() {
     res.json({ token, url: `/s/${token}` });
   });
 
+  // Interne link (alleen voor ingelogde gebruikers) ophalen/aanmaken en oplossen.
+  app.post('/api/link', express.json(), (req, res) => {
+    try {
+      const rel = req.body.path || '';
+      resolveWithin(req.home, rel); // valideer dat het pad binnen de home valt
+      const uuid = links.getOrCreate(req.user, rel);
+      const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
+      res.json({ uuid, url: `${base}/o/${uuid}` });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+  app.get('/api/link/:uuid', (req, res) => {
+    const entry = links.resolve(req.params.uuid);
+    // Links van andere gebruikers gedragen zich als onbekend (geen informatielek).
+    if (!entry || entry.user !== req.user) return res.status(404).json({ error: 'Link niet gevonden' });
+    let abs;
+    try { abs = resolveWithin(req.home, entry.path); } catch { return res.status(404).json({ error: 'Link niet gevonden' }); }
+    if (!fs.existsSync(abs)) return res.status(404).json({ error: 'Bestand bestaat niet meer' });
+    res.json({ path: entry.path, isDir: fs.statSync(abs).isDirectory() });
+  });
+
   // Stabiele permalink voor een bestand ophalen/aanmaken (optioneel met
   // wachtwoord en vervaldatum).
   app.post('/api/permalink', requireWrite, express.json(), (req, res) => {
@@ -3492,6 +3521,7 @@ export function createWebServer() {
     for (const [name, file] of [
       ['users', config.usersFile], ['groups', config.groupsFile], ['settings', config.settingsFile],
       ['shares', config.sharesFile], ['permalinks', config.permalinksFile],
+      ['links', config.linksFile],
     ]) {
       try { bundle[name] = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { bundle[name] = null; }
     }
@@ -3532,7 +3562,7 @@ export function createWebServer() {
   });
 
   app.post('/api/admin/import', requireAdmin, requireReauth, express.json({ limit: '20mb' }), (req, res) => {
-    const map = { users: config.usersFile, groups: config.groupsFile, settings: config.settingsFile, shares: config.sharesFile, permalinks: config.permalinksFile };
+    const map = { users: config.usersFile, groups: config.groupsFile, settings: config.settingsFile, shares: config.sharesFile, permalinks: config.permalinksFile, links: config.linksFile };
     const imported = [];
     for (const [name, file] of Object.entries(map)) {
       if (req.body[name]) { fs.writeFileSync(file, JSON.stringify(req.body[name], null, 2), { mode: 0o600 }); imported.push(name); }
