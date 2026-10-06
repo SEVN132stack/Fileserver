@@ -3139,10 +3139,11 @@ export function createWebServer() {
   app.get('/api/grants', (req, res) => res.json({ grants: (getUser(req.user).shares) || [] }));
 
   // --- 2FA ---
-  app.post('/api/2fa/setup', (req, res) => {
+  app.post('/api/2fa/setup', async (req, res) => {
     const secret = generateSecret();
     req._pendingSecret = secret;
-    res.json({ secret, otpauth: otpauthUrl(secret, req.user) });
+    const otpauth = otpauthUrl(secret, req.user);
+    res.json({ secret, otpauth, qr: await qrSvg(otpauth) });
   });
   app.post('/api/2fa/enable', express.json(), (req, res) => {
     const { secret, token } = req.body || {};
