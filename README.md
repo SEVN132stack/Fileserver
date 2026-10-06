@@ -42,7 +42,7 @@ Een fileserver die dezelfde bestanden aanbiedt via **SFTP**, een **web UI** en
 
 ## Vereisten
 
-- Node.js 18+ (of Docker). Ontwikkeld/getest op Node 22.
+- Node.js 22+ (of Docker). Getest op Node 24 (CI).
 
 ## Installatie & starten
 
