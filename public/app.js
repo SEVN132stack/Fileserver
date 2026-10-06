@@ -686,7 +686,8 @@ async function renderTrash() {
 // --- 2FA ---
 async function setup2fa() {
   const r = await (await api('/api/2fa/setup',{method:'POST'})).json();
-  openModal(`<h3>2FA instellen</h3><p class="muted">Voeg dit geheim toe aan je authenticator-app:</p>
+  openModal(`<h3>2FA instellen</h3><p class="muted">Scan de QR-code met je authenticator-app (bijv. Google Authenticator), of voer het geheim handmatig in:</p>
+    <div style="background:#fff;display:inline-block;padding:.4rem;border-radius:6px">${r.qr}</div>
     <p><code>${r.secret}</code></p><p class="muted" style="word-break:break-all">${r.otpauth}</p>
     <label>Voer een code in om te bevestigen:</label><input id="totpIn"><br>
     <button id="enable2fa">Inschakelen</button> <button class="danger" id="disable2fa">Uitschakelen</button>
