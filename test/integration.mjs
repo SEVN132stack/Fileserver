@@ -2246,8 +2246,19 @@ try {
 
   // 158. Gefaseerde update: schaduw-instantie start los van de echte data en slaagt voor de zelftest.
   {
-    const { spawnSync } = await import('node:child_process');
-    const r = spawnSync(process.execPath, ['scripts/shadow-check.mjs', '--port', '18765', '--timeout', '45000'], { encoding: 'utf8', timeout: 90000 });
+    // Asynchroon, niet met spawnSync: de webserver draait in dít proces, en
+    // spawnSync legt de event loop tot 45 s stil. Daarna sloten de keep-alive-
+    // timers van de server de verbindingen precies toen de volgende test er
+    // één hergebruikte — af en toe "fetch failed", en alleen op main.
+    const { spawn } = await import('node:child_process');
+    const r = await new Promise((resolve) => {
+      const kind = spawn(process.execPath, ['scripts/shadow-check.mjs', '--port', '18765', '--timeout', '45000']);
+      let stdout = '';
+      kind.stdout.on('data', (d) => { stdout += d; });
+      kind.stderr.resume();
+      const stop = setTimeout(() => kind.kill('SIGKILL'), 90000);
+      kind.on('close', (status) => { clearTimeout(stop); resolve({ status, stdout }); });
+    });
     let rep = {}; try { rep = JSON.parse(r.stdout); } catch { /* geen json */ }
     ok('gefaseerde update: schaduw-controle slaagt en rapporteert alle stappen',
       r.status === 0 && rep.ok === true && rep.checks.length >= 12 && rep.checks.every((x) => x.ok) && !/AUTH_PASS/.test(r.stdout));
