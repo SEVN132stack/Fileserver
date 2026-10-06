@@ -54,6 +54,20 @@ body.shell:has(> #globalBanner) > #sidebar, body.shell:has(> #globalBanner) > ma
 #sidebar .tabs { display: block; margin: 0 0 1rem; }
 #sidebar #quota { display: block; padding: .5rem .7rem; font-size: .78rem; color: var(--sidebar-muted); }
 #sidebar #quota .barwrap { width: 100%; margin: .35rem 0 0; display: block; }
+/* Inklapbare groep (titel is een knop). */
+#sidebar button.nav-toggle { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--sidebar-muted); font-weight: 600; padding: .3rem .7rem; }
+#sidebar button.nav-toggle::after { content: "▾"; margin-left: auto; transition: transform .15s; }
+#sidebar .nav-group.collapsed > button.nav-toggle::after { transform: rotate(-90deg); }
+#sidebar .nav-group.collapsed > :not(.nav-toggle) { display: none; }
+/* Accountmenu rechtsboven. */
+#accountMenu > .menu-toggle { display: inline-flex; align-items: center; gap: .4rem; white-space: nowrap; }
+#accountMenu .menu-pop { min-width: 280px; max-height: calc(100vh - 80px); overflow-y: auto; }
+#accountMenu .nav-group { margin: 0; }
+#accountMenu .nav-title { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: .4rem .6rem .2rem; }
+#accountMenu .ico { width: 1.3rem; text-align: center; flex: 0 0 auto; }
+#accountMenu .navrow { display: flex; align-items: center; gap: .55rem; padding: .4rem .6rem; }
+#accountMenu .navrow .lbl { flex: 1; }
+#accountMenu .navrow select, #accountMenu .navrow > button { width: auto; flex: 0 0 auto; padding: .25rem .5rem; font-size: .8rem; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
 #sidebar #jobsCount, #sidebar #notifCount { background: var(--accent); color: var(--accent-contrast); border-radius: 999px; padding: 0 .45rem; font-size: .7rem; }
 
 /* --- Werkbalk en menu's --- */
@@ -134,6 +148,7 @@ body.kiosk.shell > main { grid-column: 1; }
 body.guest #sidebar .nav-group:not(.tabs):not(:last-child), body.guest .toolbar, body.guest #selBar, body.guest #drop,
 body.guest #sidebar .tabs button:not([data-tab="shared"]), body.guest #sidebar #quota, body.guest #paletteBtn, body.guest #topSearch,
 body.guest #crumbs, body.guest #filesView { display: none !important; }
+body.guest #accountMenu .nav-group:not(:last-child), body.guest #accountMenu hr { display: none !important; }
 .guest-banner { background: var(--accent-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: .55rem .8rem; margin-bottom: .8rem; }
 
 /* Betere preview (v3.44) */
