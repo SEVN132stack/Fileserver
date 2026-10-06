@@ -43,6 +43,22 @@
     return g;
   }
 
+  // Groep inklapbaar maken via de titel; de stand wordt per browser onthouden.
+  function collapsible(g, key) {
+    const t = g.querySelector('.nav-title'); if (!t) return g;
+    const k = 'navCollapsed:' + key;
+    let closed = true; try { closed = localStorage.getItem(k) !== '0'; } catch { /* nvt */ }
+    const btn = el('button', { type: 'button', class: 'nav-title nav-toggle', 'aria-expanded': String(!closed) });
+    btn.textContent = t.textContent; t.replaceWith(btn);
+    g.classList.toggle('collapsed', closed);
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const c = g.classList.toggle('collapsed'); btn.setAttribute('aria-expanded', String(!c));
+      try { localStorage.setItem(k, c ? '1' : '0'); } catch { /* nvt */ }
+    };
+    return g;
+  }
+
   function build() {
     const header = document.querySelector('body > header');
     const main = document.querySelector('body > main');
@@ -66,7 +82,6 @@
     const spacer = header.querySelector('.spacer');
     (spacer || top).after(pal);
     if (notif) pal.after(notif);
-    if (who && notif) notif.after(who);
 
     // --- Zijbalk ---
     const side = el('nav', { id: 'sidebar', 'aria-label': 'Hoofdnavigatie' });
@@ -75,8 +90,8 @@
       const icons = { files: '📁', shared: '👥', trash: '🗑' };
       tabs.querySelectorAll('button[data-tab]').forEach((b) => { const i18n = b.getAttribute('data-i18n'); const lbl = el('span', { class: 'lbl' }); lbl.textContent = b.textContent.trim(); if (i18n) { lbl.setAttribute('data-i18n', i18n); b.removeAttribute('data-i18n'); } b.textContent = ''; b.append(el('span', { class: 'ico' }, icons[b.dataset.tab] || '•'), lbl); });
     }
-    side.append(group('Werken', ['tasksBtn', 'jobsBtn', 'autoBtn', 'sharingBtn', 'guestsBtn', 'teamsBtn', 'inboundBtn', 'insightsBtn', 'organizeBtn', 'aiBtn', 'snapBtn']));
-    side.append(group('Account & beveiliging', ['2faBtn', 'passkeyBtn', 'pwBtn', 'sessionsBtn', 'secBtn', 'apikeyBtn', 'jitBtn', 'clientsBtn']));
+    side.append(collapsible(group('Werken', ['tasksBtn', 'jobsBtn', 'autoBtn', 'sharingBtn', 'guestsBtn', 'teamsBtn', 'inboundBtn', 'insightsBtn', 'organizeBtn', 'aiBtn', 'snapBtn']), 'werken'));
+    const account = group('Account & beveiliging', ['2faBtn', 'passkeyBtn', 'pwBtn', 'sessionsBtn', 'secBtn', 'apikeyBtn', 'jitBtn', 'clientsBtn']);
     // Weergave: stijlkiezer + taal + weergaveopties.
     const styleRow = el('div', { class: 'navrow' }, '<span class="ico">🎨</span><span class="lbl">Stijl</span>');
     const sel = el('select', { id: 'styleSelect', 'aria-label': 'Stijl kiezen' },
@@ -86,11 +101,22 @@
     styleRow.append(sel);
     const langRow = el('div', { class: 'navrow' }, '<span class="ico">🌐</span><span class="lbl">Taal</span>');
     const lb = $('langBtn'); if (lb) { lb.classList.remove('ghost'); langRow.append(lb); }
-    side.append(group('Weergave', ['viewBtn', 'lowbwBtn', 'hcBtn', 'kioskBtn'], [styleRow, langRow]));
+    const view = group('Weergave', ['viewBtn', 'lowbwBtn', 'hcBtn', 'kioskBtn'], [styleRow, langRow]);
     const quota = $('quota');
-    const bottom = group('', ['adminBtn', 'logoutBtn']);
+    const bottom = group('', ['adminBtn']);
     if (quota) bottom.prepend(quota);
     side.append(bottom);
+    // Accountmenu rechtsboven (onder de gebruikersnaam): account, beveiliging,
+    // weergave en uitloggen. Houdt de zijbalk kort.
+    const acct = el('div', { class: 'menu', id: 'accountMenu' });
+    const acctBtn = el('button', { class: 'ghost menu-toggle', 'aria-haspopup': 'true', 'aria-expanded': 'false', title: 'Account & weergave' });
+    acctBtn.append(el('span', { 'aria-hidden': 'true' }, '👤'));
+    if (who) acctBtn.append(who);
+    acctBtn.append(el('span', { 'aria-hidden': 'true' }, ' ▾'));
+    const acctPop = el('div', { class: 'menu-pop right', role: 'menu' }); acctPop.hidden = true;
+    acctPop.append(account, el('hr'), view, el('hr'), group('', ['logoutBtn']));
+    acct.append(acctBtn, acctPop);
+    (notif || pal).after(acct);
     const tb = $('themeBtn'); if (tb) tb.style.display = 'none';
     // Sluit de mobiele zijbalk na een keuze.
     side.addEventListener('click', (e) => { if (e.target.closest('button') && !e.target.closest('.navrow')) document.body.classList.remove('nav-open'); });
@@ -218,8 +244,8 @@
   function collect() {
     const out = [];
     const add = (label, grp, fn) => { if (label) out.push({ label, grp, fn }); };
-    document.querySelectorAll('#sidebar button').forEach((b) => { if (b.offsetParent !== null || b.closest('.nav-group')) { const l = b.querySelector('.lbl'); if (b.style.display !== 'none') add((l ? l.textContent : b.textContent).trim(), 'Menu', () => b.click()); } });
-    document.querySelectorAll('.toolbar > button, .menu-pop button').forEach((b) => { const l = b.querySelector('.lbl'); add((l ? l.textContent : b.textContent).trim(), 'Bestanden', () => b.click()); });
+    document.querySelectorAll('#sidebar button:not(.nav-toggle), #accountMenu .menu-pop button').forEach((b) => { if (b.offsetParent !== null || b.closest('.nav-group')) { const l = b.querySelector('.lbl'); if (b.style.display !== 'none') add((l ? l.textContent : b.textContent).trim(), 'Menu', () => b.click()); } });
+    document.querySelectorAll('.toolbar > button, .toolbar .menu-pop button').forEach((b) => { const l = b.querySelector('.lbl'); add((l ? l.textContent : b.textContent).trim(), 'Bestanden', () => b.click()); });
     for (const [v, n] of [['licht', 'Licht & rustig'], ['donker', 'Donker & modern'], ['zakelijk', 'Zakelijk'], ['systeem', 'Systeem']]) add('Stijl: ' + n, 'Weergave', () => { window.setStyle && window.setStyle(v); const s = $('styleSelect'); if (s) s.value = v; });
     document.querySelectorAll('#rows .name[data-dir]').forEach((nm) => add('Open map: ' + nm.textContent.replace('📂', '').trim(), 'Mappen', () => nm.click()));
     return out;
