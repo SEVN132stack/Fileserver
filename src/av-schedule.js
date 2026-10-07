@@ -39,16 +39,51 @@ function walk(dir, out, base) {
   }
 }
 
+// Laatste voltooide volledige scan, op schijf: een setInterval begint bij elke
+// herstart opnieuw te tellen, waardoor een wekelijkse scan bij regelmatige
+// deploys nooit zou draaien.
+function lastFullScan() {
+  try { return JSON.parse(fs.readFileSync(config.avScanStateFile, 'utf8')).lastRun || 0; } catch { return 0; }
+}
+function saveFullScan(t, result) {
+  const tmp = config.avScanStateFile + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify({ lastRun: t, scanned: result.scanned, infected: (result.infected || []).length }));
+  fs.renameSync(tmp, config.avScanStateFile);
+}
+
 // Scan de volledige opslag. Besmette bestanden gaan in quarantaine.
+let scanning = false;
 export async function scanAll() {
   if (!config.clamscan && !config.virustotal.apiKey) return { skipped: true };
+  if (scanning) return { busy: true };
+  scanning = true;
+  try {
+    const result = await scanAllFiles();
+    try { saveFullScan(Date.now(), result); } catch (e) { console.error('[av-scan] status opslaan mislukt:', e.message); }
+    return result;
+  } finally { scanning = false; }
+}
+
+async function scanAllFiles() {
   const files = [];
   walk(config.storageDir, files, config.storageDir);
-  let scanned = 0;
+  let scanned = 0; let unscannable = 0;
   const infected = [];
   for (const f of files) {
     let verdict;
-    try { verdict = await scanFile(f); } catch { continue; }
+    try { verdict = await scanFile(f); } catch { unscannable++; continue; }
+    // "Kon niet scannen" is geen besmetting. AV_FAIL_CLOSED geldt voor uploads;
+    // hier zou het bij een onbereikbare scanner de hele opslag in quarantaine
+    // zetten. Overslaan, en stoppen als de scanner duidelijk onbereikbaar is.
+    if (verdict.engine === 'scan-unavailable') {
+      unscannable++;
+      if (unscannable >= 20 && scanned === 0) {
+        alert('av-scan-down', 'Virusscan afgebroken', 'De volledige virusscan is gestopt: de scanner is onbereikbaar (eerste 20 bestanden konden niet gescand worden).');
+        audit('system', null, 'av_scan_aborted', { reason: 'scanner onbereikbaar' });
+        throw new Error('scanner onbereikbaar');
+      }
+      continue;
+    }
     scanned++;
     if (verdict.clean === false) {
       const rel = path.relative(config.storageDir, f);
@@ -68,8 +103,11 @@ export async function scanAll() {
   if (infected.length) {
     alert('av-scan-hits', 'Virusscan: besmette bestanden', `${infected.length} bestand(en) in quarantaine geplaatst: ${infected.slice(0, 10).join(', ')}`, { force: true });
   }
-  audit('system', null, 'av_scan', { scanned, infected: infected.length });
-  return { scanned, infected };
+  if (unscannable) {
+    alert('av-scan-unscannable', 'Virusscan: niet alle bestanden gescand', `${unscannable} bestand(en) konden niet gescand worden (bv. onleesbaar voor de scanner).`);
+  }
+  audit('system', null, 'av_scan', { scanned, infected: infected.length, unscannable });
+  return { scanned, infected, unscannable };
 }
 
 export function startAvScheduler() {
@@ -77,6 +115,14 @@ export function startAvScheduler() {
     setInterval(() => { runFreshclam().catch(() => {}); }, config.freshclamIntervalHours * 3600000).unref();
   }
   if (config.avScanIntervalHours > 0 && (config.clamscan || config.virustotal.apiKey)) {
-    setInterval(() => { scanAll().catch((e) => console.error('[av-scan]', e.message)); }, config.avScanIntervalHours * 3600000).unref();
+    // Elk uur kijken of de laatste volledige scan lang genoeg geleden is. De
+    // eerste controle pas na 10 minuten, zodat een herstart/deploy (en de
+    // kortlevende schaduw-instantie van update.sh) niet direct gaat scannen.
+    const check = () => {
+      if (Date.now() - lastFullScan() < config.avScanIntervalHours * 3600000) return;
+      scanAll().catch((e) => console.error('[av-scan]', e.message));
+    };
+    setTimeout(check, 10 * 60000).unref();
+    setInterval(check, 3600000).unref();
   }
 }

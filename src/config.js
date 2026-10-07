@@ -308,6 +308,8 @@ export const config = {
   // ClamAV-onderhoud: definitie-updates (freshclam) en geplande volledige scan.
   freshclamCmd: process.env.FRESHCLAM_CMD || '',
   avScanIntervalHours: parseInt(process.env.AV_SCAN_INTERVAL_HOURS || '0', 10), // 0 = uit
+  // Tijdstip van de laatste volledige virusscan (overleeft herstarts/deploys).
+  avScanStateFile: abs(process.env.AV_SCAN_STATE_FILE || 'av-scan-state.json'),
   freshclamIntervalHours: parseInt(process.env.FRESHCLAM_INTERVAL_HOURS || '0', 10), // 0 = uit
 
   // Back-up herstel-test: ontsleutel + valideer de ZIP-structuur na elke back-up.
