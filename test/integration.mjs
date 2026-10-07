@@ -21,6 +21,7 @@ process.env.METRICS_HISTORY_FILE = path.join(tmp, 'metrics-history.json');
 process.env.GROUPS_FILE = path.join(tmp, 'groups.json');
 process.env.KEYRING_FILE = path.join(tmp, 'keyring.json');
 process.env.PERMALINKS_FILE = path.join(tmp, 'permalinks.json');
+process.env.LINKS_FILE = path.join(tmp, 'links.json');
 process.env.COMMENTS_FILE = path.join(tmp, 'comments.json');
 process.env.INTEGRITY_FILE = path.join(tmp, 'integrity.json');
 process.env.SEARCH_INDEX_FILE = path.join(tmp, 'search-index.json');
@@ -557,6 +558,62 @@ try {
   const plExp = await mkPerma({ path: '/perma-nieuw.txt', expiresInHours: -1 });
   const expired = await fetch(H + '/f/' + plExp.uuid);
   ok('permalink met vervaldatum verloopt', expired.status === 404);
+
+  // 13am4. Security: /api/play en /api/thumb geven nooit willekeurige bestanden
+  // inline terug (een geüploade .html/.svg zou anders in de app-origin draaien).
+  await fetch(H + '/api/save?path=/evil.html', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: '<script>alert(1)</script>' });
+  await fetch(H + '/api/save?path=/evil.svg', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>' });
+  const playHtml = await fetch(H + '/api/play?path=/evil.html', { headers: jar() });
+  const thumbHtml = await fetch(H + '/api/thumb?path=/evil.html', { headers: jar() });
+  const thumbSvg = await fetch(H + '/api/thumb?path=/evil.svg', { headers: jar() });
+  ok('security: /api/play en /api/thumb serveren geen html/svg inline',
+    playHtml.status === 400 && thumbHtml.status === 404 && thumbSvg.status === 404 &&
+    !String(playHtml.headers.get('content-type')).includes('html') && !String(thumbSvg.headers.get('content-type')).includes('svg'));
+
+  // 13am5. Security: chunk-upload heeft een harde limiet per chunk (geheugen) en
+  // weigert ongeldige index/total.
+  const bigChunk = new FormData(); bigChunk.append('chunk', new Blob([Buffer.alloc(17 * 1024 * 1024)]), 'c');
+  const bigRes = await fetch(H + '/api/upload/chunk?uploadId=t1&index=0&total=1&name=x.bin&path=/', { method: 'POST', headers: jar(), body: bigChunk });
+  const badIdx = new FormData(); badIdx.append('chunk', new Blob(['x']), 'c');
+  const badRes = await fetch(H + '/api/upload/chunk?uploadId=t2&index=5&total=2&name=y.bin&path=/', { method: 'POST', headers: jar(), body: badIdx });
+  ok('security: chunk te groot (413) en ongeldige index (400) geweigerd', bigRes.status === 413 && badRes.status === 400);
+
+  // 13am6. Interne links (/o/<uuid>): stabiel, alleen voor de eigenaar, volgen
+  // hernoemen via de web-app én buiten de web-app om (SFTP/WebDAV-haak).
+  const mkLink = (p) => fetch(H + '/api/link', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: p }) }).then((r) => r.json());
+  const il1 = await mkLink('/perma-nieuw.txt'); const il2 = await mkLink('/perma-nieuw.txt');
+  const ilRes = await (await fetch(H + '/api/link/' + il1.uuid, { headers: jar() })).json();
+  const oRedirect = await fetch(H + '/o/' + il1.uuid, { redirect: 'manual' });
+  const { linksMoved } = await import('../src/link-hooks.js');
+  const { homeDir: hd } = await import('../src/users.js');
+  fs.renameSync(path.join(hd('admin'), 'perma-nieuw.txt'), path.join(hd('admin'), 'perma-sftp.txt'));
+  linksMoved('admin', hd('admin'), path.join(hd('admin'), 'perma-nieuw.txt'), path.join(hd('admin'), 'perma-sftp.txt'));
+  const ilMoved = await (await fetch(H + '/api/link/' + il1.uuid, { headers: jar() })).json();
+  const noAuth = await fetch(H + '/api/link/' + il1.uuid);
+  ok('interne link: stabiel, /o/ verwijst door, volgt hernoemen buiten de app, vereist login',
+    il1.uuid && il1.uuid === il2.uuid && ilRes.path === '/perma-nieuw.txt' && ilRes.isDir === false &&
+    oRedirect.status === 302 && oRedirect.headers.get('location') === '/?open=' + il1.uuid &&
+    ilMoved.path === '/perma-sftp.txt' && noAuth.status === 401);
+
+  // 13am7. WOPI (Collabora): token vereist, intrekbaar; opslaan bewaart een versie.
+  {
+    const w = await import('../src/wopi.js');
+    const abs = path.join(hd('admin'), 'perma-sftp.txt');
+    const id = w.fileId(abs);
+    const { token } = w.makeToken({ user: 'admin', path: '/perma-sftp.txt', write: true, id });
+    const info = await (await fetch(`${H}/wopi/files/${id}?access_token=${encodeURIComponent(token)}`)).json();
+    const bad = await fetch(`${H}/wopi/files/${id}?access_token=${encodeURIComponent(token.slice(0, -3) + 'abc')}`);
+    const put = await fetch(`${H}/wopi/files/${id}/contents?access_token=${encodeURIComponent(token)}`, { method: 'POST', headers: { 'X-WOPI-Override': 'PUT' }, body: 'via-office' });
+    const after = fs.readFileSync(abs, 'utf8');
+    const vers = await (await fetch(H + '/api/versions?path=/perma-sftp.txt', { headers: jar() })).json().catch(() => ({}));
+    await new Promise((r) => setTimeout(r, 5));
+    w.revokeUser('admin');
+    const revoked = await fetch(`${H}/wopi/files/${id}?access_token=${encodeURIComponent(token)}`);
+    ok('WOPI: CheckFileInfo/PutFile met token, vervalst en ingetrokken token geweigerd, versie bewaard',
+      info.BaseFileName === 'perma-sftp.txt' && info.UserCanWrite === true && bad.status === 401 &&
+      put.status === 200 && after === 'via-office' && revoked.status === 401 &&
+      Array.isArray(vers.versions) && vers.versions.length >= 1);
+  }
 
   // 13an. Admin beheert bestaande links (deellink + permalink): lijst, wijzig, intrek.
   cookie = ''; await login('admin', 'testpass123');

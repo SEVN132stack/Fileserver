@@ -56,6 +56,11 @@ export async function videoPoster(srcPath) {
 export const needsRemux = (name) => /\.(mkv|avi)$/i.test(name);
 let playQueue = Promise.resolve();
 const pending = new Map();
+// Mislukte omzettingen onthouden (per cachesleutel, dus per versie van het
+// bestand), zodat een kapot bestand niet bij elke poging opnieuw tot een uur
+// CPU kost. Na een dag mag het opnieuw.
+const failed = new Map();
+const FAIL_TTL = 24 * 3600000;
 function ff(args, timeout) {
   return new Promise((resolve, reject) => {
     const [cmd, ...base] = config.ffmpegCmd.split(' ');
@@ -67,13 +72,20 @@ export async function playableMp4(srcPath) {
   const out = cachePath(srcPath, '.play.mp4');
   if (fs.existsSync(out)) { const now = new Date(); try { fs.utimesSync(out, now, now); } catch { /* ok */ } return out; }
   if (pending.has(out)) return pending.get(out);
+  if (Date.now() - (failed.get(out) || 0) < FAIL_TTL) throw new Error('omzetten eerder mislukt; probeer het later opnieuw');
   const job = playQueue.then(async () => {
     fs.mkdirSync(config.thumbDir, { recursive: true });
     const tmp = out + '.tmp.mp4';
     try {
-      await ff(['-y', '-i', srcPath, '-map', '0:v:0', '-map', '0:a:0?', '-c', 'copy', '-movflags', '+faststart', tmp], 15 * 60000);
-    } catch {
-      await ff(['-y', '-i', srcPath, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-movflags', '+faststart', tmp], 60 * 60000);
+      try {
+        await ff(['-y', '-i', srcPath, '-map', '0:v:0', '-map', '0:a:0?', '-c', 'copy', '-movflags', '+faststart', tmp], 15 * 60000);
+      } catch {
+        await ff(['-y', '-i', srcPath, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-movflags', '+faststart', tmp], 60 * 60000);
+      }
+    } catch (err) {
+      fs.rmSync(tmp, { force: true }); // geen half bestand in de cache laten staan
+      failed.set(out, Date.now());
+      throw err;
     }
     fs.renameSync(tmp, out);
     pruneCache('.play.mp4', config.playCacheBytes);
@@ -87,6 +99,11 @@ export async function playableMp4(srcPath) {
 // Houd de afspeelcache onder een maximum: oudst-gebruikte bestanden eerst weg.
 function pruneCache(suffix, maxBytes) {
   try {
+    // Restanten van afgebroken omzettingen (bv. herstart tijdens het omzetten).
+    for (const f of fs.readdirSync(config.thumbDir).filter((n) => n.endsWith('.tmp.mp4'))) {
+      const p = path.join(config.thumbDir, f);
+      if (!pending.has(p.slice(0, -'.tmp.mp4'.length)) && Date.now() - fs.statSync(p).mtimeMs > 2 * 3600000) fs.rmSync(p, { force: true });
+    }
     const files = fs.readdirSync(config.thumbDir).filter((f) => f.endsWith(suffix))
       .map((f) => { const p = path.join(config.thumbDir, f); const st = fs.statSync(p); return { p, size: st.size, t: st.mtimeMs }; })
       .sort((a, b) => b.t - a.t);

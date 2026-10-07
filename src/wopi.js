@@ -4,8 +4,9 @@ import { config } from './config.js';
 // Koppeling met Collabora Online via WOPI. De fileserver is de WOPI-host:
 // Collabora haalt het bestand op en slaat het op via /wopi/files/<id>, met een
 // ondertekend, kortlevend token (geen sessie-cookie; Collabora praat server-
-// naar-server). Het file-id is een hash van het absolute pad, zodat twee
-// gebruikers die hetzelfde (gedeelde) bestand openen samen bewerken.
+// naar-server). Het file-id is een hash van het absolute pad: hetzelfde bestand
+// in meerdere tabbladen/apparaten komt in dezelfde Collabora-sessie. (De knop
+// staat alleen bij eigen bestanden; "Gedeeld met mij" ondersteunt Office nog niet.)
 
 export const OFFICE = /\.(docx?|odt|rtf|xlsx?|ods|csv|pptx?|odp)$/i;
 export const enabled = () => !!config.collaboraUrl;
@@ -15,10 +16,17 @@ export const fileId = (absPath) => createHash('sha256').update(absPath).digest('
 
 const sign = (data) => createHmac('sha256', config.sessionSecret).update('wopi\0' + data).digest('base64url');
 
-// Token: base64url(JSON{u,p,w,id,exp}).handtekening
+// Intrekken: tokens die vóór dit moment zijn uitgegeven gelden niet meer (bij
+// uitloggen overal, wachtwoordwijziging, sessies intrekken). In het geheugen,
+// net als de sessies zelf.
+const revokedAt = new Map();
+export function revokeUser(user) { revokedAt.set(user, Date.now()); }
+
+// Token: base64url(JSON{u,p,w,id,iat,exp}).handtekening
 export function makeToken({ user, path, write, id }) {
-  const exp = Date.now() + config.wopiTokenHours * 3600000;
-  const data = Buffer.from(JSON.stringify({ u: user, p: path, w: !!write, id, exp })).toString('base64url');
+  const iat = Date.now();
+  const exp = iat + config.wopiTokenHours * 3600000;
+  const data = Buffer.from(JSON.stringify({ u: user, p: path, w: !!write, id, iat, exp })).toString('base64url');
   return { token: `${data}.${sign(data)}`, ttl: exp };
 }
 
@@ -29,6 +37,7 @@ export function verifyToken(token, id) {
   if (want.length !== got.length || !timingSafeEqual(want, got)) return null;
   let t; try { t = JSON.parse(Buffer.from(data, 'base64url').toString('utf8')); } catch { return null; }
   if (!t || t.exp < Date.now() || t.id !== id) return null;
+  if (revokedAt.has(t.u) && !(t.iat > revokedAt.get(t.u))) return null;
   return { user: t.u, path: t.p, write: !!t.w };
 }
 
