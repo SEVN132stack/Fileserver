@@ -22,6 +22,7 @@ process.env.GROUPS_FILE = path.join(tmp, 'groups.json');
 process.env.KEYRING_FILE = path.join(tmp, 'keyring.json');
 process.env.PERMALINKS_FILE = path.join(tmp, 'permalinks.json');
 process.env.LINKS_FILE = path.join(tmp, 'links.json');
+process.env.AV_SCAN_STATE_FILE = path.join(tmp, 'av-scan-state.json');
 process.env.COMMENTS_FILE = path.join(tmp, 'comments.json');
 process.env.INTEGRITY_FILE = path.join(tmp, 'integrity.json');
 process.env.SEARCH_INDEX_FILE = path.join(tmp, 'search-index.json');
@@ -2397,6 +2398,25 @@ try {
     ok('HTTPS: self-signed certificaat wordt aangemaakt als het ontbreekt',
       !err && res && String(res.cert).includes('BEGIN CERTIFICATE') && fs.existsSync(path.join(d, 'k', 'key.pem')) &&
       String(again.cert).includes('BEGIN CERTIFICATE') && (fs.statSync(path.join(d, 'k', 'key.pem')).mode & 0o777) === 0o600);
+  }
+
+  // 164. Volledige virusscan: bewaart het tijdstip (overleeft herstarts) en zet
+  // bij een onbereikbare scanner NIETS in quarantaine, ook niet bij fail-closed.
+  {
+    const av = await import('../src/av-schedule.js');
+    const { homeDir: hd2 } = await import('../src/users.js');
+    const probe = path.join(hd2('admin'), 'av-probe.txt');
+    fs.writeFileSync(probe, 'gewoon bestand');
+    const ok1 = await av.scanAll();
+    const state = JSON.parse(fs.readFileSync(process.env.AV_SCAN_STATE_FILE, 'utf8'));
+    const orig = { clamscan: config.clamscan, failClosed: config.antivirus.failClosed };
+    config.clamscan = '/bestaat/niet/clamdscan'; config.antivirus.failClosed = true;
+    let res2 = null; let err2 = null;
+    try { res2 = await av.scanAll(); } catch (e) { err2 = e; }
+    config.clamscan = orig.clamscan; config.antivirus.failClosed = orig.failClosed;
+    ok('virusscan: tijdstip bewaard; onbereikbare scanner zet niets in quarantaine (ook fail-closed)',
+      ok1.scanned > 0 && state.lastRun > 0 && fs.existsSync(probe) &&
+      (err2 ? /onbereikbaar/.test(err2.message) : (res2.infected.length === 0 && res2.unscannable > 0)));
   }
 
   console.log(`\n${passed} tests geslaagd.`);

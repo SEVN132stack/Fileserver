@@ -67,6 +67,13 @@ try {
   if (!hasFolder) throw new Error('map niet aangemaakt');
   console.log('  ✓ map aanmaken via de UI werkt');
 
+  // Map openen en via "Bestanden" in de zijbalk terug naar de hoofdmap.
+  await page.locator('#rows .name[data-dir]', { hasText: 'e2e-map' }).first().click();
+  await page.waitForFunction(() => !document.querySelector('#rows .name[data-dir]') || ![...document.querySelectorAll('#rows .name[data-dir]')].some((n) => n.textContent.includes('e2e-map')));
+  await page.click('#sidebar [data-tab="files"]');
+  await page.locator('#rows .name[data-dir]', { hasText: 'e2e-map' }).first().waitFor({ timeout: 5000 });
+  console.log('  ✓ "Bestanden" in de zijbalk gaat terug naar de hoofdmap');
+
   // Nieuwe indeling: ⋯-menu per rij, commandopalet en stijlkeuze.
   await page.locator('#rows .rowmore').first().click();
   if (!(await page.locator('.rowmenu.open button').count())) throw new Error('rij-menu opent niet');

@@ -816,7 +816,12 @@ async function setup2fa() {
 document.addEventListener('click', async (e) => {
   const t2 = e.target;
   const dir = t2.closest('[data-dir]'), open = t2.closest('[data-open]');
-  if (t2.dataset.tab) return showTab(t2.dataset.tab);
+  // "Bestanden" in de zijbalk gaat altijd terug naar de hoofdmap.
+  const tabBtn = t2.closest('[data-tab]');
+  if (tabBtn) {
+    if (tabBtn.dataset.tab === 'files') { cwd = '/'; selected.clear(); document.getElementById('search').value = ''; }
+    return showTab(tabBtn.dataset.tab);
+  }
   if (dir) { cwd = decodeURIComponent(dir.dataset.dir); selected.clear(); document.getElementById('search').value=''; return load(); }
   if (t2.dataset.go) { cwd = decodeURIComponent(t2.dataset.go); selected.clear(); document.getElementById('search').value=''; return load(); }
   if (open) return openFile(decodeURIComponent(open.dataset.open));
