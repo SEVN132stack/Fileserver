@@ -56,7 +56,10 @@
     const badge = el('span', { class: 'nav-badge' }); badge.hidden = true; btn.append(badge);
     const sync = () => {
       const n = [...g.querySelectorAll('[id$="Count"]')].filter((c) => c.style.display !== 'none').reduce((a, c) => a + (parseInt(c.textContent, 10) || 0), 0);
-      badge.textContent = n; badge.hidden = !n;
+      // Alleen bij verandering schrijven: de badge zit zelf in de bewaakte groep,
+      // dus elke schrijfactie zou de observer opnieuw laten afgaan (oneindige lus).
+      if (badge.textContent !== String(n)) badge.textContent = n;
+      if (badge.hidden !== !n) badge.hidden = !n;
     };
     new MutationObserver(sync).observe(g, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style'] });
     sync();
