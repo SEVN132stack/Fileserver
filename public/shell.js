@@ -51,6 +51,15 @@
     const btn = el('button', { type: 'button', class: 'nav-title nav-toggle', 'aria-expanded': String(!closed) });
     btn.textContent = t.textContent; t.replaceWith(btn);
     g.classList.toggle('collapsed', closed);
+    // Tellers (bv. lopende achtergrondtaken) blijven zichtbaar op de titel als
+    // de groep is ingeklapt.
+    const badge = el('span', { class: 'nav-badge' }); badge.hidden = true; btn.append(badge);
+    const sync = () => {
+      const n = [...g.querySelectorAll('[id$="Count"]')].filter((c) => c.style.display !== 'none').reduce((a, c) => a + (parseInt(c.textContent, 10) || 0), 0);
+      badge.textContent = n; badge.hidden = !n;
+    };
+    new MutationObserver(sync).observe(g, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style'] });
+    sync();
     btn.onclick = (e) => {
       e.stopPropagation();
       const c = g.classList.toggle('collapsed'); btn.setAttribute('aria-expanded', String(!c));

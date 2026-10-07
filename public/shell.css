@@ -59,6 +59,9 @@ body.shell:has(> #globalBanner) > #sidebar, body.shell:has(> #globalBanner) > ma
 #sidebar button.nav-toggle::after { content: "▾"; margin-left: auto; transition: transform .15s; }
 #sidebar .nav-group.collapsed > button.nav-toggle::after { transform: rotate(-90deg); }
 #sidebar .nav-group.collapsed > :not(.nav-toggle) { display: none; }
+#sidebar .nav-badge { background: var(--accent); color: var(--accent-contrast); border-radius: 999px; padding: 0 .45rem; font-size: .7rem; text-transform: none; letter-spacing: 0; margin-left: auto; }
+#sidebar button.nav-toggle:has(.nav-badge:not([hidden]))::after { margin-left: .4rem; }
+#sidebar .nav-group:not(.collapsed) .nav-badge { display: none; }
 /* Accountmenu rechtsboven. */
 #accountMenu > .menu-toggle { display: inline-flex; align-items: center; gap: .4rem; white-space: nowrap; }
 #accountMenu .menu-pop { min-width: 280px; max-height: calc(100vh - 80px); overflow-y: auto; }

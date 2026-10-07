@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { config } from './config.js';
+import { revokeUser as revokeWopi } from './wopi.js';
 
 // Sessie-opslag met metadata, zodat een gebruiker actieve sessies kan bekijken
 // en op afstand kan intrekken.
@@ -45,6 +46,7 @@ export function stopImpersonation(token) {
 
 // Trek alle sessies van een gebruiker in ("overal uitloggen").
 export function revokeAllForUser(username) {
+  revokeWopi(username); // ook openstaande Office-bewerktokens
   let n = 0;
   for (const [token, s] of sessions) {
     if (s.username === username) { sessions.delete(token); n++; }

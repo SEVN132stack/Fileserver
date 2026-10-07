@@ -14,6 +14,7 @@ import { retainedUntil } from './retention.js';
 import { lockOwner } from './locks.js';
 import { isE2ERequired } from './e2e-folders.js';
 import { inspectUpload } from './inspect.js';
+import { linksMoved, linksRemoved } from './link-hooks.js';
 
 const { Server, utils } = ssh2;
 const { STATUS_CODE: SFTP_STATUS_CODE, OPEN_MODE: SFTP_OPEN_MODE } = utils.sftp;
@@ -247,7 +248,7 @@ export function startSftpServer() {
           };
           sftp.on('REMOVE', (reqid, p) => {
             if (denyIfReadonly(reqid) || denyIfProtected(reqid, p)) return;
-            try { fs.unlinkSync(resolve(p)); recordMutation(username, 'delete'); checkHoneypot(username, p, 'delete'); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
+            try { fs.unlinkSync(resolve(p)); linksRemoved(username, home, resolve(p)); recordMutation(username, 'delete'); checkHoneypot(username, p, 'delete'); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('MKDIR', (reqid, p) => {
@@ -257,13 +258,13 @@ export function startSftpServer() {
           });
           sftp.on('RMDIR', (reqid, p) => {
             if (denyIfReadonly(reqid) || denyIfProtected(reqid, p)) return;
-            try { fs.rmSync(resolve(p), { recursive: true, force: true }); recordMutation(username, 'delete'); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
+            try { fs.rmSync(resolve(p), { recursive: true, force: true }); linksRemoved(username, home, resolve(p)); recordMutation(username, 'delete'); audit('sftp', username, 'delete', { path: p }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('RENAME', (reqid, oldPath, newPath) => {
             if (denyIfReadonly(reqid) || denyIfProtected(reqid, oldPath, newPath)) return;
             try { if (blocked(toClientPath(resolve(newPath)), true)) return sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED); } catch { return sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
-            try { fs.renameSync(resolve(oldPath), resolve(newPath)); recordMutation(username, 'rename'); checkHoneypot(username, oldPath, 'rename'); audit('sftp', username, 'rename', { from: oldPath, to: newPath }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
+            try { fs.renameSync(resolve(oldPath), resolve(newPath)); linksMoved(username, home, resolve(oldPath), resolve(newPath)); recordMutation(username, 'rename'); checkHoneypot(username, oldPath, 'rename'); audit('sftp', username, 'rename', { from: oldPath, to: newPath }); sftp.status(reqid, SFTP_STATUS_CODE.OK); }
             catch { sftp.status(reqid, SFTP_STATUS_CODE.FAILURE); }
           });
           sftp.on('REALPATH', (reqid, p) => {

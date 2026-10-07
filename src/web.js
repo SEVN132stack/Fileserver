@@ -169,6 +169,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clientIp = (req) => req.ip || req.socket.remoteAddress || 'onbekend';
 // Landcode uit de proxy-header (bijv. CF-IPCountry), voor de toegang-heatmap.
 const countryOf = (req) => (req.headers[config.geoHeader] || '').toString().toUpperCase().slice(0, 2) || undefined;
+// Verplaats een bestand; over bestandssystemen heen (EXDEV) via kopiëren.
+function moveFileSync(from, to) {
+  try { fs.renameSync(from, to); } catch (err) {
+    if (err.code !== 'EXDEV') throw err;
+    fs.copyFileSync(from, to); fs.rmSync(from, { force: true });
+  }
+}
 const sanitizeId = (id) => String(id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || 'x';
 
 // Notificeer een deel-gebeurtenis via webhook én (indien mogelijk) e-mail naar
@@ -748,7 +755,8 @@ export function createWebServer() {
   // en bewijst toegang met het ondertekende access_token uit /api/office/edit.
   const wopiAuth = (req, res, next) => {
     const t = wopi.verifyToken(req.query.access_token, req.params.id);
-    if (!t) return res.status(401).end();
+    // Zelfde eisen als bij inloggen: gebruiker bestaat nog en is niet verlopen.
+    if (!t || !userExists(t.user) || isExpired(t.user)) return res.status(401).end();
     try { req.wopi = { ...t, home: homeDir(t.user), abs: resolveWithin(homeDir(t.user), t.path) }; } catch { return res.status(404).end(); }
     if (!fs.existsSync(req.wopi.abs)) return res.status(404).end();
     next();
@@ -769,19 +777,38 @@ export function createWebServer() {
     audit('web', req.wopi.user, 'office_open', { path: req.wopi.path });
     res.sendFile(req.wopi.abs);
   });
-  app.post('/wopi/files/:id/contents', wopiAuth, express.raw({ type: '*/*', limit: '500mb' }), async (req, res) => {
+  // Laatste versie-snapshot per bestand: automatische opslagen van Collabora
+  // (elke paar minuten) maken hooguit eens per half uur een versie, zodat ze de
+  // zinvolle oudere versies niet uit de versiegeschiedenis duwen.
+  const officeSnapAt = new Map();
+  app.post('/wopi/files/:id/contents', wopiAuth, async (req, res) => {
     const { user, path: rel, abs, write, home } = req.wopi;
     if (!write || isReadonly(user)) return res.status(401).end();
     const holder = locks.lockOwner(home, rel);
     if (holder || retention.retainedUntil(home, rel)) return res.status(409).json({ LockFailureReason: holder ? `Vergrendeld door ${holder}` : 'Bewaarplicht' });
+    const q = quota(user);
+    if (q > 0) {
+      const incoming = parseInt(req.headers['content-length'] || '0', 10);
+      if (dirSize(home) - fs.statSync(abs).size + incoming > q) return res.status(413).json({ error: 'Quota overschreden' });
+    }
+    // Naar een tijdelijk bestand streamen (niet het hele document in het geheugen).
+    const tmp = abs + '.wopi-' + Date.now();
     try {
-      snapshot(home, abs); // vorige versie bewaren (🕘)
-      await fsp.writeFile(abs, req.body);
+      await pipeline(req, fs.createWriteStream(tmp));
+      const autosave = req.headers['x-cool-wopi-isautosave'] === 'true';
+      if (!autosave || Date.now() - (officeSnapAt.get(abs) || 0) > 30 * 60000) {
+        snapshot(home, abs); // vorige versie bewaren (🕘)
+        officeSnapAt.set(abs, Date.now());
+      }
+      await fsp.rename(tmp, abs);
       recordMutation(user, 'edit'); checkHoneypot(user, rel, 'edit');
       audit('web', user, 'office_save', { path: rel });
       emitToUser(user, 'change', { action: 'edit' });
       res.json({ LastModifiedTime: fs.statSync(abs).mtime.toISOString() });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+      await fsp.rm(tmp, { force: true });
+      res.status(500).json({ error: err.message });
+    }
   });
   // Overige WOPI-operaties (LOCK e.d.) ondersteunen we niet; netjes afwijzen.
   app.post('/wopi/files/:id', wopiAuth, (req, res) => res.status(501).end());
@@ -1319,11 +1346,16 @@ export function createWebServer() {
 
   // Video afspelen: mkv/avi omgezet naar MP4 (gecachet), andere formaten direct.
   // sendFile ondersteunt Range-verzoeken, dus spoelen werkt.
+  const PLAYABLE = /\.(mp4|webm|ogv|mov|m4v|mkv|avi)$/i;
   app.get('/api/play', async (req, res) => {
     try {
       const file = resolveWithin(req.home, req.query.path || '');
+      // Alleen video: anders zou bv. een geüploade .html/.svg hier als pagina
+      // binnen de app-origin draaien (XSS).
+      if (!PLAYABLE.test(file)) return res.status(400).json({ error: 'Geen video' });
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return res.status(404).json({ error: 'Niet gevonden' });
       res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; media-src 'self'");
       if (!needsRemux(file) || !hasFfmpeg()) return res.sendFile(file);
       const out = await playableMp4(file);
       if (!out) return res.status(501).json({ error: 'ffmpeg niet geconfigureerd' });
@@ -1340,7 +1372,16 @@ export function createWebServer() {
       if (!fs.existsSync(file)) return res.status(404).end();
       const width = Math.min(512, parseInt(req.query.w || '200', 10) || 200);
       const thumb = await getThumbnail(file, width);
-      if (!thumb) { res.setHeader('Content-Disposition', 'inline'); return res.sendFile(file); }
+      // Geen thumbnail (geen sharp, of omzetten mislukt): alleen voor rasterafbeeldingen
+      // het origineel tonen, in een sandbox. Nooit willekeurige bestanden inline
+      // teruggeven: een .html/.svg zou dan als pagina in de app-origin draaien (XSS).
+      if (!thumb) {
+        if (!/\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(file)) return res.status(404).end();
+        res.setHeader('Content-Disposition', 'inline');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src 'self'");
+        return res.sendFile(file);
+      }
       res.setHeader('Cache-Control', 'private, max-age=86400');
       res.type('webp').sendFile(thumb);
     } catch (err) {
@@ -1649,7 +1690,9 @@ export function createWebServer() {
       res.json({ ok: true });
     } catch (err) { res.status(400).json({ error: err.message }); }
   });
-  const teamUpload = multer({ storage: multer.memoryStorage(), limits: mlimits });
+  // Teamuploads gaan via een tijdelijk bestand op schijf (niet in het geheugen:
+  // een bestand van gigabytes zou het proces anders laten crashen).
+  const teamUpload = multer({ dest: path.join(config.chunkDir, 'team-tmp'), limits: mlimits });
   app.post('/api/teams/:id/upload', teamGuard('write'), teamUpload.single('file'), async (req, res) => {
     let tmp;
     try {
@@ -1657,7 +1700,7 @@ export function createWebServer() {
       // Grootte-cap per teamruimte (schijf-uitputting voorkomen).
       if (config.teamSpaceMaxBytes > 0) {
         const used = dirSize(teams.teamDir(req.params.id));
-        if (used + req.file.buffer.length > config.teamSpaceMaxBytes) return res.status(413).json({ error: 'Teamruimte is vol' });
+        if (used + req.file.size > config.teamSpaceMaxBytes) return res.status(413).json({ error: 'Teamruimte is vol' });
       }
       const dest = teams.resolveTeamPath(req.params.id, path.posix.join(req.query.path || '/', req.file.originalname));
       fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -1665,7 +1708,7 @@ export function createWebServer() {
       // net als de gewone upload- en drop-link-paden (team-bestanden worden door
       // andere leden gedownload, dus mogen niet ongescand binnenkomen).
       tmp = dest + '.scan-' + Date.now();
-      fs.writeFileSync(tmp, req.file.buffer);
+      moveFileSync(req.file.path, tmp);
       const scan = await scanFile(tmp);
       if (!scan.clean) {
         fs.rmSync(tmp, { force: true }); tmp = undefined;
@@ -1679,6 +1722,8 @@ export function createWebServer() {
     } catch (err) {
       if (tmp) { try { fs.rmSync(tmp, { force: true }); } catch { /* al weg */ } }
       res.status(400).json({ error: err.message });
+    } finally {
+      if (req.file) { try { fs.rmSync(req.file.path, { force: true }); } catch { /* al verplaatst */ } }
     }
   });
 
@@ -1853,7 +1898,11 @@ export function createWebServer() {
   });
 
   // Hervatbare (chunked) upload voor grote bestanden.
-  const chunkUpload = multer({ storage: multer.memoryStorage(), limits: mlimits });
+  // Eén chunk staat in het geheugen; daarom een harde limiet per chunk (de app
+  // stuurt 4 MB), los van MAX_UPLOAD_BYTES. Zonder limiet kan één verzoek met
+  // een "chunk" van gigabytes het proces door de OOM-killer laten stoppen.
+  const CHUNK_MAX = 16 * 1024 * 1024;
+  const chunkUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: CHUNK_MAX, files: 1 } });
   app.get('/api/upload/status', (req, res) => {
     const dir = path.join(config.chunkDir, sanitizeId(req.query.uploadId));
     if (!fs.existsSync(dir)) return res.json({ received: [] });
@@ -1864,6 +1913,7 @@ export function createWebServer() {
       const id = sanitizeId(req.query.uploadId);
       const index = parseInt(req.query.index, 10);
       const total = parseInt(req.query.total, 10);
+      if (!req.file || !(total >= 1 && total <= 1e6) || !(index >= 0 && index < total)) return res.status(400).json({ error: 'Ongeldige chunk' });
       const dir = path.join(config.chunkDir, id);
       await fsp.mkdir(dir, { recursive: true });
       await fsp.writeFile(path.join(dir, String(index)), req.file.buffer);
@@ -1906,6 +1956,11 @@ export function createWebServer() {
       const rUntil = retention.retainedUntil(req.home, req.query.path || '');
       if (rUntil) return res.status(423).json({ error: `Bewaarplicht t/m ${new Date(rUntil).toLocaleDateString()} — niet wijzigbaar` });
       const file = resolveWithin(req.home, req.query.path || '');
+      const q = quota(req.user);
+      if (q > 0) {
+        const old = fs.existsSync(file) ? fs.statSync(file).size : 0;
+        if (dirSize(req.home) - old + Buffer.byteLength(req.body ?? '') > q) return res.status(413).json({ error: 'Quota overschreden' });
+      }
       await fsp.mkdir(path.dirname(file), { recursive: true });
       snapshot(req.home, file);
       await fsp.writeFile(file, req.body ?? '');

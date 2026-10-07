@@ -12,7 +12,11 @@ function read() {
   try { return JSON.parse(fs.readFileSync(config.linksFile, 'utf8')); } catch { return {}; }
 }
 function write(d) {
-  fs.writeFileSync(config.linksFile, JSON.stringify(d, null, 2), { mode: 0o600 });
+  // Eerst naar een tijdelijk bestand en dan hernoemen: een crash tijdens het
+  // schrijven laat anders een half JSON-bestand achter, waarna alle links weg zijn.
+  const tmp = config.linksFile + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(d, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, config.linksFile);
 }
 
 export function getOrCreate(user, path) {

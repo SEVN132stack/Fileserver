@@ -14,7 +14,11 @@ function read() {
   }
 }
 function write(d) {
-  fs.writeFileSync(config.permalinksFile, JSON.stringify(d, null, 2), { mode: 0o600 });
+  // Eerst naar een tijdelijk bestand en dan hernoemen: een crash tijdens het
+  // schrijven laat anders een half JSON-bestand achter, waarna alle links weg zijn.
+  const tmp = config.permalinksFile + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(d, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, config.permalinksFile);
 }
 
 function hash(pw) {

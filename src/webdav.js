@@ -11,6 +11,7 @@ import { audit } from './audit.js';
 import { retainedUntil } from './retention.js';
 import { lockOwner } from './locks.js';
 import { isE2ERequired } from './e2e-folders.js';
+import { linksMoved, linksRemoved } from './link-hooks.js';
 
 // In-memory WebDAV-locks: token -> { home, path, user, expires }. Nodig omdat
 // Windows Verkenner en macOS Finder een LOCK sturen vóór een PUT; zonder LOCK-
@@ -182,6 +183,7 @@ export async function handleWebdav(req, res) {
       const blocked = blockMutation();
       if (blocked) return res.status(423).end(blocked);
       await fsp.rm(abs, { recursive: true, force: true });
+      linksRemoved(req.user, req.home, abs);
       return res.status(204).end();
     }
 
@@ -198,6 +200,7 @@ export async function handleWebdav(req, res) {
       const destAbs = resolveWithin(req.home, destPath);
       await fsp.mkdir(path.dirname(destAbs), { recursive: true });
       await fsp.rename(abs, destAbs);
+      linksMoved(req.user, req.home, abs, destAbs);
       return res.status(201).end();
     }
 
