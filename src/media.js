@@ -25,13 +25,69 @@ function cachePath(srcPath, suffix) {
 // Eén ffmpeg-proces tegelijk: een map vol video's vraagt anders tientallen
 // posterframes tegelijk op, wat op een kleine server het geheugen opblaast.
 let queue = Promise.resolve();
-function run(args) {
+function run(args, timeout = 60000) {
   const job = queue.then(() => new Promise((resolve, reject) => {
     const [cmd, ...base] = config.ffmpegCmd.split(' ');
-    execFile(cmd, [...base, '-hide_banner', '-loglevel', 'error', '-threads', '1', ...args], { timeout: 60000 }, (err) => (err ? reject(err) : resolve()));
+    execFile(cmd, [...base, '-hide_banner', '-loglevel', 'error', '-threads', '1', ...args], { timeout }, (err) => (err ? reject(err) : resolve()));
   }));
   queue = job.catch(() => {});
   return job;
+}
+
+// Bestandsinfo uit de uitvoer van `ffmpeg -i`: duur, beeldformaat en
+// ondertitelsporen (index = volgorde onder de ondertitelsporen, voor -map 0:s:N).
+export function probe(srcPath) {
+  return new Promise((resolve) => {
+    if (!config.ffmpegCmd) return resolve({ duration: 0, width: 0, height: 0, subs: [] });
+    const [cmd, ...base] = config.ffmpegCmd.split(' ');
+    execFile(cmd, [...base, '-hide_banner', '-i', srcPath], { timeout: 30000 }, (_err, _stdout, stderr) => {
+      const out = String(stderr || '');
+      const d = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(out);
+      const duration = d ? (+d[1]) * 3600 + (+d[2]) * 60 + parseFloat(d[3]) : 0;
+      const v = /Stream #\d+:\d+[^\n]*?: Video: [^\n]*?, (\d{2,5})x(\d{2,5})/.exec(out);
+      const subs = [];
+      for (const m of out.matchAll(/Stream #\d+:\d+(?:\[[^\]]*\])?(?:\((\w+)\))?: Subtitle: (\w+)/g)) {
+        subs.push({ index: subs.length, lang: m[1] && m[1] !== 'und' ? m[1] : '', codec: m[2] });
+      }
+      resolve({ duration, width: v ? +v[1] : 0, height: v ? +v[2] : 0, subs });
+    });
+  });
+}
+
+// Tekst-ondertitels die naar WebVTT kunnen (beeld-ondertitels zoals PGS niet).
+export const TEXT_SUBS = new Set(['subrip', 'srt', 'ass', 'ssa', 'webvtt', 'mov_text', 'text']);
+
+// Ingebed ondertitelspoor N als WebVTT (gecachet).
+export async function embeddedSubtitle(srcPath, n) {
+  if (!config.ffmpegCmd) return null;
+  const out = cachePath(srcPath, `.sub${n}.vtt`);
+  if (fs.existsSync(out)) return out;
+  fs.mkdirSync(config.thumbDir, { recursive: true });
+  await run(['-y', '-i', srcPath, '-map', `0:s:${n}`, '-f', 'webvtt', out], 120000);
+  return fs.existsSync(out) ? out : null;
+}
+
+// Tijdlijn-voorbeeldbeelden: één sprite (10 kolommen, max. 100 beelden van 160 px
+// breed) + metadata. Alleen keyframes decoderen houdt het snel, ook op 2 cores.
+export async function storyboard(srcPath) {
+  if (!config.ffmpegCmd) return null;
+  const img = cachePath(srcPath, '.story.jpg'); const metaFile = cachePath(srcPath, '.story.json');
+  if (fs.existsSync(img) && fs.existsSync(metaFile)) {
+    try { return { img, meta: JSON.parse(fs.readFileSync(metaFile, 'utf8')) }; } catch { /* opnieuw maken */ }
+  }
+  const info = await probe(srcPath);
+  if (!info.duration || !info.width) return null;
+  const count = Math.min(100, Math.max(1, Math.floor(info.duration / 5)));
+  const interval = info.duration / count;
+  const cols = 10; const rows = Math.ceil(count / cols);
+  const w = 160; const h = Math.round((w * info.height) / info.width / 2) * 2;
+  fs.mkdirSync(config.thumbDir, { recursive: true });
+  await run(['-y', '-skip_frame', 'nokey', '-i', srcPath, '-an', '-sn',
+    '-vf', `fps=1/${interval.toFixed(3)},scale=${w}:${h},tile=${cols}x${rows}`, '-frames:v', '1', '-q:v', '5', img], 300000);
+  if (!fs.existsSync(img)) return null;
+  const meta = { count, interval, cols, rows, w, h, duration: info.duration };
+  fs.writeFileSync(metaFile, JSON.stringify(meta));
+  return { img, meta };
 }
 
 // Genereer (of hergebruik) een posterframe (JPEG) op ~1s in de video. 0:V:0 is
