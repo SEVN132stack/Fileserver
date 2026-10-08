@@ -131,7 +131,7 @@ import * as locks from './locks.js';
 import * as scheduledExport from './scheduled-export.js';
 import { organize as organizePhotos } from './photo-organize.js';
 import { officePreview, canPreviewOffice } from './office.js';
-import { videoPoster, audioWaveform, canPoster, canWaveform, hasFfmpeg, needsRemux, playableMp4 } from './media.js';
+import { videoPoster, audioWaveform, canPoster, canWaveform, hasFfmpeg, needsRemux, playableMp4, probe, TEXT_SUBS, embeddedSubtitle, storyboard } from './media.js';
 import { runAcme } from './acme.js';
 import * as configDrift from './config-drift.js';
 import { revokeAllForUser, startImpersonation, stopImpersonation } from './sessions.js';
@@ -1374,6 +1374,70 @@ export function createWebServer() {
     } catch (err) {
       res.status(500).json({ error: 'Omzetten mislukt: ' + err.message });
     }
+  });
+
+  // --- Video-extra's: ondertitels en tijdlijn-voorbeeldbeelden ---
+  // Ondertitels: losse .srt/.vtt naast de video (film.srt, film.nl.srt, film.en.vtt)
+  // en tekst-ondertitelsporen in de video zelf (mkv/mp4).
+  app.get('/api/video/info', async (req, res) => {
+    try {
+      const rel = req.query.path || '';
+      const file = resolveWithin(req.home, rel);
+      if (!PLAYABLE.test(file) || !fs.existsSync(file)) return res.status(404).json({ error: 'Niet gevonden' });
+      const dir = path.dirname(file); const stem = path.basename(file).replace(/\.[^.]+$/, '');
+      const relDir = path.posix.dirname('/' + String(rel).replace(/^\/+/, ''));
+      const subtitles = [];
+      for (const n of fs.readdirSync(dir)) {
+        if (!n.startsWith(stem + '.') || !/\.(srt|vtt)$/i.test(n)) continue;
+        const lang = n.slice(stem.length + 1).replace(/\.(srt|vtt)$/i, '');
+        subtitles.push({ label: lang || 'Ondertitels', lang: /^[a-z]{2,3}$/i.test(lang) ? lang.toLowerCase() : '', url: '/api/subtitle?path=' + encodeURIComponent(path.posix.join(relDir, n)) });
+      }
+      if (hasFfmpeg()) {
+        for (const sub of (await probe(file)).subs) {
+          if (!TEXT_SUBS.has(sub.codec)) continue;
+          subtitles.push({ label: (sub.lang || 'Spoor ' + (sub.index + 1)) + ' (ingebed)', lang: sub.lang.slice(0, 2), url: `/api/subtitle?path=${encodeURIComponent(rel)}&track=${sub.index}` });
+        }
+      }
+      res.json({ subtitles, storyboard: hasFfmpeg() });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  // Ondertitel als WebVTT: .srt wordt omgezet, ingebedde sporen via ffmpeg.
+  app.get('/api/subtitle', async (req, res) => {
+    try {
+      const file = resolveWithin(req.home, req.query.path || '');
+      if (!fs.existsSync(file)) return res.status(404).end();
+      let vtt;
+      if (req.query.track !== undefined) {
+        const n = parseInt(req.query.track, 10);
+        if (!PLAYABLE.test(file) || !(n >= 0 && n < 100) || !hasFfmpeg()) return res.status(400).end();
+        const out = await embeddedSubtitle(file, n);
+        if (!out) return res.status(404).end();
+        vtt = fs.readFileSync(out, 'utf8');
+      } else {
+        if (!/\.(srt|vtt)$/i.test(file)) return res.status(400).end();
+        const buf = fs.readFileSync(file);
+        // Oudere .srt-bestanden zijn vaak Windows-1252/latin1 i.p.v. UTF-8.
+        let txt; try { txt = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { txt = buf.toString('latin1'); }
+        txt = txt.replace(/^\uFEFF/, '').replace(/\r/g, '');
+        vtt = /^WEBVTT/.test(txt) ? txt : 'WEBVTT\n\n' + txt.replace(/(\d\d:\d\d:\d\d),(\d{3})/g, '$1.$2');
+      }
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'");
+      res.type('text/vtt; charset=utf-8').send(vtt);
+    } catch (err) { res.status(400).end(); }
+  });
+  // Tijdlijn-voorbeeldbeelden: metadata (JSON) of met ?img=1 de sprite (JPEG).
+  app.get('/api/storyboard', async (req, res) => {
+    try {
+      const file = resolveWithin(req.home, req.query.path || '');
+      if (!PLAYABLE.test(file) || !fs.existsSync(file)) return res.status(404).end();
+      if (!hasFfmpeg()) return res.status(501).end();
+      const sb = await storyboard(file);
+      if (!sb) return res.status(404).end();
+      res.setHeader('Cache-Control', 'private, max-age=86400');
+      if (req.query.img) return res.type('jpg').sendFile(sb.img);
+      res.json(sb.meta);
+    } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
   // Thumbnail (verkleinde, gecachete afbeelding).

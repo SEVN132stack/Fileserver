@@ -269,6 +269,7 @@ async function openFile(p) {
     if (v) {
       v.addEventListener('error', () => { const m = document.getElementById('vidErr'); if (m) m.hidden = false; v.hidden = true; const w = document.getElementById('vidWait'); if (w) w.hidden = true; });
       v.addEventListener('loadedmetadata', () => { const w = document.getElementById('vidWait'); if (w) w.hidden = true; });
+      videoExtras(p, v);
     }
   }
   else if (isAudio(name)) openModal(`<h3>${esc(name)}</h3><audio src="${url}" controls autoplay style="width:70vw"></audio>`);
@@ -350,6 +351,64 @@ async function loadCodeMirror(ext) {
   const [mode, deps] = spec;
   for (const m of deps || [mode]) await loadAsset(CM + 'mode/' + m + '/' + m + '.js');
   return mode;
+}
+
+// --- Video-extra's: ondertitels, verder kijken, tijdlijn met voorbeeldbeelden ---
+const fmtTime = (t) => { t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, sec = t % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(sec).padStart(2, '0'); };
+async function videoExtras(p, v) {
+  // Verder kijken: positie per video in deze browser onthouden.
+  const key = 'resume:' + p; let lastSave = 0;
+  v.addEventListener('timeupdate', () => {
+    if (Date.now() - lastSave < 5000 || !v.duration) return; lastSave = Date.now();
+    try { if (v.currentTime > 30 && v.currentTime < v.duration - 30) localStorage.setItem(key, String(Math.floor(v.currentTime))); else localStorage.removeItem(key); } catch { /* nvt */ }
+  });
+  v.addEventListener('ended', () => { try { localStorage.removeItem(key); } catch { /* nvt */ } });
+  v.addEventListener('loadedmetadata', () => {
+    let t = 0; try { t = Number(localStorage.getItem(key)) || 0; } catch { /* nvt */ }
+    if (t > 30 && t < v.duration - 30) {
+      v.currentTime = t;
+      const bar = document.createElement('p'); bar.className = 'muted'; bar.style.margin = '.4rem 0';
+      bar.innerHTML = `Verder vanaf ${fmtTime(t)} · <a href="#" data-restart>Opnieuw beginnen</a>`;
+      bar.querySelector('[data-restart]').onclick = (e) => { e.preventDefault(); v.currentTime = 0; bar.remove(); };
+      v.after(bar);
+    }
+  }, { once: true });
+
+  const info = await (await api('/api/video/info?path=' + enc(p))).json().catch(() => ({}));
+  // Ondertitels als <track>; de browser toont ze in het CC-menu van de speler.
+  (info.subtitles || []).forEach((sub, i) => {
+    const tr = document.createElement('track');
+    Object.assign(tr, { kind: 'subtitles', label: sub.label, src: sub.url });
+    if (sub.lang) tr.srclang = sub.lang;
+    if (i === 0) tr.default = true;
+    v.append(tr);
+  });
+  if (!info.storyboard) return;
+  // Tijdlijn onder de video: aanwijzen = voorbeeldbeeld + tijd, klikken = springen.
+  const r = await api('/api/storyboard?path=' + enc(p));
+  if (!r.ok || !document.body.contains(v)) return;
+  const m = await r.json();
+  const strip = document.createElement('div');
+  strip.title = 'Tijdlijn: klik om te springen';
+  strip.style.cssText = 'position:relative;height:14px;margin:.5rem 0 0;border-radius:7px;background:var(--panel-2);cursor:pointer';
+  strip.innerHTML = `<div data-prog style="position:absolute;inset:0 auto 0 0;width:0;border-radius:7px;background:var(--accent);opacity:.6"></div>
+    <div data-tip hidden style="position:absolute;bottom:20px;transform:translateX(-50%);pointer-events:none;border:1px solid var(--border);border-radius:6px;background:var(--panel);padding:3px;box-shadow:var(--shadow)">
+      <div data-img style="width:${m.w}px;height:${m.h}px;background:url('/api/storyboard?img=1&path=${enc(p)}') no-repeat"></div>
+      <div data-t style="text-align:center;font-size:.75rem"></div></div>`;
+  v.parentNode.insertBefore(strip, v.nextSibling);
+  strip.style.width = v.getBoundingClientRect().width + 'px';
+  const tip = strip.querySelector('[data-tip]'); const imgEl = strip.querySelector('[data-img]'); const tEl = strip.querySelector('[data-t]'); const prog = strip.querySelector('[data-prog]');
+  const at = (e) => { const b = strip.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)); };
+  strip.addEventListener('mousemove', (e) => {
+    const f = at(e); const i = Math.min(m.count - 1, Math.floor((f * m.duration) / m.interval));
+    imgEl.style.backgroundPosition = `-${(i % m.cols) * m.w}px -${Math.floor(i / m.cols) * m.h}px`;
+    tEl.textContent = fmtTime(f * m.duration);
+    tip.style.left = Math.min(Math.max(f * strip.clientWidth, m.w / 2), strip.clientWidth - m.w / 2) + 'px';
+    tip.hidden = false;
+  });
+  strip.addEventListener('mouseleave', () => { tip.hidden = true; });
+  strip.addEventListener('click', (e) => { if (v.duration) v.currentTime = at(e) * v.duration; });
+  v.addEventListener('timeupdate', () => { if (v.duration) prog.style.width = (v.currentTime / v.duration) * 100 + '%'; });
 }
 
 async function editFile(p) {

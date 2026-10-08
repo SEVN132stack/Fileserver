@@ -621,6 +621,23 @@ try {
       putRo.status === 401 && putRw.status === 200 && afterRw === 'door-bob-rw' && revoked.status === 401);
   }
 
+  // 13am5b. Video-extra's: losse .srt naast de video wordt gevonden en als WebVTT
+  // geserveerd (ook latin1); geen html via /api/subtitle.
+  {
+    await fetch(H + '/api/mkdir', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/', name: 'vid' }) });
+    await fetch(H + '/api/save?path=/vid/film.mp4', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'geen echte video' });
+    const { homeDir: hdV } = await import('../src/users.js');
+    fs.writeFileSync(path.join(hdV('admin'), 'vid', 'film.nl.srt'), Buffer.from('1\r\n00:00:01,500 --> 00:00:03,000\r\nCaf\xe9\r\n', 'latin1'));
+    const info = await (await fetch(H + '/api/video/info?path=/vid/film.mp4', { headers: jar() })).json();
+    const sub = info.subtitles && info.subtitles.find((x) => x.lang === 'nl');
+    const vttRes = sub ? await fetch(H + sub.url, { headers: jar() }) : null;
+    const vtt = vttRes ? await vttRes.text() : '';
+    const badSub = await fetch(H + '/api/subtitle?path=/evil.html', { headers: jar() });
+    ok('video: .srt naast video gevonden en als WebVTT (latin1 → UTF-8) geserveerd',
+      sub && vttRes.status === 200 && String(vttRes.headers.get('content-type')).startsWith('text/vtt') &&
+      vtt.startsWith('WEBVTT') && vtt.includes('00:00:01.500 --> 00:00:03.000') && vtt.includes('Café') && badSub.status === 400);
+  }
+
   // 13am7. WOPI (Collabora): token vereist, intrekbaar; opslaan bewaart een versie.
   {
     const w = await import('../src/wopi.js');
