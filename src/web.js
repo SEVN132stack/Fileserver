@@ -3736,6 +3736,8 @@ export function createWebServer() {
 
   // Statische bestanden (loginpagina toegankelijk zonder auth).
   app.use(express.static(path.join(__dirname, '..', 'public')));
+  // CodeMirror (teksteditor) lokaal serveren: de CSP staat geen externe scripts toe.
+  app.use('/vendor/codemirror', express.static(path.join(__dirname, '..', 'node_modules', 'codemirror'), { index: false, maxAge: '7d' }));
 
   // Centrale foutafhandeling: een te groot bestand (multer-limiet) geeft 413
   // i.p.v. een generieke 500. Overige onverwachte fouten worden netjes 500.

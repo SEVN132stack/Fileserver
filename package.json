@@ -21,6 +21,7 @@
   "dependencies": {
     "@simplewebauthn/server": "^14.0.0",
     "archiver": "^7.0.1",
+    "codemirror": "^5.65.21",
     "compression": "^1.8.1",
     "express": "^5.2.1",
     "multer": "^2.0.0",

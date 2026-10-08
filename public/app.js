@@ -317,15 +317,100 @@ async function openOffice(p, owner) {
   ov.querySelector('form').submit();
 }
 
+// --- Teksteditor (CodeMirror 5, lokaal geserveerd via /vendor/codemirror) ---
+// Regelnummers, kleurcodering per bestandstype, zoeken/vervangen (Ctrl+F /
+// Shift+Ctrl+F), ga naar regel (Alt+G), haakjes, Ctrl+S om op te slaan en een
+// waarschuwing bij sluiten met niet-opgeslagen wijzigingen. Lukt het laden van
+// CodeMirror niet, dan valt de editor terug op een gewoon tekstvak.
+const CM = '/vendor/codemirror/';
+const CM_MODES = {
+  js: ['javascript'], mjs: ['javascript'], cjs: ['javascript'], jsx: ['jsx', ['xml', 'javascript']],
+  json: [{ name: 'javascript', json: true }, ['javascript']], ts: ['text/typescript', ['javascript']], tsx: ['text/typescript-jsx', ['xml', 'javascript', 'jsx']],
+  css: ['css'], scss: ['text/x-scss', ['css']], html: ['htmlmixed', ['xml', 'javascript', 'css']], htm: ['htmlmixed', ['xml', 'javascript', 'css']],
+  vue: ['htmlmixed', ['xml', 'javascript', 'css']], xml: ['xml'], md: ['markdown', ['xml']], py: ['python'], sh: ['shell'], sql: ['text/x-sql', ['sql']],
+  go: ['go'], java: ['text/x-java', ['clike']], kt: ['text/x-kotlin', ['clike']], c: ['text/x-csrc', ['clike']], h: ['text/x-csrc', ['clike']],
+  cpp: ['text/x-c++src', ['clike']], cs: ['text/x-csharp', ['clike']], rs: ['rust'], php: ['application/x-httpd-php', ['xml', 'javascript', 'css', 'htmlmixed', 'clike', 'php']],
+  rb: ['ruby'], yaml: ['yaml'], yml: ['yaml'], toml: ['toml'], ini: ['properties'], conf: ['properties'],
+};
+const cmAssets = new Map();
+function loadAsset(url) {
+  if (!cmAssets.has(url)) cmAssets.set(url, new Promise((resolve, reject) => {
+    const el = url.endsWith('.css') ? Object.assign(document.createElement('link'), { rel: 'stylesheet', href: url }) : Object.assign(document.createElement('script'), { src: url });
+    el.onload = resolve; el.onerror = () => { cmAssets.delete(url); reject(new Error('laden mislukt: ' + url)); };
+    document.head.append(el);
+  }));
+  return cmAssets.get(url);
+}
+async function loadCodeMirror(ext) {
+  for (const c of ['lib/codemirror.css', 'addon/dialog/dialog.css', 'theme/material-darker.css']) loadAsset(CM + c).catch(() => {});
+  await loadAsset(CM + 'lib/codemirror.js');
+  for (const a of ['addon/mode/simple.js', 'addon/edit/matchbrackets.js', 'addon/edit/closebrackets.js', 'addon/search/searchcursor.js', 'addon/dialog/dialog.js', 'addon/search/search.js', 'addon/search/jump-to-line.js']) await loadAsset(CM + a);
+  const spec = CM_MODES[ext];
+  if (!spec) return null;
+  const [mode, deps] = spec;
+  for (const m of deps || [mode]) await loadAsset(CM + 'mode/' + m + '/' + m + '.js');
+  return mode;
+}
+
 async function editFile(p) {
-  const name = p.split('/').pop();
-  const txt = await (await api('/api/preview?path='+enc(p))).text();
-  openModal(`<h3>✎ ${esc(name)}</h3><textarea id="editArea"></textarea><br><button id="saveEdit" data-path="${enc(p)}">Opslaan</button>`);
-  document.getElementById('editArea').value = txt;
-  document.getElementById('saveEdit').onclick = async (e) => {
-    await api('/api/save?path='+e.target.dataset.path, { method:'POST', headers:{'Content-Type':'text/plain'}, body: document.getElementById('editArea').value });
-    closeModal(); load();
+  const name = p.split('/').pop(); const ext = (name.split('.').pop() || '').toLowerCase();
+  const txt = await (await api('/api/preview?path=' + enc(p))).text();
+  const ov = document.createElement('div');
+  ov.id = 'editorOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column';
+  ov.innerHTML = `<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;padding:.4rem .7rem;border-bottom:1px solid var(--border)">
+      <b style="flex:1;min-width:8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">✎ ${esc(name)}</b>
+      <span class="muted" id="edStatus" style="font-size:.8rem"></span>
+      <button class="ghost" id="edFind" title="Zoeken (Ctrl+F)">🔍 Zoeken</button>
+      <button class="ghost" id="edReplace" title="Vervangen (Shift+Ctrl+F)">⇄ Vervangen</button>
+      <button id="edSave" title="Opslaan (Ctrl+S)">Opslaan</button>
+      <button class="ghost" id="edClose">Sluiten</button></div>
+    <div id="edHost" style="flex:1;min-height:0;display:flex"></div>`;
+  document.body.append(ov);
+  const host = ov.querySelector('#edHost'); const status = ov.querySelector('#edStatus');
+  let cm = null; let ta = null; let saved = txt;
+  const value = () => (cm ? cm.getValue() : ta.value);
+  const dirty = () => value() !== saved;
+  const showStatus = () => {
+    const pos = cm ? cm.getCursor() : null;
+    status.textContent = (dirty() ? '● niet opgeslagen' : 'opgeslagen') + (pos ? ` · regel ${pos.line + 1}, kolom ${pos.ch + 1}` : '');
   };
+  try {
+    const mode = await loadCodeMirror(ext);
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    cm = window.CodeMirror(host, {
+      value: txt, mode, lineNumbers: true, matchBrackets: true, autoCloseBrackets: true, indentUnit: 2, tabSize: 2,
+      lineWrapping: ['md', 'txt', 'log', 'csv', 'tsv'].includes(ext), theme: dark ? 'material-darker' : 'default',
+      extraKeys: { 'Ctrl-S': () => save(), 'Cmd-S': () => save(), 'Alt-G': 'jumpToLine', Tab: (c) => (c.somethingSelected() ? c.indentMore() : c.replaceSelection(' '.repeat(c.getOption('indentUnit')))) },
+    });
+    cm.getWrapperElement().style.cssText = 'flex:1;height:auto;font-size:14px';
+    cm.on('change', showStatus); cm.on('cursorActivity', showStatus);
+    cm.focus();
+  } catch {
+    ta = Object.assign(document.createElement('textarea'), { value: txt });
+    ta.style.cssText = 'flex:1;font-family:monospace;padding:.6rem;border:0;background:var(--bg);color:var(--text)';
+    ta.addEventListener('input', showStatus);
+    ta.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); } });
+    host.append(ta);
+    ov.querySelector('#edFind').hidden = true; ov.querySelector('#edReplace').hidden = true;
+  }
+  showStatus();
+  async function save() {
+    const body = value();
+    const r = await api('/api/save?path=' + enc(p), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); return alert(d.error || 'Opslaan mislukt'); }
+    saved = body; showStatus(); toast('Opgeslagen');
+  }
+  const close = () => {
+    if (dirty() && !confirm('Er zijn niet-opgeslagen wijzigingen. Toch sluiten?')) return;
+    window.removeEventListener('beforeunload', guard); ov.remove(); load();
+  };
+  const guard = (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } };
+  window.addEventListener('beforeunload', guard);
+  ov.querySelector('#edSave').onclick = save;
+  ov.querySelector('#edClose').onclick = close;
+  ov.querySelector('#edFind').onclick = () => cm && cm.execCommand('findPersistent');
+  ov.querySelector('#edReplace').onclick = () => cm && cm.execCommand('replace');
 }
 
 // --- Uploads ---
