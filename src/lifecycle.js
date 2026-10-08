@@ -10,6 +10,8 @@ import * as retention from './retention.js';
 import * as labels from './labels.js';
 import * as tags from './tags.js';
 import { audit } from './audit.js';
+import { notify } from './notify.js';
+import { notifyUser } from './notifications.js';
 
 // Bestandsverloop-workflow op basis van inactiviteit. Per gebruiker één of meer
 // beleidsregels op een map: bestanden die langer dan `warnDays` niet gewijzigd
@@ -104,7 +106,9 @@ export function runForUser(user, notify) {
       if (locks.lockOwner(home, it.rel) || retention.retainedUntil(home, it.rel)) { skipped.push(it.rel); continue; }
       try {
         if (it.action === 'warn') {
-          if (typeof notify === 'function') notify('Bestand verloopt binnenkort', `${it.rel} is ${it.ageDays} dagen ongewijzigd.`);
+          // (Voorheen werd notify hier niet geïmporteerd, waardoor deze waarschuwing nooit verstuurd werd.)
+          notifyUser(user, 'Bestand verloopt binnenkort', `${it.rel} is ${it.ageDays} dagen ongewijzigd.`);
+          notify('lifecycle_warn', { subject: 'Bestand verloopt binnenkort', message: `${it.rel} is ${it.ageDays} dagen ongewijzigd.`, user });
           warned++;
         } else if (it.action === 'archive') {
           const toRel = path.posix.join('/', config.lifecycleArchiveDir, it.rel);

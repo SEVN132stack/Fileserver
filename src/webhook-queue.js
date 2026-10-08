@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { config } from './config.js';
-import { formatWebhook } from './notify.js';
+import { formatWebhook, webhookWants } from './notify.js';
 
 // Betrouwbare uitgaande webhooks: berichten worden in een wachtrij gezet en met
 // exponentiële backoff opnieuw geprobeerd tot ze slagen of het maximum bereiken.
@@ -23,7 +23,7 @@ function save() {
 load();
 
 export function enqueue(event, detail = {}) {
-  if (!config.webhookUrl) return;
+  if (!config.webhookUrl || !webhookWants(event)) return;
   queue.push({ id: randomBytes(6).toString('hex'), event, detail, attempts: 0, nextTry: Date.now() });
   save();
 }

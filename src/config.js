@@ -409,6 +409,9 @@ export const config = {
   reportEmailIntervalHours: parseInt(process.env.REPORT_EMAIL_INTERVAL_HOURS || '0', 10),
   // Webhook-formaat: generic | slack | discord | teams | ntfy.
   webhookType: (process.env.WEBHOOK_TYPE || 'generic').toLowerCase(),
+  // Welke gebeurtenissen naar de webhook gaan (kommalijst, leeg = alle). Bijv.
+  // alert,quarantine — zonder 'upload'/'delete' komt niet elke upload binnen.
+  webhookEvents: (process.env.WEBHOOK_EVENTS || '').split(',').map((s) => s.trim()).filter(Boolean),
   // Gestructureerde JSON-logging (voor log-aggregatie/OpenTelemetry-collectors).
   logJson: bool(process.env.LOG_JSON, false),
 
