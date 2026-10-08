@@ -5,8 +5,8 @@ import { config } from './config.js';
 // Collabora haalt het bestand op en slaat het op via /wopi/files/<id>, met een
 // ondertekend, kortlevend token (geen sessie-cookie; Collabora praat server-
 // naar-server). Het file-id is een hash van het absolute pad: hetzelfde bestand
-// in meerdere tabbladen/apparaten komt in dezelfde Collabora-sessie. (De knop
-// staat alleen bij eigen bestanden; "Gedeeld met mij" ondersteunt Office nog niet.)
+// in meerdere tabbladen/apparaten — en de eigenaar plus gebruikers met wie het
+// gedeeld is — komt in dezelfde Collabora-sessie (samen bewerken).
 
 export const OFFICE = /\.(docx?|odt|rtf|xlsx?|ods|csv|pptx?|odp)$/i;
 export const enabled = () => !!config.collaboraUrl;
@@ -22,11 +22,12 @@ const sign = (data) => createHmac('sha256', config.sessionSecret).update('wopi\0
 const revokedAt = new Map();
 export function revokeUser(user) { revokedAt.set(user, Date.now()); }
 
-// Token: base64url(JSON{u,p,w,id,iat,exp}).handtekening
-export function makeToken({ user, path, write, id }) {
+// Token: base64url(JSON{u,o,p,w,id,iat,exp}).handtekening. o = eigenaar van het
+// bestand bij een met de gebruiker gedeeld bestand (anders leeg: eigen home).
+export function makeToken({ user, owner, path, write, id }) {
   const iat = Date.now();
   const exp = iat + config.wopiTokenHours * 3600000;
-  const data = Buffer.from(JSON.stringify({ u: user, p: path, w: !!write, id, iat, exp })).toString('base64url');
+  const data = Buffer.from(JSON.stringify({ u: user, o: owner || undefined, p: path, w: !!write, id, iat, exp })).toString('base64url');
   return { token: `${data}.${sign(data)}`, ttl: exp };
 }
 
@@ -38,7 +39,7 @@ export function verifyToken(token, id) {
   let t; try { t = JSON.parse(Buffer.from(data, 'base64url').toString('utf8')); } catch { return null; }
   if (!t || t.exp < Date.now() || t.id !== id) return null;
   if (revokedAt.has(t.u) && !(t.iat > revokedAt.get(t.u))) return null;
-  return { user: t.u, path: t.p, write: !!t.w };
+  return { user: t.u, owner: t.o || null, path: t.p, write: !!t.w };
 }
 
 // Discovery: per extensie de editor-URL (urlsrc) van Collabora. Een uur gecachet.

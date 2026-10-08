@@ -596,6 +596,31 @@ try {
     oRedirect.status === 302 && oRedirect.headers.get('location') === '/?open=' + il1.uuid &&
     ilMoved.path === '/perma-sftp.txt' && noAuth.status === 401);
 
+  // 13am6b. WOPI voor "Gedeeld met mij": alleen-lezen deling = niet schrijven,
+  // rw-deling = schrijven in de home van de eigenaar, intrekken = direct geen toegang.
+  {
+    const w = await import('../src/wopi.js');
+    const { homeDir: hdS } = await import('../src/users.js');
+    await fetch(H + '/api/mkdir', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/', name: 'officedeel' }) });
+    await fetch(H + '/api/save?path=/officedeel/doc.docx', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'origineel' });
+    const grant = (mode) => fetch(H + '/api/grant', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ to: 'bob', path: '/officedeel', mode }) });
+    const abs = path.join(hdS('admin'), 'officedeel', 'doc.docx');
+    const id = w.fileId(abs);
+    const { token } = w.makeToken({ user: 'bob', owner: 'admin', path: '/officedeel/doc.docx', write: true, id });
+    const tq = `?access_token=${encodeURIComponent(token)}`;
+    await grant('ro');
+    const infoRo = await (await fetch(`${H}/wopi/files/${id}${tq}`)).json();
+    const putRo = await fetch(`${H}/wopi/files/${id}/contents${tq}`, { method: 'POST', body: 'door-bob-ro' });
+    await grant('rw');
+    const putRw = await fetch(`${H}/wopi/files/${id}/contents${tq}`, { method: 'POST', body: 'door-bob-rw' });
+    const afterRw = fs.readFileSync(abs, 'utf8');
+    await fetch(H + '/api/grant', { method: 'DELETE', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ to: 'bob', path: '/officedeel' }) });
+    const revoked = await fetch(`${H}/wopi/files/${id}${tq}`);
+    ok('WOPI gedeeld: ro = alleen lezen, rw = opslaan bij eigenaar, intrekken = geen toegang',
+      infoRo.UserCanWrite === false && infoRo.OwnerId === 'admin' && infoRo.UserId === 'bob' &&
+      putRo.status === 401 && putRw.status === 200 && afterRw === 'door-bob-rw' && revoked.status === 401);
+  }
+
   // 13am7. WOPI (Collabora): token vereist, intrekbaar; opslaan bewaart een versie.
   {
     const w = await import('../src/wopi.js');

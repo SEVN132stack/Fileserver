@@ -209,7 +209,7 @@ async function load() {
     if (it.isDir) a += `<button data-zip="${enc(it.path)}">ZIP</button>`;
     else a += `<button data-dl="${enc(it.path)}">⬇</button>`;
     if (!it.isDir && isText(it.name)) a += `<button class="ghost" data-edit="${enc(it.path)}">✎</button>`;
-    if (!it.isDir && me && me.office && /\.(docx?|odt|rtf|xlsx?|ods|pptx?|odp)$/i.test(it.name)) a += `<button class="ghost" data-office="${enc(it.path)}" title="Bewerken in Office">📝</button>`;
+    if (!it.isDir && me && me.office && OFFICE_EXT.test(it.name)) a += `<button class="ghost" data-office="${enc(it.path)}" title="Bewerken in Office">📝</button>`;
     if (!it.isDir && /\.enc$/i.test(it.name)) a += `<button class="ghost" data-dec="${enc(it.path)}">🔓</button>`;
     if (!it.isDir) a += `<button class="ghost" data-sync="${enc(it.path)}" title="Efficiënt bijwerken (delta-sync)">⟳</button>`;
     if (!it.isDir) a += `<button class="ghost" data-ver="${enc(it.path)}">🕘</button>`;
@@ -292,10 +292,11 @@ async function openFile(p) {
   // Gedeelde reacties onder de preview.
   try { document.getElementById('modalBody').insertAdjacentHTML('beforeend', await commentsHtml(p)); } catch {}
 }
+const OFFICE_EXT = /\.(docx?|odt|rtf|xlsx?|ods|pptx?|odp)$/i;
 // Office-bestand bewerken in Collabora Online (WOPI). Het token gaat via een
 // POST-formulier naar de iframe, zodat het niet in de URL/geschiedenis belandt.
-async function openOffice(p) {
-  const r = await api('/api/office/edit?path=' + enc(p));
+async function openOffice(p, owner) {
+  const r = await api('/api/office/edit?path=' + enc(p) + (owner ? '&owner=' + enc(owner) : ''));
   const d = await r.json().catch(() => ({}));
   if (!r.ok) return alert(d.error || 'Openen in Office mislukt');
   const ov = document.createElement('div');
@@ -308,7 +309,7 @@ async function openOffice(p) {
     <form method="post" target="officeFrame" action="${esc(d.url)}" hidden>
       <input name="access_token" value="${esc(d.token)}"><input name="access_token_ttl" value="${d.ttl}"></form>`;
   document.body.append(ov);
-  const close = () => { window.removeEventListener('message', onMsg); ov.remove(); load(); };
+  const close = () => { window.removeEventListener('message', onMsg); ov.remove(); if (owner) renderShared(); else load(); };
   // Collabora meldt via postMessage wanneer de gebruiker op sluiten klikt.
   const onMsg = (e) => { try { const m = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; if (m && m.MessageId === 'UI_Close') close(); } catch { /* andere berichten */ } };
   window.addEventListener('message', onMsg);
@@ -764,7 +765,8 @@ async function renderShared() {
     html += `<h3>${esc(s.owner)}: ${esc(cur)} <span class="muted">(${rw?'lezen+schrijven':'alleen-lezen'})</span>${up}</h3>`;
     if (rw) html += `<div><input type="file" multiple data-shup="${enc(s.owner)}|${enc(cur)}"></div>`;
     html += '<ul>' + (data.items||[]).map(i =>
-      `<li>${i.isDir?`📂 <a href="#" data-shnav="${enc(key)}|${enc(i.path)}">${esc(i.name)}</a>`:`📄 ${esc(i.name)} <a href="/api/shared/download?owner=${enc(s.owner)}&path=${enc(i.path)}">⬇</a>`}`
+      `<li>${i.isDir?`📂 <a href="#" data-shnav="${enc(key)}|${enc(i.path)}">${esc(i.name)}</a>`:`📄 ${esc(i.name)} <a href="/api/shared/download?owner=${enc(s.owner)}&path=${enc(i.path)}">⬇</a>`
+        + (me.office && OFFICE_EXT.test(i.name) ? ` <button class="ghost" data-office="${enc(i.path)}" data-owner="${enc(s.owner)}" title="${rw ? 'Bewerken in Office' : 'Bekijken in Office (alleen-lezen)'}">📝</button>` : '')}`
       + (rw?` <button class="danger" data-shdel="${enc(s.owner)}|${enc(i.path)}">🗑</button>`:'') + `</li>`).join('') + '</ul>';
   }
   v.innerHTML = html;
@@ -880,7 +882,7 @@ document.addEventListener('click', async (e) => {
     alert('Gedeeld met '+to+' ('+(rw?'rw':'ro')+')'); return;
   }
   if (t2.dataset.revoke) { await api('/api/sessions/'+t2.dataset.revoke,{method:'DELETE'}); showSessions(); return; }
-  if (t2.dataset.office) { openOffice(decodeURIComponent(t2.dataset.office)); return; }
+  if (t2.dataset.office) { openOffice(decodeURIComponent(t2.dataset.office), t2.dataset.owner ? decodeURIComponent(t2.dataset.owner) : ''); return; }
   if (t2.dataset.ilink) {
     const r = await (await api('/api/link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:decodeURIComponent(t2.dataset.ilink)})})).json();
     if (!r.url) return alert(r.error || 'Link maken mislukt');

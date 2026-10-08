@@ -757,18 +757,28 @@ export function createWebServer() {
     const t = wopi.verifyToken(req.query.access_token, req.params.id);
     // Zelfde eisen als bij inloggen: gebruiker bestaat nog en is niet verlopen.
     if (!t || !userExists(t.user) || isExpired(t.user)) return res.status(401).end();
-    try { req.wopi = { ...t, home: homeDir(t.user), abs: resolveWithin(homeDir(t.user), t.path) }; } catch { return res.status(404).end(); }
+    let write = t.write;
+    if (t.owner) {
+      // Gedeeld bestand: de deling moet nog bestaan (intrekken werkt direct) en
+      // schrijven mag alleen bij een rw-deling.
+      if (!userExists(t.owner)) return res.status(401).end();
+      const g = sharedGrant(t.user, t.owner, t.path);
+      if (!g) return res.status(401).end();
+      write = write && g.mode === 'rw';
+    }
+    const owner = t.owner || t.user;
+    try { req.wopi = { ...t, write, owner, home: homeDir(owner), abs: resolveWithin(homeDir(owner), t.path) }; } catch { return res.status(404).end(); }
     if (!fs.existsSync(req.wopi.abs)) return res.status(404).end();
     next();
   };
   app.get('/wopi/files/:id', wopiAuth, (req, res) => {
-    const { user, path: rel, abs, write, home } = req.wopi;
+    const { user, owner, path: rel, abs, write, home } = req.wopi;
     const st = fs.statSync(abs);
     const locked = !!locks.lockOwner(home, rel) || !!retention.retainedUntil(home, rel);
     const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
     res.json({
       BaseFileName: path.basename(abs), Size: st.size, Version: String(st.mtimeMs),
-      LastModifiedTime: st.mtime.toISOString(), OwnerId: user, UserId: user, UserFriendlyName: user,
+      LastModifiedTime: st.mtime.toISOString(), OwnerId: owner, UserId: user, UserFriendlyName: user,
       UserCanWrite: write && !locked, ReadOnly: !write || locked, UserCanNotWriteRelative: true,
       SupportsUpdate: true, SupportsLocks: false, PostMessageOrigin: base,
     });
@@ -786,7 +796,7 @@ export function createWebServer() {
     if (!write || isReadonly(user)) return res.status(401).end();
     const holder = locks.lockOwner(home, rel);
     if (holder || retention.retainedUntil(home, rel)) return res.status(409).json({ LockFailureReason: holder ? `Vergrendeld door ${holder}` : 'Bewaarplicht' });
-    const q = quota(user);
+    const q = quota(req.wopi.owner); // quotum van de eigenaar van het bestand
     if (q > 0) {
       const incoming = parseInt(req.headers['content-length'] || '0', 10);
       if (dirSize(home) - fs.statSync(abs).size + incoming > q) return res.status(413).json({ error: 'Quota overschreden' });
@@ -802,8 +812,9 @@ export function createWebServer() {
       }
       await fsp.rename(tmp, abs);
       recordMutation(user, 'edit'); checkHoneypot(user, rel, 'edit');
-      audit('web', user, 'office_save', { path: rel });
+      audit('web', user, 'office_save', { path: rel, owner: req.wopi.owner });
       emitToUser(user, 'change', { action: 'edit' });
+      if (req.wopi.owner !== user) emitToUser(req.wopi.owner, 'change', { action: 'edit' });
       res.json({ LastModifiedTime: fs.statSync(abs).mtime.toISOString() });
     } catch (err) {
       await fsp.rm(tmp, { force: true });
@@ -3106,11 +3117,15 @@ export function createWebServer() {
     try {
       if (!wopi.enabled()) return res.status(501).json({ error: 'Office-bewerken staat uit (COLLABORA_URL)' });
       const rel = req.query.path || '';
-      const abs = resolveWithin(req.home, rel);
+      // Met ?owner= een met mij gedeeld bestand (zelfde toegangscontrole als
+      // /api/shared/*); anders een bestand in de eigen home.
+      const owner = req.query.owner && req.query.owner !== req.user ? String(req.query.owner) : null;
+      let abs; let mode = 'rw';
+      if (owner) ({ abs, mode } = resolveShared(req, rel)); else abs = resolveWithin(req.home, rel);
       if (!fs.existsSync(abs) || !wopi.canEdit(abs)) return res.status(400).json({ error: 'Geen Office-bestand' });
       const id = wopi.fileId(abs);
-      const write = !req.apiReadonly && !isReadonly(req.user);
-      const { token, ttl } = wopi.makeToken({ user: req.user, path: rel, write, id });
+      const write = mode === 'rw' && !req.apiReadonly && !isReadonly(req.user);
+      const { token, ttl } = wopi.makeToken({ user: req.user, owner, path: rel, write, id });
       const base = config.appBaseUrl || `${req.protocol}://${req.get('host')}`;
       const src = await wopi.actionUrl(path.extname(abs).slice(1), base);
       const wopiSrc = `${config.wopiBaseUrl}/wopi/files/${id}`;
@@ -3192,17 +3207,23 @@ export function createWebServer() {
 
   // --- Gedeelde mappen van anderen (alleen-lezen of lezen+schrijven) ---
   // needWrite=true vereist dat de deling mode 'rw' heeft.
+  // De deling (grant) van owner aan user die rel omvat, of null.
+  function sharedGrant(user, owner, rel) {
+    const grants = sharedWith(user).filter((s) => s.owner === owner);
+    if (!grants.length) return null;
+    const ownerHome = homeDir(owner);
+    const abs = resolveWithin(ownerHome, rel);
+    return grants.find((g) => {
+      const base = resolveWithin(ownerHome, g.path);
+      return abs === base || abs.startsWith(base + path.sep);
+    }) || null;
+  }
   function resolveShared(req, pathValue, needWrite = false) {
     const owner = req.query.owner || (req.body && req.body.owner);
     const rel = pathValue !== undefined ? pathValue : (req.query.path || '/');
-    const grants = sharedWith(req.user).filter((s) => s.owner === owner);
-    if (!grants.length) throw new Error('Geen toegang');
     const ownerHome = homeDir(owner);
     const abs = resolveWithin(ownerHome, rel);
-    const match = grants.find((g) => {
-      const base = resolveWithin(ownerHome, g.path);
-      return abs === base || abs.startsWith(base + path.sep);
-    });
+    const match = sharedGrant(req.user, owner, rel);
     if (!match) throw new Error('Geen toegang');
     if (needWrite && match.mode !== 'rw') throw new Error('Alleen-lezen deling');
     return { abs, ownerHome, mode: match.mode, base: resolveWithin(ownerHome, match.path) };
