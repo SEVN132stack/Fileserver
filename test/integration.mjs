@@ -1042,6 +1042,24 @@ try {
   const ocrSearch = await (await fetch(H + '/api/list?q=zichtbaarwoord123&content=1', { headers: jar() })).json();
   ok('OCR-tekst is doorzoekbaar', ocrSearch.items.some((i) => i.name === 'scan.png'));
 
+  // 54b. OCR-verwerking: één tegelijk (wachtrij) en achtergrondverwerking van
+  // bestaande bestanden die nog geen OCR hebben.
+  {
+    const ocrMod = await import('../src/ocr.js');
+    const origCmd = config.ocrCmd;
+    config.ocrCmd = 'node ' + path.resolve('test/mock-ocr.mjs');
+    process.env.OCR_MOCK_LOG = path.join(tmp, 'ocr-mock.log');
+    fs.mkdirSync(path.join(adminHomeAbs, 'ocrtest'), { recursive: true });
+    for (const n of ['a.png', 'b.png', 'c.png']) fs.writeFileSync(path.join(adminHomeAbs, 'ocrtest', n), 'x');
+    await Promise.all(['a.png', 'b.png'].map((n) => ocrMod.runOcr(adminHomeAbs, '/ocrtest/' + n, path.join(adminHomeAbs, 'ocrtest', n))));
+    const seq = fs.readFileSync(process.env.OCR_MOCK_LOG, 'utf8');
+    const bf = await ocrMod.backfill(1000);
+    config.ocrCmd = origCmd;
+    ok('OCR: één tegelijk en achtergrondverwerking van bestaande bestanden',
+      seq === 'SESE' && ocrMod.getOcrText(adminHomeAbs, '/ocrtest/a.png').includes('MOCKOCR a.png') &&
+      bf.done >= 1 && ocrMod.getOcrText(adminHomeAbs, '/ocrtest/c.png').includes('MOCKOCR c.png'));
+  }
+
   // 55. Toegangsaanvraag-workflow: carol vraagt, admin keurt goed -> carol ziet de deling.
   addUser({ username: 'carol', password: 'carolpass', role: 'user' });
   await fetch(H + '/api/mkdir', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/', name: 'gedeeld-na-verzoek' }) });

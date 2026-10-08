@@ -29,6 +29,7 @@ import { startScheduler as startScheduledReports } from './scheduled-reports.js'
 import { startScheduler as startLifecycleScheduler } from './lifecycle.js';
 import { notifyUser } from './notifications.js';
 import { emitToUser } from './events.js';
+import { startOcrBackfill } from './ocr.js';
 
 // Startpunt: bereidt opslag, host key en gebruikers voor en start beide servers.
 ensureStorage();
@@ -43,6 +44,7 @@ startCleanupScheduler();
 startDiskMonitor();
 startIntegrityScheduler();
 startAvScheduler();
+startOcrBackfill();
 startSearchIndexScheduler();
 startScheduledExports();
 startAcmeScheduler();
