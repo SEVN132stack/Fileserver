@@ -421,6 +421,9 @@ export const config = {
   ocrCmd: process.env.OCR_CMD || '',
   ocrFile: abs(process.env.OCR_FILE || 'ocr-index.json'),
   ocrMaxBytes: parseInt(process.env.OCR_MAX_BYTES || '10485760', 10), // 10MB
+  // Taal voor tesseract (taalpakketten tesseract-ocr-nld/-eng) en max. pagina's per PDF.
+  ocrLang: process.env.OCR_LANG ?? 'nld+eng',
+  ocrMaxPages: parseInt(process.env.OCR_MAX_PAGES || '20', 10),
   // Automatische categorisatie/tagging van uploads op inhoud (aan/uit).
   autoTag: bool(process.env.AUTO_TAG, false),
   // Toegangsaanvragen (map-toegang aanvragen bij de eigenaar).
