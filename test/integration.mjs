@@ -2419,6 +2419,21 @@ try {
       (err2 ? /onbereikbaar/.test(err2.message) : (res2.infected.length === 0 && res2.unscannable > 0)));
   }
 
+  // 165. Webhook: Discord-embed met titel/tekst en filter via WEBHOOK_EVENTS.
+  {
+    const n = await import('../src/notify.js');
+    const f = n.formatWebhook('discord', 'alert', { key: 'k', subject: 'Schijf vol', message: '95% gebruikt' });
+    const e = f.body.embeds && f.body.embeds[0];
+    const origEv = config.webhookEvents;
+    config.webhookEvents = ['alert', 'quarantine'];
+    const wants = [n.webhookWants('alert'), n.webhookWants('upload')];
+    config.webhookEvents = [];
+    const all = n.webhookWants('upload');
+    config.webhookEvents = origEv;
+    ok('webhook: Discord-embed en WEBHOOK_EVENTS-filter',
+      e && e.title === 'Schijf vol' && e.description === '95% gebruikt' && wants[0] === true && wants[1] === false && all === true);
+  }
+
   console.log(`\n${passed} tests geslaagd.`);
   web.close(); sftp.close(); if (ftpsServer) ftpsServer.close();
   process.exit(0);
