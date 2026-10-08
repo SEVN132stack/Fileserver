@@ -74,6 +74,21 @@ try {
   await page.locator('#rows .name[data-dir]', { hasText: 'e2e-map' }).first().waitFor({ timeout: 5000 });
   console.log('  ✓ "Bestanden" in de zijbalk gaat terug naar de hoofdmap');
 
+  // Teksteditor (CodeMirror): kleurcodering + regelnummers, Ctrl+S slaat op.
+  await page.evaluate(() => fetch('/api/save?path=/e2e.js', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: 'const a = 1;\n' }));
+  await page.evaluate(() => editFile('/e2e.js'));
+  await page.waitForSelector('#editorOverlay .CodeMirror .CodeMirror-linenumber', { timeout: 10000 });
+  if (!(await page.locator('#editorOverlay .cm-keyword').count())) throw new Error('geen kleurcodering in de editor');
+  await page.click('#editorOverlay .CodeMirror-code');
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('const b = 2;');
+  await page.keyboard.press('Control+s');
+  await page.waitForFunction(() => document.getElementById('edStatus').textContent.startsWith('opgeslagen'));
+  const savedJs = await page.evaluate(() => fetch('/api/preview?path=/e2e.js').then((r) => r.text()));
+  if (!savedJs.includes('const b = 2;')) throw new Error('Ctrl+S in de editor sloeg niet op');
+  await page.click('#edClose');
+  console.log('  ✓ teksteditor: kleurcodering, regelnummers en Ctrl+S werken');
+
   // Nieuwe indeling: ⋯-menu per rij, commandopalet en stijlkeuze.
   await page.locator('#rows .rowmore').first().click();
   if (!(await page.locator('.rowmenu.open button').count())) throw new Error('rij-menu opent niet');
