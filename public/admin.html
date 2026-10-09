@@ -387,7 +387,7 @@
       document.getElementById('cards').innerHTML = cards.map(([l,v,s]) => `<div class="card"><div class="v">${v}</div><div class="l">${l}${s?` · ${s}`:''}</div></div>`).join('');
       const badge = (name, on) => `<span class="${on?'on':'off'}">${on?'✓':'—'} ${name}</span>`;
       document.getElementById('badges').innerHTML =
-        badge('HTTPS', o.tls) + badge('WebDAV', o.webdav) + badge('SSO/OIDC', o.oidc) + badge('Antivirus', o.antivirus);
+        badge(o.tlsProxy ? 'HTTPS (via proxy)' : 'HTTPS', o.tls || o.tlsProxy) + badge('WebDAV', o.webdav) + badge('SSO/OIDC', o.oidc) + badge('Antivirus', o.antivirus);
       document.getElementById('recent').textContent = o.recentAudit.map(l => `${l.ts} [${l.channel}] ${l.user||'-'} ${l.action}`).join('\n') || '(nog geen activiteit)';
     }
     async function loadShares() {
