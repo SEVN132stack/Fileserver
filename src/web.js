@@ -3587,6 +3587,9 @@ export function createWebServer() {
       backups,
       recentAudit: audit,
       tls: config.tls.enabled,
+      // HTTPS via een reverse proxy (Caddy/NPM/Cloudflare): de app zelf praat dan
+      // HTTP, maar bezoekers gebruiken https://. Telt ook als HTTPS.
+      tlsProxy: !config.tls.enabled && /^https:\/\//i.test(config.appBaseUrl || ''),
       webdav: config.webdavEnabled,
       oidc: config.oidc.enabled,
       antivirus: !!(config.clamscan || config.virustotal.apiKey),
