@@ -638,6 +638,15 @@ try {
       vtt.startsWith('WEBVTT') && vtt.includes('00:00:01.500 --> 00:00:03.000') && vtt.includes('Café') && badSub.status === 400);
   }
 
+  // 13am6c. Bestanden in een map die met een punt begint: preview en download werken.
+  {
+    await fetch(H + '/api/mkdir', { method: 'POST', headers: jar({ 'Content-Type': 'application/json' }), body: JSON.stringify({ path: '/', name: '.verborgen' }) });
+    await fetch(H + '/api/save?path=/.verborgen/notitie.txt', { method: 'POST', headers: jar({ 'Content-Type': 'text/plain' }), body: 'in verborgen map' });
+    const pv = await fetch(H + '/api/preview?path=/.verborgen/notitie.txt', { headers: jar() });
+    const dl = await fetch(H + '/api/download?path=/.verborgen/notitie.txt', { headers: jar() });
+    ok('bestanden in een map met punt: preview en download werken', pv.status === 200 && (await pv.text()) === 'in verborgen map' && dl.status === 200);
+  }
+
   // 13am7. WOPI (Collabora): token vereist, intrekbaar; opslaan bewaart een versie.
   {
     const w = await import('../src/wopi.js');

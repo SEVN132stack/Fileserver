@@ -430,6 +430,20 @@ export function createWebServer() {
     next();
   });
 
+  // Bestanden van gebruikers mogen in mappen staan die met een punt beginnen
+  // (bv. /.office/doc.docx). Express weigert die standaard (dotfiles: 'ignore'),
+  // waardoor preview/download/afspelen/Office daar faalden. Alle paden die hier
+  // via sendFile/download gaan zijn al met resolveWithin gecontroleerd; de
+  // statische public-map gebruikt express.static en blijft hier buiten.
+  app.use((req, res, next) => {
+    const orig = res.sendFile.bind(res);
+    res.sendFile = (file, opts, cb) => {
+      if (typeof opts === 'function') { cb = opts; opts = {}; }
+      return orig(file, { dotfiles: 'allow', ...(opts || {}) }, cb);
+    };
+    next();
+  });
+
   // Security-headers op alle antwoorden (de preview-route zet een striktere CSP).
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
